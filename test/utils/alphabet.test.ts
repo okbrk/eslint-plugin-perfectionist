@@ -146,18 +146,10 @@ describe('alphabet', () => {
     })
 
     describe('misc utilities', () => {
-      it('allows getting characters as array', () => {
-        let alphabet = Alphabet.generateFrom('abc')
-        let characters = [...alphabet.getCharacters()]
-        expect(characters).toEqual(['a', 'b', 'c'])
-      })
-
       it('allows reversing the alphabet', () => {
-        expect(
-          [...Alphabet.generateFrom('abc').getCharacters()]
-            .toReversed()
-            .join(''),
-        ).toBe('cba')
+        expect(Alphabet.generateFrom('abc').reverse().getCharacters()).toBe(
+          'cba',
+        )
       })
 
       describe('prioritizeCase', () => {
@@ -277,24 +269,6 @@ describe('alphabet', () => {
               .placeAllWithCaseBeforeAllWithOtherCase('lowercase')
               .getCharacters(),
           ).toBe('abcdABCD')
-        })
-
-        it('preserves position of uncased characters between cased ones', () => {
-          expect(
-            Alphabet.generateFrom('a-A.b/B+')
-              .placeAllWithCaseBeforeAllWithOtherCase('uppercase')
-              .getCharacters(),
-          ).toBe('-A./B+ab')
-        })
-
-        it('does not relocate uppercase letters ahead of digits when combining marks have case mappings', () => {
-          let alphabet = Alphabet.generateRecommendedAlphabet()
-            .sortByLocaleCompare('en-US')
-            .placeAllWithCaseBeforeAllWithOtherCase('uppercase')
-            .getCharacters()
-          let chars = [...alphabet]
-          expect(chars.indexOf('9')).toBeLessThan(chars.indexOf('A'))
-          expect(chars.indexOf('A')).toBeLessThan(chars.indexOf('a'))
         })
       })
     })

@@ -10,10 +10,7 @@ interface Props {
 let { isMobileOnly = false } = Astro.props
 ---
 
-<aside
-  class:list={['sidebar', isMobileOnly && 'menu-mobile-only']}
-  id="menu"
->
+<aside class:list={['sidebar', isMobileOnly && 'menu-mobile-only']} id="menu">
   <header class="header">
     <button
       aria-label="Toggle navigation"
@@ -26,139 +23,55 @@ let { isMobileOnly = false } = Astro.props
   </header>
   {
     pages.map(linkBlock => (
-      <SidebarLinkBlock
-        class="menu-item"
-        {...linkBlock}
-      />
+      <SidebarLinkBlock class="menu-item" {...linkBlock} />
     ))
   }
 </aside>
 
 <script>
   import { toggleMenu, menuOpen } from '../../stores/menu-open'
-  {
-    let controller: AbortController | undefined
-    let unsubscribe: undefined | (() => void)
 
-    let cleanup = () => {
-      controller?.abort()
-      controller = undefined
-      unsubscribe?.()
-      unsubscribe = undefined
-    }
+  let initMenu = async () => {
+    let menu = document.getElementById('menu')!
 
-    let scheduleNext = () => {
-      document.addEventListener(
-        'astro:before-swap',
-        () => {
-          cleanup()
-        },
-        { once: true },
-      )
-      document.addEventListener(
-        'astro:after-swap',
-        () => {
-          setup()
-        },
-        { once: true },
-      )
-    }
-
-    let setup = () => {
-      cleanup()
-
-      let menu = document.getElementById('menu')
-      if (!menu) {
-        scheduleNext()
-        return
+    menuOpen.set(false)
+    menuOpen.subscribe(menuOpenValue => {
+      if (menuOpenValue) {
+        menu.classList.add('menu-open')
+      } else {
+        setTimeout(() => {
+          menu.classList.remove('menu-open')
+        }, 200)
       }
+    })
 
-      menuOpen.set(false)
-      unsubscribe = menuOpen.subscribe(menuOpenValue => {
-        if (menuOpenValue) {
-          menu.classList.add('menu-open')
-        } else {
-          setTimeout(() => {
-            menu.classList.remove('menu-open')
-          }, 200)
-        }
-      })
-
-      controller = new AbortController()
-      let closeButton = document.getElementById('menu-close-button')
-      if (closeButton) {
-        closeButton.addEventListener('click', toggleMenu, {
-          signal: controller.signal,
-        })
-      }
-
-      scheduleNext()
-    }
-
-    setup()
+    document
+      .getElementById('menu-close-button')!
+      .addEventListener('click', toggleMenu)
   }
+
+  document.addEventListener('astro:after-swap', initMenu)
+  initMenu()
 </script>
 
 <script is:inline>
   const SIDEBAR_SCROLL_POSITION = 'SIDEBAR_SCROLL_POSITION'
 
-  let controller
-
-  let cleanup = () => {
-    controller?.abort()
-    controller = undefined
-  }
-
-  let scheduleNext = () => {
-    document.addEventListener(
-      'astro:before-swap',
-      () => {
-        cleanup()
-      },
-      { once: true },
-    )
-    document.addEventListener(
-      'astro:after-swap',
-      () => {
-        setup()
-      },
-      { once: true },
-    )
-  }
-
-  let setup = () => {
-    cleanup()
-
-    let menu = document.getElementById('menu')
-    if (!menu) {
-      scheduleNext()
-      return
-    }
-
+  let initSidebarScroll = () => {
     let savedScrollPosition = sessionStorage.getItem(SIDEBAR_SCROLL_POSITION)
     if (savedScrollPosition) {
+      let menu = document.getElementById('menu')
       menu.scrollTop = Number(savedScrollPosition)
     }
-
-    controller = new AbortController()
-    menu.addEventListener(
-      'scrollend',
-      event => {
-        let target = event.target
-        if (target && 'scrollTop' in target) {
-          sessionStorage.setItem(
-            SIDEBAR_SCROLL_POSITION,
-            String(target.scrollTop ?? 0),
-          )
-        }
-      },
-      { signal: controller.signal },
-    )
-
-    scheduleNext()
+    let menu = document.getElementById('menu')
+    menu.addEventListener('scrollend', event => {
+      let scrollPosition = event.target.scrollTop
+      sessionStorage.setItem(SIDEBAR_SCROLL_POSITION, scrollPosition)
+    })
   }
 
-  setup()
+  document.addEventListener('astro:after-swap', initSidebarScroll)
+  initSidebarScroll()
 </script>
 
 <style>
@@ -172,8 +85,7 @@ let { isMobileOnly = false } = Astro.props
     block-size: 100dvb;
     padding: var(--space-s);
     padding-block-end: calc(var(--space-xl) + var(--space-m));
-    overflow-inline: hidden;
-    overflow-block: auto;
+    overflow: scroll;
     scrollbar-width: thin;
     background: var(--color-background-secondary);
     border-inline-end: 1px solid var(--color-border-primary);
@@ -198,7 +110,6 @@ let { isMobileOnly = false } = Astro.props
 
   .menu-open {
     display: flex;
-    flex-wrap: nowrap;
   }
 
   body:has(.menu-open) {
@@ -216,7 +127,6 @@ let { isMobileOnly = false } = Astro.props
 
   .menu-button {
     display: inline-flex;
-    flex-wrap: nowrap;
     inline-size: fit-content;
     padding: var(--space-2xs) var(--space-s);
     margin-inline-start: calc(0px - var(--space-xs));
@@ -225,10 +135,7 @@ let { isMobileOnly = false } = Astro.props
     background: transparent;
     border: 0;
     border-radius: var(--border-radius);
-
-    @media (prefers-reduced-motion: no-preference) {
-      transition: background 300ms;
-    }
+    transition: background 300ms;
 
     @media (hover: hover) {
       &:hover {
@@ -239,10 +146,7 @@ let { isMobileOnly = false } = Astro.props
     &:focus-visible {
       background: var(--color-overlay-brand);
       box-shadow: 0 0 0 3px var(--color-border-brand);
-
-      @media (prefers-reduced-motion: no-preference) {
-        transition: box-shadow 200ms;
-      }
+      transition: box-shadow 200ms;
     }
   }
 

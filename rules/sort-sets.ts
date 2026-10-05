@@ -1,9 +1,4 @@
-import type { RuleContext } from '@typescript-eslint/utils/ts-eslint'
-import type { TSESTree } from '@typescript-eslint/types'
-
-import { AST_NODE_TYPES } from '@typescript-eslint/types'
-
-import type { Options } from './sort-sets/types'
+import type { Options } from './sort-array-includes/types'
 
 import {
   MISSED_SPACING_ERROR,
@@ -11,34 +6,50 @@ import {
   GROUP_ORDER_ERROR,
   ORDER_ERROR,
 } from '../utils/report-errors'
-import { defaultOptions, jsonSchema } from './sort-array-includes'
-import { buildAstListeners } from '../utils/build-ast-listeners'
+import { defaultOptions, jsonSchema, sortArray } from './sort-array-includes'
 import { createEslintRule } from '../utils/create-eslint-rule'
-import { sortArray } from './sort-arrays/sort-array'
 
-/**
- * Cache computed groups by modifiers and selectors for performance.
- */
-let cachedGroupsByModifiersAndSelectors = new Map<string, string[]>()
+type MESSAGE_ID =
+  | 'missedSpacingBetweenSetsMembers'
+  | 'extraSpacingBetweenSetsMembers'
+  | 'unexpectedSetsGroupOrder'
+  | 'unexpectedSetsOrder'
 
-const ORDER_ERROR_ID = 'unexpectedSetsOrder'
-const GROUP_ORDER_ERROR_ID = 'unexpectedSetsGroupOrder'
-const EXTRA_SPACING_ERROR_ID = 'extraSpacingBetweenSetsMembers'
-const MISSED_SPACING_ERROR_ID = 'missedSpacingBetweenSetsMembers'
-
-type MessageId =
-  | typeof MISSED_SPACING_ERROR_ID
-  | typeof EXTRA_SPACING_ERROR_ID
-  | typeof GROUP_ORDER_ERROR_ID
-  | typeof ORDER_ERROR_ID
-
-export default createEslintRule<Options, MessageId>({
+export default createEslintRule<Options, MESSAGE_ID>({
+  create: context => ({
+    NewExpression: node => {
+      if (
+        node.callee.type === 'Identifier' &&
+        node.callee.name === 'Set' &&
+        node.arguments.length > 0 &&
+        (node.arguments[0]?.type === 'ArrayExpression' ||
+          (node.arguments[0]?.type === 'NewExpression' &&
+            'name' in node.arguments[0].callee &&
+            node.arguments[0].callee.name === 'Array'))
+      ) {
+        let elements =
+          node.arguments[0].type === 'ArrayExpression'
+            ? node.arguments[0].elements
+            : node.arguments[0].arguments
+        sortArray<MESSAGE_ID>({
+          availableMessageIds: {
+            missedSpacingBetweenMembers: 'missedSpacingBetweenSetsMembers',
+            extraSpacingBetweenMembers: 'extraSpacingBetweenSetsMembers',
+            unexpectedGroupOrder: 'unexpectedSetsGroupOrder',
+            unexpectedOrder: 'unexpectedSetsOrder',
+          },
+          elements,
+          context,
+        })
+      }
+    },
+  }),
   meta: {
     messages: {
-      [MISSED_SPACING_ERROR_ID]: MISSED_SPACING_ERROR,
-      [EXTRA_SPACING_ERROR_ID]: EXTRA_SPACING_ERROR,
-      [GROUP_ORDER_ERROR_ID]: GROUP_ORDER_ERROR,
-      [ORDER_ERROR_ID]: ORDER_ERROR,
+      missedSpacingBetweenSetsMembers: MISSED_SPACING_ERROR,
+      extraSpacingBetweenSetsMembers: EXTRA_SPACING_ERROR,
+      unexpectedSetsGroupOrder: GROUP_ORDER_ERROR,
+      unexpectedSetsOrder: ORDER_ERROR,
     },
     docs: {
       url: 'https://perfectionist.dev/rules/sort-sets',
@@ -49,56 +60,6 @@ export default createEslintRule<Options, MessageId>({
     type: 'suggestion',
     fixable: 'code',
   },
-  create: context =>
-    buildAstListeners({
-      nodeTypes: [AST_NODE_TYPES.NewExpression, AST_NODE_TYPES.ArrayExpression],
-      sorter: sortPotentiallyValidArray,
-      context,
-    }),
   defaultOptions: [defaultOptions],
   name: 'sort-sets',
 })
-
-function sortPotentiallyValidArray({
-  matchedAstSelectors,
-  context,
-  node,
-}: {
-  node: TSESTree.ArrayExpression | TSESTree.NewExpression
-  context: Readonly<RuleContext<MessageId, Options>>
-  matchedAstSelectors: ReadonlySet<string>
-}): void {
-  if (!isValidArray()) {
-    return
-  }
-
-  sortArray<MessageId>({
-    availableMessageIds: {
-      missedSpacingBetweenMembers: MISSED_SPACING_ERROR_ID,
-      extraSpacingBetweenMembers: EXTRA_SPACING_ERROR_ID,
-      unexpectedGroupOrder: GROUP_ORDER_ERROR_ID,
-      unexpectedOrder: ORDER_ERROR_ID,
-    },
-    mustHaveMatchedContextOptions: false,
-    cachedGroupsByModifiersAndSelectors,
-    matchedAstSelectors,
-    defaultOptions,
-    context,
-    node,
-  })
-
-  function isValidArray(): boolean {
-    if (node.parent.type !== AST_NODE_TYPES.NewExpression) {
-      return false
-    }
-
-    if (node.parent.callee.type !== AST_NODE_TYPES.Identifier) {
-      return false
-    }
-    if (node.parent.callee.name !== 'Set') {
-      return false
-    }
-
-    return node.parent.arguments[0] === node
-  }
-}

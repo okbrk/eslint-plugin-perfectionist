@@ -14,17 +14,14 @@
 html {
   scroll-padding-block-start: var(--header-block-size);
   background: var(--color-background-primary);
-
-  @media (prefers-reduced-motion: no-preference) {
-    scroll-behavior: smooth;
-  }
+  scroll-behavior: smooth;
 }
 
 body {
   margin: 0;
-  container-type: inline-size;
   font: var(--font-s);
   color: var(--color-content-primary);
+  container-type: inline-size;
 }
 
 h1 {
@@ -57,7 +54,7 @@ li {
 }
 
 button {
-  appearance: auto;
+  appearance: button;
 }
 
 button,
@@ -80,14 +77,12 @@ a {
   text-underline-offset: 0.25em;
   outline: none;
   border-radius: var(--border-radius);
-
-  @media (prefers-reduced-motion: no-preference) {
-    transition: box-shadow 200ms;
-  }
+  transition: box-shadow 200ms;
 
   @media (hover: hover) {
     &:hover {
       color: var(--color-content-brand-hover);
+      transition: all 200ms;
     }
   }
 
@@ -127,24 +122,16 @@ pre {
   position: relative;
   padding: var(--space-m);
   margin-block: 0;
-  overflow-block: scroll;
+  /* stylelint-disable-next-line plugin/use-logical-properties-and-values */
+  overflow-y: scroll;
   outline: none;
-  scrollbar-width: none;
+  scrollbar-width: thin;
   border-radius: var(--border-radius);
 
   &:focus-visible {
     z-index: 1;
-    outline: 2px solid transparent;
-    outline-offset: 2px;
     box-shadow: 0 0 0 3px var(--color-border-brand);
-
-    @media (prefers-reduced-motion: no-preference) {
-      transition: box-shadow 200ms;
-    }
-  }
-
-  &::-webkit-scrollbar {
-    display: none;
+    transition: box-shadow 200ms;
   }
 }
 
@@ -152,11 +139,9 @@ h2,
 h3 {
   position: relative;
 
-  @media (hover: hover) {
-    @media (width >= 768px) {
-      &:hover .heading-anchor {
-        opacity: 100%;
-      }
+  @media (width >= 768px) {
+    &:hover .heading-anchor {
+      opacity: 100%;
     }
   }
 }
@@ -216,10 +201,7 @@ kbd {
   text-decoration: none;
   opacity: 0%;
   transform: translateY(-50%);
-
-  @media (prefers-reduced-motion: no-preference) {
-    transition: opacity 250ms ease-in-out 100ms;
-  }
+  transition: opacity 250ms ease-in-out 100ms;
 
   &:focus-visible {
     border-radius: 8px;
@@ -228,7 +210,6 @@ kbd {
 
   @media (width >= 768px) {
     display: flex;
-    flex-wrap: nowrap;
   }
 }
 

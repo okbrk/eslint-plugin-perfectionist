@@ -1,52 +1,37 @@
-import type { RegexOption, TypeOption } from '../../types/common-options'
-import type { AllCommonOptions } from '../../types/all-common-options'
+import type { JSONSchema4 } from '@typescript-eslint/utils/json-schema'
 
-export type MessageId =
-  | typeof MISSED_SPACING_ERROR_ID
-  | typeof EXTRA_SPACING_ERROR_ID
-  | typeof GROUP_ORDER_ERROR_ID
-  | typeof ORDER_ERROR_ID
+import type {
+  PartitionByCommentOption,
+  NewlinesBetweenOption,
+  CustomGroupsOption,
+  CommonOptions,
+  GroupsOptions,
+  RegexOption,
+  TypeOption,
+} from '../../types/common-options'
 
-export const ORDER_ERROR_ID = 'unexpectedMapElementsOrder'
-export const GROUP_ORDER_ERROR_ID = 'unexpectedMapElementsGroupOrder'
-export const EXTRA_SPACING_ERROR_ID = 'extraSpacingBetweenMapElementsMembers'
-export const MISSED_SPACING_ERROR_ID = 'missedSpacingBetweenMapElementsMembers'
+import { regexJsonSchema } from '../../utils/common-json-schemas'
 
-/**
- * Configuration options for the sort-maps rule.
- *
- * This rule enforces consistent ordering of Map elements to improve code
- * readability and maintainability.
- */
 export type Options = Partial<
   {
-    /**
-     * Conditional configuration based on pattern matching. Allows applying the
-     * rule only when specific conditions are met.
-     */
     useConfigurationIf: {
-      /**
-       * Regular expression pattern to match against all Map element keys. The
-       * rule is only applied when all keys match this pattern.
-       */
       allNamesMatchPattern?: RegexOption
-
-      /**
-       * AST selector to match against NewExpression nodes targeting Map
-       * constructions.
-       */
-      matchesAstSelector?: string
     }
-  } & AllCommonOptions<
-    TypeOption,
-    AdditionalSortOptions,
-    CustomGroupMatchOptions
-  >
+    customGroups: CustomGroupsOption<SingleCustomGroup>
+    partitionByComment: PartitionByCommentOption
+    newlinesBetween: NewlinesBetweenOption
+    groups: GroupsOptions<Group>
+    partitionByNewLine: boolean
+    type: TypeOption
+  } & CommonOptions
 >[]
 
-/**
- * Match options for a custom group.
- */
-type CustomGroupMatchOptions = object
+export interface SingleCustomGroup {
+  elementNamePattern?: RegexOption
+}
 
-type AdditionalSortOptions = object
+type Group = 'unknown' | string
+
+export let singleCustomGroupJsonSchema: Record<string, JSONSchema4> = {
+  elementNamePattern: regexJsonSchema,
+}

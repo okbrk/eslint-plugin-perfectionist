@@ -103,15 +103,15 @@ Specifies the sorting method.
 
 - `'alphabetical'` — Sort items alphabetically (e.g., “a” < “b” < “c”) using [localeCompare](https://developer.mozilla.org/en-US/docs/Web/JavaScript/Reference/Global_Objects/String/localeCompare).
 - `'natural'` — Sort items in a [natural](https://github.com/yobacca/natural-orderby) order (e.g., “item2” < “item10”).
-- `'line-length'` — Sort items by code line length (shorter lines first).
-- `'custom'` — Sort items using the alphabet specified in the [`alphabet`](#alphabet) option.
+- `'line-length'` — Sort items by the length of the code line (shorter lines first).
+- `'custom'` — Sort items using the alphabet entered in the [`alphabet`](#alphabet) option.
 - `'unsorted'` — Do not sort items. [`grouping`](#groups) and [`newlines behavior`](#newlinesbetween) are still enforced.
 
 ### order
 
 <sub>default: `'asc'`</sub>
 
-Specifies whether to sort items in ascending or descending order.
+Determines whether the sorted items should be in ascending or descending order.
 
 - `'asc'` — Sort items in ascending order (A to Z, 1 to 9).
 - `'desc'` — Sort items in descending order (Z to A, 9 to 1).
@@ -119,32 +119,18 @@ Specifies whether to sort items in ascending or descending order.
 ### fallbackSort
 
 <sub>
-  type:
-  ```ts
-  {
-    type:
-      | 'alphabetical'
-      | 'natural'
-      | 'line-length'
-      | 'custom'
-      | 'subgroup-order'
-      | 'unsorted'
-    order?: 'asc' | 'desc'
-    sortBy?: 'name' | 'value'
-  }
-  ```
+  type: `{ type: string; order?: 'asc' | 'desc' }`
 </sub>
 <sub>default: `{ type: 'unsorted' }`</sub>
 
-Specifies fallback sort options for elements that are equal according to the primary sort [`type`](#type).
-
-You can also sort by subgroup order (nested groups in the [`groups`](#groups) option) using `subgroup-order`.
+Defines a list of fallback sort options to use when comparing two elements that are equal according to the primary sort
+[`type`](#type).
 
 Example: enforce alphabetical sort between two elements with the same length.
 ```ts
 {
   type: 'line-length',
-  order: 'desc',
+  order: 'desc'
   fallbackSort: { type: 'alphabetical', order: 'asc' }
 }
 ```
@@ -153,7 +139,7 @@ Example: enforce alphabetical sort between two elements with the same length.
 
 <sub>default: `''`</sub>
 
-Used only when the [`type`](#type) option is set to `'custom'`. Specifies the custom alphabet for sorting.
+Only used when the [`type`](#type) option is set to `'custom'`. Specifies the custom alphabet to use when sorting.
 
 Use the `Alphabet` utility class from `eslint-plugin-perfectionist/alphabet` to quickly generate a custom alphabet.
 
@@ -163,16 +149,16 @@ Example: `0123456789abcdef...`
 
 <sub>default: `true`</sub>
 
-Specifies whether sorting should be case-sensitive.
+Controls whether sorting should be case-sensitive or not.
 
 - `true` — Ignore case when sorting alphabetically or naturally (e.g., “A” and “a” are the same).
 - `false` — Consider case when sorting (e.g., “a” comes before “A”).
 
 ### specialCharacters
 
-<sub>default: `'keep'`</sub>
+<sub>default: `keep`</sub>
 
-Specifies whether to trim, remove, or keep special characters before sorting.
+Controls whether special characters should be trimmed, removed or kept before sorting.
 
 - `'keep'` — Keep special characters when sorting (e.g., “_a” comes before “a”).
 - `'trim'` — Trim special characters when sorting alphabetically or naturally (e.g., “_a” and “a” are the same).
@@ -182,45 +168,26 @@ Specifies whether to trim, remove, or keep special characters before sorting.
 
 <sub>default: `'en-US'`</sub>
 
-Specifies the sorting locales. Refer To [String.prototype.localeCompare() - locales](https://developer.mozilla.org/en-US/docs/Web/JavaScript/Reference/Global_Objects/String/localeCompare#locales).
+Specifies the sorting locales. See [String.prototype.localeCompare() - locales](https://developer.mozilla.org/en-US/docs/Web/JavaScript/Reference/Global_Objects/String/localeCompare#locales).
 
 - `string` — A BCP 47 language tag (e.g. `'en'`, `'en-US'`, `'zh-CN'`).
 - `string[]` — An array of BCP 47 language tags.
 
-### sortBy
+### [DEPRECATED] ignorePattern
 
-<sub>default: `'name'`</sub>
+<sub>default: `[]`</sub>
 
-Specifies whether to sort using object type keys or values.
+Use the [useConfigurationIf.declarationMatchesPattern](#useconfigurationif) option alongside [type: unsorted](#type) instead.
 
-- `name` — Use object types keys.
-- `value` — Use the values of properties. Non-properties will not have an enforced sort order.
+Allows you to specify names or patterns for object types that should be ignored by this rule. This can be useful if you have specific object types that you do not want to sort.
 
-Example
-
-```ts
-type User = {
-  createdAt: Date
-  lastLoginAt: Date
-  _id: ObjectId
-  groupId: ObjectId
-  city: string
-}
-```
-
-`sortBy` option configuration:
-
-```ts
-{
-  sortBy: 'value',
-}
-```
+You can specify their names or a regexp pattern to ignore, for example: `'^Component.+'` to ignore all object types whose names begin with the word “Component”.
 
 ### partitionByComment
 
 <sub>default: `false`</sub>
 
-Enables the use of comments to separate the members of types into logical groups. This can help in organizing and maintaining large object types by creating partitions based on comments.
+Allows you to use comments to separate the members of types into logical groups. This can help in organizing and maintaining large object types by creating partitions based on comments.
 
 - `true` — All comments will be treated as delimiters, creating partitions.
 - `false` — Comments will not be used as delimiters.
@@ -232,7 +199,7 @@ Enables the use of comments to separate the members of types into logical groups
 
 <sub>default: `false`</sub>
 
-When `true`, the rule will not sort the members of an object if there is an empty line between them. This helps maintain the defined order of logically separated groups of members.
+When `true`, the rule will not sort the members of an object if there is an empty line between them. This can be useful for keeping logically separated groups of members in their defined order.
 
 ```ts
 type User = {
@@ -257,70 +224,46 @@ Each group of members (separated by empty lines) is treated independently, and t
 
 ### newlinesBetween
 
-<sub>
-  type: `number | 'ignore'`
-</sub>
 <sub>default: `'ignore'`</sub>
 
-Specifies how to handle newlines between groups.
+Specifies how new lines should be handled between object type groups.
 
-- `'ignore'` — Do not report errors related to newlines.
-- `0` — No newlines are allowed.
-- Any other number — Enforce this number of newlines between each group.
+- `ignore` — Do not report errors related to new lines between object type groups.
+- `always` — Enforce one new line between each group, and forbid new lines inside a group.
+- `never` — No new lines are allowed in object types.
 
-You can also enforce the newline behavior between two specific groups through the [`groups`](#newlines-between-groups)
-option.
+You can also enforce the newline behavior between two specific groups through the `groups` options.
 
-This option is only applicable when [`partitionByNewLine`](#partitionbynewline) is `false`.
+See the [`groups`](#newlines-between-groups) option.
 
-### newlinesInside
+This option is only applicable when `partitionByNewLine` is `false`.
 
-<sub>
-  type: `number | 'ignore' | 'newlinesBetween'`
-</sub>
-<sub>default: `'newlinesBetween'`</sub>
+### [DEPRECATED] groupKind
 
-Specifies how to handle newlines inside groups.
+<sub>default: `'mixed'`</sub>
 
-- `'ignore'` — Do not report errors related to newlines.
-- `'newlinesBetween'` — [DEPRECATED] If [`newlinesBetween`](#newlinesbetween) is `'ignore'`, then `'ignore'`, otherwise `0`.
-- `0` — No newlines are allowed.
-- Any other number — Enforce this number of newlines between each element of the same group.
+Use the [groups](#groups) option with the `optional` and `required` modifiers instead.
 
-You can also enforce the newline behavior inside a given group through the [`groups`](#group-with-overridden-settings)
-or [`customGroups`](#customgroups) options.
+Allows you to group type object keys by their kind, determining whether required values should come before or after optional values.
 
-This option is only applicable when [`partitionByNewLine`](#partitionbynewline) is `false`.
+- `mixed` — Do not group object keys by their kind; required values are sorted together optional values.
+- `required-first` — Group all required values before optional.
+- `optional-first` — Group all optional values before required.
 
 ### useConfigurationIf
 
 <sub>
   type:
-  ```ts
-{
-    allNamesMatchPattern?:
-      | string
-      | string[]
-      | { pattern: string; flags: string }
-      | { pattern: string; flags: string }[]
-    declarationMatchesPattern?:
-      | string
-      | string[]
-      | { pattern: string; flags?: string; scope?: 'shallow' | 'deep' }
-      | { pattern: string; flags?: string; scope?: 'shallow' | 'deep' }[]
-    declarationCommentMatchesPattern?:
-      | string
-      | string[]
-      | { pattern: string; flags?: string; scope?: 'shallow' | 'deep' }
-      | { pattern: string; flags?: string; scope?: 'shallow' | 'deep' }[]
-    hasNumericKeysOnly?: boolean
-    matchesAstSelector?: string
+  ```
+  {
+    allNamesMatchPattern?: string | string[] | { pattern: string; flags: string } | { pattern: string; flags: string }[]
+    declarationMatchesPattern?: string | string[] | { pattern: string; flags: string } | { pattern: string; flags: string }[]
   }
   ```
 </sub>
 <sub>default: `{}`</sub>
 
-Specifies filters to match a particular options configuration for a given object type.
+Allows you to specify filters to match a particular options configuration for a given object type.
 
 The first matching options configuration will be used. If no configuration matches, the default options configuration will be used.
 
@@ -333,22 +276,13 @@ Example configuration:
     'error',
     {
       groups: ['r', 'g', 'b'], // Sort colors types by RGB
-      customGroups: [
-        {
-          groupName: 'r',
-          elementNamePattern: '^r$',
-        },
-        {
-          groupName: 'g',
-          elementNamePattern: '^g$',
-        },
-        {
-          groupName: 'b',
-          elementNamePattern: '^b$',
-        },
-      ],
+      customGroups: {
+        r: '^r$',
+        g: '^g$',
+        b: '^b$',
+      },
       useConfigurationIf: {
-        allNamesMatchPattern: '^[rgb]$',
+        allNamesMatchPattern: '^r|g|b$',
       },
     },
     {
@@ -359,7 +293,6 @@ Example configuration:
 ```
 
 - `declarationMatchesPattern` — A regexp pattern that the object type declaration must match.
-With `scope: 'deep'`, this setting will also match to any object type found at any depth within the declaration.
 
 Example configuration:
 ```ts
@@ -379,76 +312,14 @@ Example configuration:
 }
 ```
 
-- `declarationCommentMatchesPattern` — A regexp pattern to specify which comments above the type declaration should match.
-With `scope: 'deep'`, this setting will also match to any object type found at any depth within the declaration.
-
-Example configuration:
-```ts
-{
-  'perfectionist/sort-object-types': [
-    'error',
-    {
-      type: 'unsorted', // Don't sort object types with a "do not sort" comment
-      useConfigurationIf: {
-        declarationCommentMatchesPattern: '^do not sort$',
-      },
-    },
-    {
-      type: 'alphabetical' // Fallback configuration
-    }
-  ],
-}
-```
-
-- `hasNumericKeysOnly` — If `true`, matches only types that have exclusively numeric keys.
-
-This option only detects unquoted numeric literal keys (e.g., `1`, `42`).
-Quoted strings like `"1"`, array-wrapped keys like `[1]`, or computed expressions are not detected as numeric keys.
-
-Example configuration:
-```ts
-{
-  'perfectionist/sort-object-types': [
-    'error',
-    {
-      type: 'natural', // Sort numeric keys naturally (by numeric value)
-      useConfigurationIf: {
-        hasNumericKeysOnly: true,
-      },
-    },
-    {
-      type: 'alphabetical' // Fallback configuration
-    }
-  ],
-}
-```
-
-- `matchesAstSelector` — An [AST selector](https://eslint.org/docs/latest/extend/selectors) matching a `TSTypeLiteral` node.
-To avoid unexpected behavior, do not use `:exit` or `:enter` pseudo-selectors.
-
 ### groups
 
 <sub>
-  type:
-  ```ts
-    Array<
-      | string
-      | string[]
-      | { newlinesBetween: number | 'ignore' }
-      | {
-          group: string | string[];
-          type?: 'alphabetical' | 'natural' | 'line-length' | 'custom' | 'unsorted';
-          order?: 'asc' | 'desc';
-          fallbackSort?: { type: string; order?: 'asc' | 'desc'; sortBy?: 'name' | 'value' };
-          sortBy?: 'name' | 'value'
-          newlinesInside?: number | 'ignore';
-        }
-    >
-  ```
+  type: `Array<string | string[]>`
 </sub>
 <sub>default: `[]`</sub>
 
-Specifies a list of type properties groups for sorting. Groups help organize properties into categories, making your type definitions more readable and maintainable.
+Allows you to specify a list of type properties groups for sorting. Groups help organize properties into categories, making your type definitions more readable and maintainable.
 
 Each property will be assigned a single group specified in the `groups` option (or the `unknown` group if no match is found).
 The order of items in the `groups` option determines how groups are ordered.
@@ -478,7 +349,7 @@ type User = {
 
 `groups` option configuration:
 
-```ts
+```js
 {
   groups: [
     'unknown',
@@ -486,35 +357,33 @@ type User = {
     'multiline-member',
   ]
 }
-```
 
+```
 #### Index-signatures
 
-- Selectors: `'index-signature'`, `'member'`.
-- Modifiers: `'required'`, `'optional'`, `'multiline'`.
-- Example: `'optional-index-signature'`, `'index-signature'`, `'member'`.
+- Selectors: `index-signature`, `member`.
+- Modifiers: `required`, `optional`, `multiline`.
+- Example: `optional-index-signature`, `index-signature`, `member`.
 
 #### Methods
 
-- Selectors: `'method'`, `'member'`.
-- Modifiers: `'required'`, `'optional'`, `'multiline'`.
-- Example: `'optional-multiline-method'`, `'method'`, `'member'`.
+- Selectors: `method`, `member`.
+- Modifiers: `required`, `optional`, `multiline`.
+- Example: `optional-multiline-method`, `method`, `member`.
 
 #### Properties
 
-- Selectors: `'property'`, `'member'`.
-- Modifiers: `'required'`, `'optional'`, `'multiline'`.
-- Example: `'optional-property'`, `'property'`, `'member'`.
+- Selectors: `property`, `member`.
+- Modifiers: `required`, `optional`, `multiline`.
+- Example: `optional-property`, `property`, `member`.
 
 ##### Scope of the `required` modifier
 
 Elements that are not `optional` will be matched with the `required` modifier, even if the keyword is not present.
 
-#### Important notes
-
 ##### The `unknown` group
 
-Members that don't fit into any group specified in the `groups` option will be placed in the `unknown` group. If the `unknown` group is not specified in the `groups` option,
+Members that don’t fit into any group specified in the `groups` option will be placed in the `unknown` group. If the `unknown` group is not specified in the `groups` option,
 it will automatically be added to the end of the list.
 
 ##### Behavior when multiple groups match an element
@@ -536,15 +405,15 @@ interface Test {
 ```
 
 `optionalMethod` can be matched by the following groups, from most to least important:
-- `'multiline-optional-method'` or `'optional-multiline-method'`.
-- `'multiline-method'`.
-- `'optional-method'`.
-- `'method'`.
-- `'multiline-optional-member'` or `'optional-multiline-member'`.
-- `'multiline-member'`.
-- `'optional-member'`.
-- `'member'`.
-- `'unknown'`.
+- `multiline-optional-method` or `optional-multiline-method`.
+- `multiline-method`.
+- `optional-method`.
+- `method`.
+- `multiline-optional-member` or `optional-multiline-member`.
+- `multiline-member`.
+- `optional-member`.
+- `member`.
+- `unknown`.
 
 Example 2 (The most important group is written in the comments):
 
@@ -556,44 +425,6 @@ interface Interface {
   description?: string;
   // 'required-method'
   method(): string
-```
-
-#### Group with overridden settings
-
-You may directly override options for a specific group by using an object with the `group` property and other option overrides.
-
-- `type` — Overrides the [`type`](#type) option for that group.
-- `order` — Overrides the [`order`](#order) option for that group.
-- `fallbackSort` — Overrides the [`fallbackSort`](#fallbacksort) option for that group.
-- `sortBy` — Overrides the [`sortBy`](#sortby) option for that group.
-- `newlinesInside` — Overrides the [`newlinesInside`](#newlinesinside) option for that group.
-
-```ts
-{
-  groups: [
-    'method',
-    { group: 'multiline-member', type: 'unsorted' }, // Elements from this group will not be sorted
-  ]
-}
-```
-
-##### Newlines between groups
-
-You may place `newlinesBetween` objects between your groups to enforce the newline behavior between two specific groups.
-
-See the [`newlinesBetween`](#newlinesbetween) option.
-
-This feature is only applicable when [`partitionByNewLine`](#partitionbynewline) is `false`.
-
-```ts
-{
-  newlinesBetween: 1,
-  groups: [
-    'a',
-    { newlinesBetween: 0 }, // Overrides the global newlinesBetween option
-    'b',
-  ]
-}
 ```
 
 ### customGroups
@@ -631,7 +462,7 @@ Current API:
 </sub>
 <sub>default: `[]`</sub>
 
-Defines custom groups to match specific object type members.
+You can define your own groups and use regexp patterns to match specific object type members.
 
 A custom group definition may follow one of the two following interfaces:
 
@@ -640,16 +471,13 @@ interface CustomGroupDefinition {
   groupName: string
   type?: 'alphabetical' | 'natural' | 'line-length' | 'unsorted'
   order?: 'asc' | 'desc'
-  fallbackSort?: { type: string; order?: 'asc' | 'desc'; sortBy?: 'name' | 'value' }
-  sortBy?: 'name' | 'value'
-  newlinesInside?: number | 'ignore'
+  newlinesInside?: 'always' | 'never'
   selector?: string
   modifiers?: string[]
   elementNamePattern?: string | string[] | { pattern: string; flags?: string } | { pattern: string; flags?: string }[]
-  elementValuePattern?: string | string[] | { pattern: string; flags?: string } | { pattern: string; flags?: string }[]
 }
-```
 
+```
 An object type will match a `CustomGroupDefinition` group if it matches all the filters of the custom group's definition.
 
 or:
@@ -659,14 +487,11 @@ interface CustomGroupAnyOfDefinition {
   groupName: string
   type?: 'alphabetical' | 'natural' | 'line-length' | 'unsorted'
   order?: 'asc' | 'desc'
-  fallbackSort?: { type: string; order?: 'asc' | 'desc'; sortBy?: 'name' | 'value' }
-  sortBy?: 'name' | 'value'
-  newlinesInside?: number | 'ignore'
+  newlinesInside?: 'always' | 'never'
   anyOf: Array<{
       selector?: string
       modifiers?: string[]
       elementNamePattern?: string | string[] | { pattern: string; flags?: string } | { pattern: string; flags?: string }[]
-      elementValuePattern?: string | string[] | { pattern: string; flags?: string } | { pattern: string; flags?: string }[]
   }>
 }
 ```
@@ -675,16 +500,13 @@ An object type will match a `CustomGroupAnyOfDefinition` group if it matches all
 
 #### Attributes
 
-- `groupName` — The group's name, which needs to be put in the [`groups`](#groups) option.
-- `selector` — Filter on the `selector` of the element.
-- `modifiers` — Filter on the `modifiers` of the element. (All the modifiers of the element must be present in that list)
-- `elementNamePattern` — If entered, will check that the name of the element matches the pattern entered.
-- `elementValuePattern` — Only for properties. If entered, will check that the value of the property matches the pattern entered.
-- `type` — Overrides the [`type`](#type) option for that custom group.
-- `order` — Overrides the [`order`](#order) option for that custom group.
-- `fallbackSort` — Overrides the [`fallbackSort`](#fallbacksort) option for that custom group.
-- `sortBy` — Overrides the [`sortBy`](#sortby) option for that custom group.
-- `newlinesInside` — Overrides the [`newlinesInside`](#newlinesinside) option for that group.
+- `groupName`: The group's name, which needs to be put in the `groups` option.
+- `selector`: Filter on the `selector` of the element.
+- `modifiers`: Filter on the `modifiers` of the element. (All the modifiers of the element must be present in that list)
+- `elementNamePattern`: If entered, will check that the name of the element matches the pattern entered.
+- `type`: Overrides the sort type for that custom group. `unsorted` will not sort the group.
+- `order`: Overrides the sort order for that custom group
+- `newlinesInside`: Enforces a specific newline behavior between elements of the group.
 
 #### Match importance
 
@@ -714,7 +536,7 @@ type User = {
 
 `groups` and `customGroups` configuration:
 
-```ts
+```js
  {
    groups: [
 +    'top',                                  // [!code ++]
@@ -734,6 +556,25 @@ type User = {
 +    }                                       // [!code ++]
 +  ]                                         // [!code ++]
  }
+```
+
+#### Newlines between groups
+
+You may place `newlinesBetween` objects between your groups to enforce the newline behavior between two specific groups.
+
+See the [`newlinesBetween`](#newlinesbetween) option.
+
+This feature is only applicable when `partitionByNewLine` is false.
+
+```ts
+{
+  newlinesBetween: 'always',
+  groups: [
+    'a',
+    { newlinesBetween: 'never' }, // Overrides the global newlinesBetween option
+    'b',
+  ]
+}
 ```
 
 ## Usage
@@ -759,11 +600,10 @@ type User = {
                   fallbackSort: { type: 'unsorted' },
                   ignoreCase: true,
                   specialCharacters: 'keep',
-                  sortBy: 'name',
+                  ignorePattern: [],
                   partitionByComment: false,
                   partitionByNewLine: false,
                   newlinesBetween: 'ignore',
-                  newlinesInside: 'ignore',
                   useConfigurationIf: {},
                   groups: [],
                   customGroups: [],
@@ -792,11 +632,10 @@ type User = {
                 fallbackSort: { type: 'unsorted' },
                 ignoreCase: true,
                 specialCharacters: 'keep',
-                sortBy: 'name',
+                ignorePattern: [],
                 partitionByComment: false,
                 partitionByNewLine: false,
                 newlinesBetween: 'ignore',
-                newlinesInside: 'ignore',
                 useConfigurationIf: {},
                 groups: [],
                 customGroups: [],
@@ -821,4 +660,4 @@ This rule was introduced in [v0.11.0](https://github.com/azat-io/eslint-plugin-p
 ## Resources
 
 - [Rule source](https://github.com/azat-io/eslint-plugin-perfectionist/blob/main/rules/sort-object-types.ts)
-- [Test source](https://github.com/azat-io/eslint-plugin-perfectionist/blob/main/test/rules/sort-object-types.test.ts)
+- [Test source](https://github.com/azat-io/eslint-plugin-perfectionist/blob/main/test/sort-object-types.test.ts)

@@ -1,124 +1,151 @@
 import type { JSONSchema4 } from '@typescript-eslint/utils/json-schema'
-import type { TSESTree } from '@typescript-eslint/types'
 
-import type { SortingNodeWithDependencies } from '../../utils/sort-nodes-by-dependencies'
-import type { NewlinesBetweenOption } from '../../types/common-groups-options'
-import type { RegexOption, TypeOption } from '../../types/common-options'
-import type { AllCommonOptions } from '../../types/all-common-options'
-import type { TsConfigOption } from '../../types/ts-config-option'
+import type {
+  PartitionByCommentOption,
+  NewlinesBetweenOption,
+  CustomGroupsOption,
+  CommonOptions,
+  GroupsOptions,
+  RegexOption,
+  TypeOption,
+} from '../../types/common-options'
+import type { JoinWithDash } from '../../types/join-with-dash'
 
 import {
   buildCustomGroupModifiersJsonSchema,
   buildCustomGroupSelectorJsonSchema,
-} from '../../utils/json-schemas/common-groups-json-schemas'
-import { buildRegexJsonSchema } from '../../utils/json-schemas/common-json-schemas'
+  regexJsonSchema,
+} from '../../utils/common-json-schemas'
 
-/**
- * Configuration options for the sort-modules rule.
- *
- * This rule enforces consistent ordering of module-level declarations (classes,
- * interfaces, functions, types, enums) to improve code organization.
- */
-export type Options = [
+export type SingleCustomGroup = (
+  | (DecoratorNamePatternFilterCustomGroup &
+      BaseSingleCustomGroup<ClassSelector>)
+  | BaseSingleCustomGroup<InterfaceSelector>
+  | BaseSingleCustomGroup<FunctionSelector>
+  | BaseSingleCustomGroup<EnumSelector>
+  | BaseSingleCustomGroup<TypeSelector>
+) &
+  ElementNamePatternFilterCustomGroup
+
+export type SortModulesOptions = [
   Partial<
     {
-      /**
-       * Determines how many newlines should be placed between overload
-       * signatures of the same function.
-       */
-      newlinesBetweenOverloadSignatures: NewlinesBetweenOption
-
-      /**
-       * @deprecated Enables experimental dependency detection.
-       */
-      useExperimentalDependencyDetection: boolean
-
-      /**
-       * Node types to analyze as module blocks, in addition to the built-in
-       * ones. Lets parsers that wrap top-level code in a custom node be
-       * supported.
-       */
-      additionalModuleBlockTypes: string[]
-
-      /**
-       * TypeScript configuration used to read compiler options such as
-       * `emitDecoratorMetadata`.
-       */
-      tsconfig: TsConfigOption
-    } & AllCommonOptions<
-      CustomTypeOption,
-      AdditionalSortOptions,
-      CustomGroupMatchOptions
-    >
+      customGroups: CustomGroupsOption<SingleCustomGroup>
+      partitionByComment: PartitionByCommentOption
+      newlinesBetween: NewlinesBetweenOption
+      groups: GroupsOptions<Group>
+      partitionByNewLine: boolean
+      type: TypeOption
+    } & CommonOptions
   >,
 ]
 
-export type SortModulesNode =
-  | TSESTree.ExportDefaultDeclaration
-  | TSESTree.ExportNamedDeclaration
-  | TSESTree.TSInterfaceDeclaration
-  | TSESTree.TSTypeAliasDeclaration
-  | TSESTree.FunctionDeclaration
-  | TSESTree.TSModuleDeclaration
-  | TSESTree.TSDeclareFunction
-  | TSESTree.TSEnumDeclaration
-  | TSESTree.ClassDeclaration
+export type Selector =
+  // | NamespaceSelector
+  | InterfaceSelector
+  | FunctionSelector
+  // | ModuleSelector
+  | ClassSelector
+  | TypeSelector
+  | EnumSelector
+
+export type Modifier =
+  | DecoratedModifier
+  | DeclareModifier
+  | DefaultModifier
+  | ExportModifier
+  | AsyncModifier
 
 /**
- * Represents a sorting node for a module statement.
+ * Only used in code as well
  */
-export type SortModulesSortingNode = {
-  overloadSignatureImplementation: SortModulesNode | null
-  dependencyDetection: DependencyDetection
-} & SortingNodeWithDependencies<SortModulesNode>
-
-/**
- * Union type of all available module member selectors. Used to categorize
- * different types of module-level declarations.
- */
-export type Selector = (typeof allSelectors)[number]
-
-/**
- * Union type of all available module member modifiers. Used to identify
- * specific characteristics of module declarations.
- */
-export type Modifier = (typeof allModifiers)[number]
-
-export type DependencyDetection = 'soft' | 'hard'
-
-/**
- * Additional configuration for a single custom group.
- *
- * Custom groups allow fine-grained control over how module members are grouped
- * and sorted based on their types, modifiers, and patterns.
- */
-interface CustomGroupMatchOptions {
-  /**
-   * Regular expression pattern to match decorator names. Members with
-   * decorators matching this pattern will be included in this custom group.
-   */
-  decoratorNamePattern?: RegexOption
-
-  /**
-   * List of modifiers that members must have to be included in this group.
-   */
-  modifiers?: Modifier[]
-
-  /**
-   * The type of module member this group applies to.
-   */
-  selector?: Selector
+interface AllowedModifiersPerSelector {
+  function: DeclareModifier | DefaultModifier | ExportModifier | AsyncModifier
+  interface: DeclareModifier | DefaultModifier | ExportModifier
+  class: DeclareModifier | DefaultModifier | ExportModifier
+  namespace: DeclareModifier | ExportModifier
+  module: DeclareModifier | ExportModifier
+  enum: DeclareModifier | ExportModifier
+  type: DeclareModifier | ExportModifier
 }
 
-type CustomTypeOption = typeof USAGE_TYPE_OPTION | TypeOption
-
-type AdditionalSortOptions = object
-
 /**
- * Complete list of available module member selectors. Used for validation and
- * JSON schema generation.
+ * Only used in code, so I don't know if it's worth maintaining this.
  */
-export let allSelectors = [
+type Group =
+  | NonDefaultInterfaceGroup
+  | NonDefaultFunctionGroup
+  | DefaultInterfaceGroup
+  | DefaultFunctionGroup
+  | NonDefaultClassGroup
+  | DefaultClassGroup
+  | EnumGroup
+  | TypeGroup
+  | 'unknown'
+  | string
+
+interface BaseSingleCustomGroup<T extends Selector> {
+  modifiers?: AllowedModifiersPerSelector[T][]
+  selector?: T
+}
+
+type NonDefaultClassGroup = JoinWithDash<
+  [ExportModifier, DeclareModifier, DecoratedModifier, ClassSelector]
+>
+
+type DefaultFunctionGroup = JoinWithDash<
+  [ExportModifier, DefaultModifier, AsyncModifier, FunctionSelector]
+>
+
+type DefaultClassGroup = JoinWithDash<
+  [ExportModifier, DefaultModifier, DecoratedModifier, ClassSelector]
+>
+
+type NonDefaultInterfaceGroup = JoinWithDash<
+  [ExportModifier, DeclareModifier, InterfaceSelector]
+>
+
+type NonDefaultFunctionGroup = JoinWithDash<
+  [ExportModifier, DeclareModifier, FunctionSelector]
+>
+
+type DefaultInterfaceGroup = JoinWithDash<
+  [ExportModifier, DefaultModifier, InterfaceSelector]
+>
+
+interface DecoratorNamePatternFilterCustomGroup {
+  decoratorNamePattern?: RegexOption
+}
+
+interface ElementNamePatternFilterCustomGroup {
+  elementNamePattern?: RegexOption
+}
+
+type TypeGroup = JoinWithDash<[ExportModifier, DeclareModifier, TypeSelector]>
+
+type EnumGroup = JoinWithDash<[ExportModifier, DeclareModifier, EnumSelector]>
+
+type DecoratedModifier = 'decorated'
+
+type InterfaceSelector = 'interface'
+
+type FunctionSelector = 'function'
+
+type DeclareModifier = 'declare'
+
+type DefaultModifier = 'default'
+
+type ExportModifier = 'export'
+
+type AsyncModifier = 'async'
+
+type ClassSelector = 'class'
+
+type TypeSelector = 'type'
+
+type EnumSelector = 'enum'
+
+export let allSelectors: Selector[] = [
   'enum',
   'function',
   'interface',
@@ -126,31 +153,23 @@ export let allSelectors = [
   // 'namespace',
   'type',
   'class',
-] as const
+]
 
-/**
- * Complete list of available module member modifiers. Used for validation and
- * JSON schema generation.
- */
-export let allModifiers = [
+export let allModifiers: Modifier[] = [
   'async',
   'declare',
   'decorated',
   'default',
   'export',
-] as const
+]
 
 /**
- * Ideally, we should generate as many schemas as there are selectors, and
- * ensure that users do not enter invalid modifiers for a given selector.
+ * Ideally, we should generate as many schemas as there are selectors, and ensure
+ * that users do not enter invalid modifiers for a given selector
  */
-export let additionalCustomGroupMatchOptionsJsonSchema: Record<
-  string,
-  JSONSchema4
-> = {
+export let singleCustomGroupJsonSchema: Record<string, JSONSchema4> = {
   modifiers: buildCustomGroupModifiersJsonSchema(allModifiers),
   selector: buildCustomGroupSelectorJsonSchema(allSelectors),
-  decoratorNamePattern: buildRegexJsonSchema(),
+  decoratorNamePattern: regexJsonSchema,
+  elementNamePattern: regexJsonSchema,
 }
-
-export const USAGE_TYPE_OPTION = 'usage'

@@ -1,63 +1,65 @@
 import type { RuleContext } from '@typescript-eslint/utils/ts-eslint'
 import type { TSESTree } from '@typescript-eslint/types'
 
-import { AST_NODE_TYPES } from '@typescript-eslint/types'
-
 import type {
-  SortDecoratorsSortingNode,
-  Options,
-} from './sort-decorators/types'
+  DeprecatedCustomGroupsOption,
+  PartitionByCommentOption,
+  CommonOptions,
+  GroupsOptions,
+  TypeOption,
+} from '../types/common-options'
+import type { SortingNode } from '../types/sorting-node'
 
 import {
   partitionByCommentJsonSchema,
-  partitionByNewlineJsonSchema,
-} from '../utils/json-schemas/common-partition-json-schemas'
-import {
-  MISSED_SPACING_ERROR,
-  EXTRA_SPACING_ERROR,
-  GROUP_ORDER_ERROR,
-  ORDER_ERROR,
-} from '../utils/report-errors'
-import { defaultComparatorByOptionsComputer } from '../utils/compare/default-comparator-by-options-computer'
-import { validateNewlinesAndPartitionConfig } from '../utils/validate-newlines-and-partition-config'
-import { buildOptionsByGroupIndexComputer } from '../utils/build-options-by-group-index-computer'
-import { buildCommonGroupsJsonSchemas } from '../utils/json-schemas/common-groups-json-schemas'
-import { buildCommonJsonSchemas } from '../utils/json-schemas/common-json-schemas'
-import { validateCustomSortConfig } from '../utils/validate-custom-sort-config'
+  customGroupsJsonSchema,
+  commonJsonSchemas,
+  groupsJsonSchema,
+} from '../utils/common-json-schemas'
+import { validateCustomSortConfiguration } from '../utils/validate-custom-sort-configuration'
+import { validateGroupsConfiguration } from '../utils/validate-groups-configuration'
 import { getEslintDisabledLines } from '../utils/get-eslint-disabled-lines'
 import { isNodeEslintDisabled } from '../utils/is-node-eslint-disabled'
-import { doesCustomGroupMatch } from '../utils/does-custom-group-match'
-import { validateGroupsConfig } from '../utils/validate-groups-config'
+import { GROUP_ORDER_ERROR, ORDER_ERROR } from '../utils/report-errors'
 import { sortNodesByGroups } from '../utils/sort-nodes-by-groups'
 import { getNodeDecorators } from '../utils/get-node-decorators'
 import { getDecoratorName } from '../utils/get-decorator-name'
 import { createEslintRule } from '../utils/create-eslint-rule'
 import { reportAllErrors } from '../utils/report-all-errors'
 import { shouldPartition } from '../utils/should-partition'
-import { computeGroup } from '../utils/compute-group'
+import { getSourceCode } from '../utils/get-source-code'
 import { rangeToDiff } from '../utils/range-to-diff'
 import { getSettings } from '../utils/get-settings'
 import { isSortable } from '../utils/is-sortable'
+import { useGroups } from '../utils/use-groups'
 import { complete } from '../utils/complete'
 
-const ORDER_ERROR_ID = 'unexpectedDecoratorsOrder'
-const GROUP_ORDER_ERROR_ID = 'unexpectedDecoratorsGroupOrder'
-const EXTRA_SPACING_ERROR_ID = 'extraSpacingBetweenDecorators'
-const MISSED_SPACING_ERROR_ID = 'missedSpacingBetweenDecorators'
+export type Options = [
+  Partial<
+    {
+      partitionByComment: PartitionByCommentOption
+      customGroups: DeprecatedCustomGroupsOption
+      groups: GroupsOptions<Group>
+      sortOnParameters: boolean
+      sortOnProperties: boolean
+      sortOnAccessors: boolean
+      sortOnMethods: boolean
+      sortOnClasses: boolean
+      type: TypeOption
+    } & CommonOptions
+  >,
+]
 
-type MessageId =
-  | typeof MISSED_SPACING_ERROR_ID
-  | typeof EXTRA_SPACING_ERROR_ID
-  | typeof GROUP_ORDER_ERROR_ID
-  | typeof ORDER_ERROR_ID
+type MESSAGE_ID = 'unexpectedDecoratorsGroupOrder' | 'unexpectedDecoratorsOrder'
 
-let defaultOptions: Required<Options[number]> = {
+type SortDecoratorsSortingNode = SortingNode<TSESTree.Decorator>
+
+type Group = 'unknown' | string
+
+let defaultOptions: Required<Options[0]> = {
   fallbackSort: { type: 'unsorted' },
-  newlinesInside: 'newlinesBetween',
   specialCharacters: 'keep',
   partitionByComment: false,
-  partitionByNewLine: false,
-  newlinesBetween: 'ignore',
   sortOnProperties: true,
   sortOnParameters: true,
   sortOnAccessors: true,
@@ -65,20 +67,77 @@ let defaultOptions: Required<Options[number]> = {
   sortOnClasses: true,
   sortOnMethods: true,
   ignoreCase: true,
-  customGroups: [],
+  customGroups: {},
   locales: 'en-US',
   alphabet: '',
   order: 'asc',
   groups: [],
 }
 
-export default createEslintRule<Options, MessageId>({
+export default createEslintRule<Options, MESSAGE_ID>({
+  create: context => {
+    let settings = getSettings(context.settings)
+
+    let options = complete(context.options.at(0), settings, defaultOptions)
+    validateCustomSortConfiguration(options)
+    validateGroupsConfiguration({
+      allowedCustomGroups: Object.keys(options.customGroups),
+      allowedPredefinedGroups: ['unknown'],
+      options,
+    })
+
+    return {
+      Decorator: decorator => {
+        if (!options.sortOnParameters) {
+          return
+        }
+        if (
+          'decorators' in decorator.parent &&
+          decorator.parent.type === 'Identifier' &&
+          decorator.parent.parent.type === 'FunctionExpression'
+        ) {
+          let { decorators } = decorator.parent
+          if (decorator !== decorators[0]) {
+            return
+          }
+          sortDecorators(context, options, decorators)
+        }
+      },
+      PropertyDefinition: propertyDefinition =>
+        options.sortOnProperties
+          ? sortDecorators(
+              context,
+              options,
+              getNodeDecorators(propertyDefinition),
+            )
+          : null,
+      AccessorProperty: accessorDefinition =>
+        options.sortOnAccessors
+          ? sortDecorators(
+              context,
+              options,
+              getNodeDecorators(accessorDefinition),
+            )
+          : null,
+      MethodDefinition: methodDefinition =>
+        options.sortOnMethods
+          ? sortDecorators(
+              context,
+              options,
+              getNodeDecorators(methodDefinition),
+            )
+          : null,
+      ClassDeclaration: declaration =>
+        options.sortOnClasses
+          ? sortDecorators(context, options, getNodeDecorators(declaration))
+          : null,
+    }
+  },
   meta: {
-    schema: {
-      items: {
+    schema: [
+      {
         properties: {
-          ...buildCommonJsonSchemas(),
-          ...buildCommonGroupsJsonSchemas(),
+          ...commonJsonSchemas,
           sortOnParameters: {
             description:
               'Controls whether sorting should be enabled for method parameter decorators.',
@@ -105,140 +164,58 @@ export default createEslintRule<Options, MessageId>({
             type: 'boolean',
           },
           partitionByComment: partitionByCommentJsonSchema,
-          partitionByNewLine: partitionByNewlineJsonSchema,
+          customGroups: customGroupsJsonSchema,
+          groups: groupsJsonSchema,
         },
         additionalProperties: false,
         type: 'object',
       },
-      uniqueItems: true,
-      type: 'array',
-    },
-    messages: {
-      [MISSED_SPACING_ERROR_ID]: MISSED_SPACING_ERROR,
-      [EXTRA_SPACING_ERROR_ID]: EXTRA_SPACING_ERROR,
-      [GROUP_ORDER_ERROR_ID]: GROUP_ORDER_ERROR,
-      [ORDER_ERROR_ID]: ORDER_ERROR,
-    },
+    ],
     docs: {
       url: 'https://perfectionist.dev/rules/sort-decorators',
       description: 'Enforce sorted decorators.',
       recommended: true,
     },
+    messages: {
+      unexpectedDecoratorsGroupOrder: GROUP_ORDER_ERROR,
+      unexpectedDecoratorsOrder: ORDER_ERROR,
+    },
     type: 'suggestion',
     fixable: 'code',
-  },
-  create: context => {
-    let settings = getSettings(context.settings)
-
-    let options = complete(context.options.at(0), settings, defaultOptions)
-    validateCustomSortConfig(options)
-    validateGroupsConfig({
-      modifiers: [],
-      selectors: [],
-      options,
-    })
-    validateNewlinesAndPartitionConfig(options)
-
-    return {
-      Decorator: decorator => {
-        if (!options.sortOnParameters) {
-          return
-        }
-        if (
-          'decorators' in decorator.parent &&
-          decorator.parent.type === AST_NODE_TYPES.Identifier &&
-          decorator.parent.parent.type === AST_NODE_TYPES.FunctionExpression
-        ) {
-          let { decorators } = decorator.parent
-          if (decorator !== decorators[0]) {
-            return
-          }
-          sortDecorators(context, options, decorators)
-        }
-      },
-      PropertyDefinition: propertyDefinition => {
-        if (options.sortOnProperties) {
-          sortDecorators(
-            context,
-            options,
-            getNodeDecorators(propertyDefinition),
-          )
-        }
-      },
-      AccessorProperty: accessorDefinition => {
-        if (options.sortOnAccessors) {
-          sortDecorators(
-            context,
-            options,
-            getNodeDecorators(accessorDefinition),
-          )
-        }
-      },
-      MethodDefinition: methodDefinition => {
-        if (options.sortOnMethods) {
-          sortDecorators(context, options, getNodeDecorators(methodDefinition))
-        }
-      },
-      ClassDeclaration: declaration => {
-        if (options.sortOnClasses) {
-          sortDecorators(context, options, getNodeDecorators(declaration))
-        }
-      },
-    }
   },
   defaultOptions: [defaultOptions],
   name: 'sort-decorators',
 })
 
-/**
- * Sorts decorators attached to a class, method, or property.
- *
- * Processes the decorators, groups them according to options, and reports any
- * ordering errors found. Handles partitioning by comments and newlines.
- *
- * @param context - The ESLint rule context.
- * @param options - The sorting options for decorators.
- * @param decorators - Array of decorator nodes to sort.
- */
-function sortDecorators(
-  context: Readonly<RuleContext<MessageId, Options>>,
-  options: Required<Options[number]>,
+let sortDecorators = (
+  context: Readonly<RuleContext<MESSAGE_ID, Options>>,
+  options: Required<Options[0]>,
   decorators: TSESTree.Decorator[],
-): void {
+): void => {
   if (!isSortable(decorators)) {
     return
   }
-  let { sourceCode, id } = context
+  let sourceCode = getSourceCode(context)
   let eslintDisabledLines = getEslintDisabledLines({
-    ruleName: id,
+    ruleName: context.id,
     sourceCode,
   })
-  let optionsByGroupIndexComputer = buildOptionsByGroupIndexComputer(options)
 
   let formattedMembers: SortDecoratorsSortingNode[][] = decorators.reduce(
     (accumulator: SortDecoratorsSortingNode[][], decorator) => {
+      let { setCustomGroups, getGroup } = useGroups(options)
       let name = getDecoratorName({
         sourceCode,
         decorator,
       })
 
-      let group = computeGroup({
-        customGroupMatcher: customGroup =>
-          doesCustomGroupMatch({
-            elementName: name,
-            selectors: [],
-            modifiers: [],
-            customGroup,
-          }),
-        predefinedGroups: [],
-        options,
-      })
+      setCustomGroups(options.customGroups, name)
 
-      let sortingNode: Omit<SortDecoratorsSortingNode, 'partitionId'> = {
+      let sortingNode: SortDecoratorsSortingNode = {
         isEslintDisabled: isNodeEslintDisabled(decorator, eslintDisabledLines),
         size: rangeToDiff(decorator, sourceCode),
+        group: getGroup(),
         node: decorator,
-        group,
         name,
       }
 
@@ -254,40 +231,29 @@ function sortDecorators(
         accumulator.push([])
       }
 
-      accumulator.at(-1)!.push({
-        ...sortingNode,
-        partitionId: accumulator.length,
-      })
+      accumulator.at(-1)!.push(sortingNode)
 
       return accumulator
     },
     [[]],
   )
 
-  function sortNodesExcludingEslintDisabled(
+  let sortNodesExcludingEslintDisabled = (
     ignoreEslintDisabledNodes: boolean,
-  ): SortDecoratorsSortingNode[] {
-    return formattedMembers.flatMap(nodes =>
-      sortNodesByGroups({
-        comparatorByOptionsComputer: defaultComparatorByOptionsComputer,
-        optionsByGroupIndexComputer,
-        ignoreEslintDisabledNodes,
-        groups: options.groups,
-        nodes,
-      }),
+  ): SortDecoratorsSortingNode[] =>
+    formattedMembers.flatMap(nodes =>
+      sortNodesByGroups(nodes, options, { ignoreEslintDisabledNodes }),
     )
-  }
   let nodes = formattedMembers.flat()
 
-  reportAllErrors<MessageId>({
+  reportAllErrors<MESSAGE_ID>({
     availableMessageIds: {
-      missedSpacingBetweenMembers: MISSED_SPACING_ERROR_ID,
-      extraSpacingBetweenMembers: EXTRA_SPACING_ERROR_ID,
-      unexpectedGroupOrder: GROUP_ORDER_ERROR_ID,
-      unexpectedOrder: ORDER_ERROR_ID,
+      unexpectedGroupOrder: 'unexpectedDecoratorsGroupOrder',
+      unexpectedOrder: 'unexpectedDecoratorsOrder',
     },
     ignoreFirstNodeHighestBlockComment: true,
     sortNodesExcludingEslintDisabled,
+    sourceCode,
     options,
     context,
     nodes,

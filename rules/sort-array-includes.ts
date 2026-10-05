@@ -1,80 +1,100 @@
 import type { JSONSchema4 } from '@typescript-eslint/utils/json-schema'
 import type { RuleContext } from '@typescript-eslint/utils/ts-eslint'
 import type { TSESTree } from '@typescript-eslint/types'
+import type { TSESLint } from '@typescript-eslint/utils'
 
-import { AST_NODE_TYPES } from '@typescript-eslint/types'
-
-import type { Options } from './sort-array-includes/types'
+import type { Selector, Options } from './sort-array-includes/types'
+import type { SortingNode } from '../types/sorting-node'
 
 import {
-  matchesAstSelectorJsonSchema,
-  buildUseConfigIfJsonSchema,
-  buildCommonJsonSchemas,
-} from '../utils/json-schemas/common-json-schemas'
-import {
+  buildUseConfigurationIfJsonSchema,
+  buildCustomGroupsArrayJsonSchema,
   partitionByCommentJsonSchema,
-  partitionByNewlineJsonSchema,
-} from '../utils/json-schemas/common-partition-json-schemas'
+  partitionByNewLineJsonSchema,
+  newlinesBetweenJsonSchema,
+  commonJsonSchemas,
+  groupsJsonSchema,
+} from '../utils/common-json-schemas'
 import {
   MISSED_SPACING_ERROR,
   EXTRA_SPACING_ERROR,
   GROUP_ORDER_ERROR,
   ORDER_ERROR,
 } from '../utils/report-errors'
-import { buildCommonGroupsJsonSchemas } from '../utils/json-schemas/common-groups-json-schemas'
-import { additionalCustomGroupMatchOptionsJsonSchema } from './sort-arrays/types'
-import { buildAstListeners } from '../utils/build-ast-listeners'
+import { validateNewlinesAndPartitionConfiguration } from '../utils/validate-newlines-and-partition-configuration'
+import { validateGeneratedGroupsConfiguration } from '../utils/validate-generated-groups-configuration'
+import { validateCustomSortConfiguration } from '../utils/validate-custom-sort-configuration'
+import {
+  singleCustomGroupJsonSchema,
+  allSelectors,
+} from './sort-array-includes/types'
+import { getCustomGroupsCompareOptions } from '../utils/get-custom-groups-compare-options'
+import { doesCustomGroupMatch } from './sort-array-includes/does-custom-group-match'
+import { getMatchingContextOptions } from '../utils/get-matching-context-options'
+import { generatePredefinedGroups } from '../utils/generate-predefined-groups'
+import { getEslintDisabledLines } from '../utils/get-eslint-disabled-lines'
+import { isNodeEslintDisabled } from '../utils/is-node-eslint-disabled'
+import { sortNodesByGroups } from '../utils/sort-nodes-by-groups'
 import { createEslintRule } from '../utils/create-eslint-rule'
-import { sortArray } from './sort-arrays/sort-array'
+import { reportAllErrors } from '../utils/report-all-errors'
+import { shouldPartition } from '../utils/should-partition'
+import { getSourceCode } from '../utils/get-source-code'
+import { rangeToDiff } from '../utils/range-to-diff'
+import { getSettings } from '../utils/get-settings'
+import { isSortable } from '../utils/is-sortable'
+import { useGroups } from '../utils/use-groups'
+import { complete } from '../utils/complete'
 
 /**
- * Cache computed groups by modifiers and selectors for performance.
+ * Cache computed groups by modifiers and selectors for performance
  */
 let cachedGroupsByModifiersAndSelectors = new Map<string, string[]>()
 
-const ORDER_ERROR_ID = 'unexpectedArrayIncludesOrder'
-const GROUP_ORDER_ERROR_ID = 'unexpectedArrayIncludesGroupOrder'
-const EXTRA_SPACING_ERROR_ID = 'extraSpacingBetweenArrayIncludesMembers'
-const MISSED_SPACING_ERROR_ID = 'missedSpacingBetweenArrayIncludesMembers'
+type MESSAGE_ID =
+  | 'missedSpacingBetweenArrayIncludesMembers'
+  | 'extraSpacingBetweenArrayIncludesMembers'
+  | 'unexpectedArrayIncludesGroupOrder'
+  | 'unexpectedArrayIncludesOrder'
 
-type MessageId =
-  | typeof MISSED_SPACING_ERROR_ID
-  | typeof EXTRA_SPACING_ERROR_ID
-  | typeof GROUP_ORDER_ERROR_ID
-  | typeof ORDER_ERROR_ID
+interface SortArrayIncludesSortingNode
+  extends SortingNode<TSESTree.SpreadElement | TSESTree.Expression> {
+  groupKind: 'literal' | 'spread'
+}
 
-export let defaultOptions: Required<Options[number]> = {
+export let defaultOptions: Required<Options[0]> = {
   fallbackSort: { type: 'unsorted' },
-  newlinesInside: 'newlinesBetween',
+  groupKind: 'literals-first',
   specialCharacters: 'keep',
   partitionByComment: false,
   partitionByNewLine: false,
   newlinesBetween: 'ignore',
   useConfigurationIf: {},
   type: 'alphabetical',
-  groups: ['literal'],
   ignoreCase: true,
   locales: 'en-US',
   customGroups: [],
   alphabet: '',
   order: 'asc',
+  groups: [],
 }
 
 export let jsonSchema: JSONSchema4 = {
   items: {
     properties: {
-      ...buildCommonJsonSchemas(),
-      ...buildCommonGroupsJsonSchemas({
-        additionalCustomGroupMatchProperties:
-          additionalCustomGroupMatchOptionsJsonSchema,
+      ...commonJsonSchemas,
+      groupKind: {
+        enum: ['mixed', 'literals-first', 'spreads-first'],
+        description: 'Specifies top-level groups.',
+        type: 'string',
+      },
+      customGroups: buildCustomGroupsArrayJsonSchema({
+        singleCustomGroupJsonSchema,
       }),
-      useConfigurationIf: buildUseConfigIfJsonSchema({
-        additionalProperties: {
-          matchesAstSelector: matchesAstSelectorJsonSchema,
-        },
-      }),
+      useConfigurationIf: buildUseConfigurationIfJsonSchema(),
       partitionByComment: partitionByCommentJsonSchema,
-      partitionByNewLine: partitionByNewlineJsonSchema,
+      partitionByNewLine: partitionByNewLineJsonSchema,
+      newlinesBetween: newlinesBetweenJsonSchema,
+      groups: groupsJsonSchema,
     },
     additionalProperties: false,
     type: 'object',
@@ -83,13 +103,40 @@ export let jsonSchema: JSONSchema4 = {
   type: 'array',
 }
 
-export default createEslintRule<Options, MessageId>({
+export default createEslintRule<Options, MESSAGE_ID>({
+  create: context => ({
+    MemberExpression: node => {
+      if (
+        (node.object.type === 'ArrayExpression' ||
+          node.object.type === 'NewExpression') &&
+        node.property.type === 'Identifier' &&
+        node.property.name === 'includes'
+      ) {
+        let elements =
+          node.object.type === 'ArrayExpression'
+            ? node.object.elements
+            : node.object.arguments
+        sortArray<MESSAGE_ID>({
+          availableMessageIds: {
+            missedSpacingBetweenMembers:
+              'missedSpacingBetweenArrayIncludesMembers',
+            extraSpacingBetweenMembers:
+              'extraSpacingBetweenArrayIncludesMembers',
+            unexpectedGroupOrder: 'unexpectedArrayIncludesGroupOrder',
+            unexpectedOrder: 'unexpectedArrayIncludesOrder',
+          },
+          elements,
+          context,
+        })
+      }
+    },
+  }),
   meta: {
     messages: {
-      [MISSED_SPACING_ERROR_ID]: MISSED_SPACING_ERROR,
-      [EXTRA_SPACING_ERROR_ID]: EXTRA_SPACING_ERROR,
-      [GROUP_ORDER_ERROR_ID]: GROUP_ORDER_ERROR,
-      [ORDER_ERROR_ID]: ORDER_ERROR,
+      missedSpacingBetweenArrayIncludesMembers: MISSED_SPACING_ERROR,
+      extraSpacingBetweenArrayIncludesMembers: EXTRA_SPACING_ERROR,
+      unexpectedArrayIncludesGroupOrder: GROUP_ORDER_ERROR,
+      unexpectedArrayIncludesOrder: ORDER_ERROR,
     },
     docs: {
       description: 'Enforce sorted arrays before include method.',
@@ -100,60 +147,174 @@ export default createEslintRule<Options, MessageId>({
     type: 'suggestion',
     fixable: 'code',
   },
-  create: context =>
-    buildAstListeners({
-      nodeTypes: [AST_NODE_TYPES.NewExpression, AST_NODE_TYPES.ArrayExpression],
-      sorter: sortPotentiallyValidArray,
-      context,
-    }),
   defaultOptions: [defaultOptions],
   name: 'sort-array-includes',
 })
 
-function sortPotentiallyValidArray({
-  matchedAstSelectors,
+export let sortArray = <MessageIds extends string>({
+  availableMessageIds,
+  elements,
   context,
-  node,
 }: {
-  node: TSESTree.ArrayExpression | TSESTree.NewExpression
-  context: Readonly<RuleContext<MessageId, Options>>
-  matchedAstSelectors: ReadonlySet<string>
-}): void {
-  if (!isValidArray()) {
+  availableMessageIds: {
+    missedSpacingBetweenMembers: MessageIds
+    extraSpacingBetweenMembers: MessageIds
+    unexpectedGroupOrder: MessageIds
+    unexpectedOrder: MessageIds
+  }
+  elements: (TSESTree.SpreadElement | TSESTree.Expression | null)[]
+  context: Readonly<RuleContext<MessageIds, Options>>
+}): void => {
+  if (!isSortable(elements)) {
     return
   }
 
-  sortArray<MessageId>({
-    availableMessageIds: {
-      missedSpacingBetweenMembers: MISSED_SPACING_ERROR_ID,
-      extraSpacingBetweenMembers: EXTRA_SPACING_ERROR_ID,
-      unexpectedGroupOrder: GROUP_ORDER_ERROR_ID,
-      unexpectedOrder: ORDER_ERROR_ID,
-    },
-    mustHaveMatchedContextOptions: false,
-    cachedGroupsByModifiersAndSelectors,
-    matchedAstSelectors,
-    defaultOptions,
-    context,
-    node,
+  let sourceCode = getSourceCode(context)
+  let settings = getSettings(context.settings)
+
+  let matchedContextOptions = getMatchingContextOptions({
+    nodeNames: elements
+      .filter(element => element !== null)
+      .map(element => getNodeName({ sourceCode, element })),
+    contextOptions: context.options,
   })
 
-  function isValidArray(): boolean {
-    if (node.parent.type !== AST_NODE_TYPES.MemberExpression) {
-      return false
-    }
+  let options = complete(matchedContextOptions[0], settings, defaultOptions)
+  validateCustomSortConfiguration(options)
+  validateGeneratedGroupsConfiguration({
+    selectors: allSelectors,
+    modifiers: [],
+    options,
+  })
+  validateNewlinesAndPartitionConfiguration(options)
 
-    if (node.parent.property.type !== AST_NODE_TYPES.Identifier) {
-      return false
-    }
-    if (node.parent.property.name !== 'includes') {
-      return false
-    }
+  let eslintDisabledLines = getEslintDisabledLines({
+    ruleName: context.id,
+    sourceCode,
+  })
 
-    if (node.parent.parent.type !== AST_NODE_TYPES.CallExpression) {
-      return false
-    }
+  let formattedMembers: SortArrayIncludesSortingNode[][] = elements.reduce(
+    (
+      accumulator: SortArrayIncludesSortingNode[][],
+      element: TSESTree.SpreadElement | TSESTree.Expression | null,
+    ) => {
+      if (element === null) {
+        return accumulator
+      }
 
-    return node.parent.parent.callee === node.parent
+      let { defineGroup, getGroup } = useGroups(options)
+      let groupKind: 'literal' | 'spread'
+      let selector: Selector
+      if (element.type === 'SpreadElement') {
+        groupKind = 'spread'
+        selector = 'spread'
+      } else {
+        groupKind = 'literal'
+        selector = 'literal'
+      }
+
+      let predefinedGroups = generatePredefinedGroups({
+        cache: cachedGroupsByModifiersAndSelectors,
+        selectors: [selector],
+        modifiers: [],
+      })
+
+      for (let predefinedGroup of predefinedGroups) {
+        defineGroup(predefinedGroup)
+      }
+
+      let name = getNodeName({ sourceCode, element })
+      for (let customGroup of options.customGroups) {
+        if (
+          doesCustomGroupMatch({
+            selectors: [selector],
+            elementName: name,
+            customGroup,
+          })
+        ) {
+          defineGroup(customGroup.groupName, true)
+          /**
+           * If the custom group is not referenced in the `groups` option, it
+           * will be ignored
+           */
+          if (getGroup() === customGroup.groupName) {
+            break
+          }
+        }
+      }
+
+      let sortingNode: SortArrayIncludesSortingNode = {
+        isEslintDisabled: isNodeEslintDisabled(element, eslintDisabledLines),
+        size: rangeToDiff(element, sourceCode),
+        group: getGroup(),
+        node: element,
+        groupKind,
+        name,
+      }
+
+      let lastSortingNode = accumulator.at(-1)?.at(-1)
+      if (
+        shouldPartition({
+          lastSortingNode,
+          sortingNode,
+          sourceCode,
+          options,
+        })
+      ) {
+        accumulator.push([])
+      }
+
+      accumulator.at(-1)!.push(sortingNode)
+
+      return accumulator
+    },
+    [[]],
+  )
+
+  let groupKindOrder
+  if (options.groupKind === 'literals-first') {
+    groupKindOrder = ['literal', 'spread'] as const
+  } else if (options.groupKind === 'spreads-first') {
+    groupKindOrder = ['spread', 'literal'] as const
+  } else {
+    groupKindOrder = ['any'] as const
+  }
+
+  for (let nodes of formattedMembers) {
+    let filteredGroupKindNodes = groupKindOrder.map(groupKind =>
+      nodes.filter(
+        currentNode =>
+          groupKind === 'any' || currentNode.groupKind === groupKind,
+      ),
+    )
+
+    let sortNodesExcludingEslintDisabled = (
+      ignoreEslintDisabledNodes: boolean,
+    ): SortArrayIncludesSortingNode[] =>
+      filteredGroupKindNodes.flatMap(groupedNodes =>
+        sortNodesByGroups(groupedNodes, options, {
+          getGroupCompareOptions: groupNumber =>
+            getCustomGroupsCompareOptions(options, groupNumber),
+          ignoreEslintDisabledNodes,
+        }),
+      )
+
+    reportAllErrors<MessageIds>({
+      sortNodesExcludingEslintDisabled,
+      availableMessageIds,
+      sourceCode,
+      options,
+      context,
+      nodes,
+    })
   }
 }
+
+let getNodeName = ({
+  sourceCode,
+  element,
+}: {
+  element: TSESTree.SpreadElement | TSESTree.Expression
+  sourceCode: TSESLint.SourceCode
+}): string =>
+  element.type === 'Literal' ? `${element.value}` : sourceCode.getText(element)

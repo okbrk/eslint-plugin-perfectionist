@@ -36,11 +36,8 @@ describe('get-decorator-name', () => {
     ).toBe('A.B')
   })
 
-  function getSourceCodeMock(decoratorName: string): TSESLint.SourceCode {
-    let sourceCode: Partial<TSESLint.SourceCode> = {
+  let getSourceCodeMock = (decoratorName: string): TSESLint.SourceCode =>
+    ({
       getText: vi.fn().mockReturnValue(decoratorName),
-    }
-
-    return sourceCode as TSESLint.SourceCode
-  }
+    }) as unknown as TSESLint.SourceCode
 })

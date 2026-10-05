@@ -1,13 +1,30 @@
 ---
-import { getCollection } from 'astro:content'
-
-import { CONFIG_ORDER, orderIndex } from '../../data/collections'
 import ContentLayout from '../../layouts/Content.astro'
 
-let configs = await getCollection('configs')
-configs.sort(
-  (a, b) => orderIndex(CONFIG_ORDER, a.id) - orderIndex(CONFIG_ORDER, b.id),
-)
+let configs = [
+  {
+    description:
+      'All plugin rules with alphabetical sorting in ascending order',
+    url: '/configs/recommended-alphabetical',
+    name: 'recommended-alphabetical',
+  },
+  {
+    description: 'All plugin rules with natural sorting in ascending order',
+    url: '/configs/recommended-natural',
+    name: 'recommended-natural',
+  },
+  {
+    description:
+      'All plugin rules with sorting by line length in descending order',
+    url: '/configs/recommended-line-length',
+    name: 'recommended-line-length',
+  },
+  {
+    description: 'All plugin rules with sorting by your own custom order',
+    url: '/configs/recommended-custom',
+    name: 'recommended-custom',
+  },
+]
 ---
 
 <ContentLayout
@@ -39,7 +56,7 @@ configs.sort(
     override them.
   </p>
 
-  <p>This plugin provides four configs out of the box.</p>
+  <p>This plugin provides three configs out of the box.</p>
 
   <p>
     See the <a
@@ -57,12 +74,12 @@ configs.sort(
     </thead>
     <tbody>
       {
-        configs.map(config => (
+        configs.map(({ description, name, url }) => (
           <tr>
             <td>
-              <a href={`/configs/${config.id}`}>{config.data.title}</a>
+              <a href={url}>{name}</a>
             </td>
-            <td>{config.data.shortDescription}</td>
+            <td>{description}</td>
           </tr>
         ))
       }
@@ -73,7 +90,6 @@ configs.sort(
 <style>
   .definition {
     display: flex;
-    flex-wrap: nowrap;
     gap: var(--space-xs);
     align-items: center;
     margin-block: var(--space-m);

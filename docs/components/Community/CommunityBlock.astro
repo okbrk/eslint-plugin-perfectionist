@@ -1,11 +1,13 @@
 ---
-import { x } from 'tinyexec'
+import { execa } from 'execa'
 
 import Typography from '../Typography.astro'
 import Container from '../Container.astro'
 import Title from '../Title.astro'
 
-let { stdout: releases } = await x('git', ['tag']).pipe('wc', ['-l'])
+let { stdout: releases } = await execa('git tag | wc -l', {
+  shell: true,
+})
 
 if (!releases) {
   let data = await fetch(
@@ -15,62 +17,33 @@ if (!releases) {
   releases = json.length.toString()
 }
 
-let stars = '2.9k'
-let downloads = '12M'
+let stars = '2.3k'
+let downloads = '2M'
 ---
 
 <section class="section">
   <Container class="container">
     <div>
-      <Title
-        align="start"
-        mbe="l"
-      >
-        Loved by Community
-      </Title>
+      <Title align="start" mbe="l">Loved by Community</Title>
       <div class="community">
         <div class="element">
-          <Typography
-            size="xl"
-            tag="h3"
-          >
-            {stars}
-          </Typography>
+          <Typography size="xl" tag="h3">{stars}</Typography>
           <Typography>Stars on GitHub</Typography>
         </div>
         <div class="element">
-          <Typography
-            size="xl"
-            tag="h3"
-          >
-            {downloads}
-          </Typography>
+          <Typography size="xl" tag="h3">{downloads}</Typography>
           <Typography>Monthly Downloads</Typography>
         </div>
         <div class="element">
-          <Typography
-            size="xl"
-            tag="h3"
-          >
-            {releases}
-          </Typography>
+          <Typography size="xl" tag="h3">{releases}</Typography>
           <Typography>Versions released</Typography>
         </div>
       </div>
     </div>
 
     <div>
-      <Title
-        align="start"
-        mbe="l"
-      >
-        Focus on Business Logic
-      </Title>
-      <Typography
-        align="start"
-        size="m"
-        mbe="m"
-      >
+      <Title align="start" mbe="l">Focus on Business Logic</Title>
+      <Typography align="start" size="m" mbe="m">
         Spend less time on code formatting and more on creating value. Our tool
         ensures your code stays clean and organized.
       </Typography>
@@ -90,7 +63,7 @@ let downloads = '12M'
 
   .container {
     display: grid;
-    grid-template-columns: [content] var(--columns);
+    grid-template-columns: var(--columns);
     gap: var(--gap);
     --columns: 1fr;
     --gap: calc(var(--space-xl) * 2);
@@ -112,7 +85,7 @@ let downloads = '12M'
 
   .community {
     display: grid;
-    grid-template-columns: repeat(var(--columns), [column] 1fr);
+    grid-template-columns: repeat(var(--columns), 1fr);
     gap: var(--space-l);
     margin-inline: auto;
     --columns: 1;

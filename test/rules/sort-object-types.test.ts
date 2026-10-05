@@ -1,3727 +1,246 @@
-import { createRuleTester } from 'eslint-vitest-rule-tester'
-import typescriptParser from '@typescript-eslint/parser'
-import { describe, expect, it } from 'vitest'
+import { RuleTester } from '@typescript-eslint/rule-tester'
+import { afterAll, describe, it } from 'vitest'
 import dedent from 'dedent'
 
-import { validateRuleJsonSchema } from '../utils/validate-rule-json-schema'
-import { buildOxlintRuleTester } from './build-oxlint-rule-tester'
 import rule from '../../rules/sort-object-types'
 import { Alphabet } from '../../utils/alphabet'
 
-describe('sort-object-types', () => {
-  let { invalid, valid } = createRuleTester({
-    name: 'sort-object-types',
-    parser: typescriptParser,
-    rule,
-  })
-  let oxlintRuleTester = buildOxlintRuleTester(rule)
+let ruleName = 'sort-object-types'
 
-  describe('alphabetical', () => {
+describe(ruleName, () => {
+  RuleTester.describeSkip = describe.skip
+  RuleTester.afterAll = afterAll
+  RuleTester.describe = describe
+  RuleTester.itOnly = it.only
+  RuleTester.itSkip = it.skip
+  RuleTester.it = it
+
+  let ruleTester = new RuleTester()
+
+  describe(`${ruleName}: sorting by alphabetical order`, () => {
+    let type = 'alphabetical-order'
+
     let options = {
       type: 'alphabetical',
+      ignoreCase: true,
       order: 'asc',
     } as const
 
-    it('sorts type members', async () => {
-      await valid({
-        code: dedent`
-          type Type = {
-            a: 'aaa'
-            b: 'bb'
-            c: 'c'
-          }
-        `,
-        options: [options],
-      })
-
-      await invalid({
-        errors: [
-          {
-            messageId: 'unexpectedObjectTypesOrder',
-            data: { right: 'b', left: 'c' },
-          },
-        ],
-        output: dedent`
-          type Type = {
-            a: 'aaa'
-            b: 'bb'
-            c: 'c'
-          }
-        `,
-        code: dedent`
-          type Type = {
-            a: 'aaa'
-            c: 'c'
-            b: 'bb'
-          }
-        `,
-        options: [options],
-      })
-    })
-
-    it('sorts type members in function args', async () => {
-      await valid({
-        code: dedent`
-          let Func = (arguments: {
-            a: 'aaa'
-            b: 'bb'
-            c: 'c'
-          }) => {
-            // ...
-          }
-        `,
-        options: [options],
-      })
-
-      await invalid({
-        output: dedent`
-          let Func = (arguments: {
-            a: 'aaa'
-            b: 'bb'
-            c: 'c'
-          }) => {
-            // ...
-          }
-        `,
-        code: dedent`
-          let Func = (arguments: {
-            b: 'bb'
-            a: 'aaa'
-            c: 'c'
-          }) => {
-            // ...
-          }
-        `,
-        errors: [
-          {
-            messageId: 'unexpectedObjectTypesOrder',
-            data: { right: 'a', left: 'b' },
-          },
-        ],
-        options: [options],
-      })
-    })
-
-    it('sorts type members with computed keys', async () => {
-      await valid({
-        code: dedent`
-          type Type = {
-            [key: string]: string
-            a?: 'aaa'
-            b: 'bb'
-            c: 'c'
-            [value]: string
-          }
-        `,
-        options: [options],
-      })
-
-      await invalid({
-        errors: [
-          {
-            data: { right: '[key: string]', left: 'a' },
-            messageId: 'unexpectedObjectTypesOrder',
-          },
-          {
-            data: {
-              left: 'value',
-              right: 'c',
-            },
-            messageId: 'unexpectedObjectTypesOrder',
-          },
-        ],
-        output: dedent`
-          type Type = {
-            [key: string]: string
-            a?: 'aaa'
-            b: 'bb'
-            c: 'c'
-            [value]: string
-          }
-        `,
-        code: dedent`
-          type Type = {
-            a?: 'aaa'
-            [key: string]: string
-            b: 'bb'
-            [value]: string
-            c: 'c'
-          }
-        `,
-        options: [options],
-      })
-    })
-
-    it('sorts type members with any key types', async () => {
-      await valid({
-        code: dedent`
-          type Type = {
-            [...values]
-            [[data]]: string
-            [name in v]?
-            [8]: Value
-            arrowFunc?: () => void
-            func(): void
-          }
-        `,
-        options: [options],
-      })
-
-      await invalid({
-        output: dedent`
-          type Type = {
-            [...values]
-            [[data]]: string
-            [name in v]?
-            [8]: Value
-            arrowFunc?: () => void
-            func(): void
-          }
-        `,
-        code: dedent`
-          type Type = {
-            [...values]
-            [[data]]: string
-            [name in v]?
-            [8]: Value
-            func(): void
-            arrowFunc?: () => void
-          }
-        `,
-        errors: [
-          {
-            data: { right: 'arrowFunc', left: 'func' },
-            messageId: 'unexpectedObjectTypesOrder',
-          },
-        ],
-        options: [options],
-      })
-    })
-
-    it('sorts inline type members', async () => {
-      await valid({
-        code: dedent`
-          func<{ a: 'aa'; b: 'b' }>(/* ... */)
-        `,
-        options: [options],
-      })
-
-      await invalid({
-        errors: [
-          {
-            messageId: 'unexpectedObjectTypesOrder',
-            data: { right: 'a', left: 'b' },
-          },
-        ],
-        output: dedent`
-          func<{ a: 'aa'; b: 'b'; }>(/* ... */)
-        `,
-        code: dedent`
-          func<{ b: 'b'; a: 'aa' }>(/* ... */)
-        `,
-        options: [options],
-      })
-    })
-
-    it('sorts complex predefined groups', async () => {
-      await invalid({
-        errors: [
-          {
-            data: {
-              leftGroup: 'required-property',
-              rightGroup: 'index-signature',
-              right: '[key: string]',
-              left: 'a',
-            },
-            messageId: 'unexpectedObjectTypesGroupOrder',
-          },
-          {
-            data: {
-              rightGroup: 'optional-multiline-member',
-              leftGroup: 'index-signature',
-              left: '[key: string]',
-              right: 'b',
-            },
-            messageId: 'unexpectedObjectTypesGroupOrder',
-          },
-          {
-            data: {
-              leftGroup: 'optional-multiline-member',
-              rightGroup: 'required-method',
-              right: 'c',
-              left: 'b',
-            },
-            messageId: 'unexpectedObjectTypesGroupOrder',
-          },
-        ],
-        options: [
-          {
-            ...options,
-            groups: [
-              'unknown',
-              'required-method',
-              'optional-multiline-member',
-              'index-signature',
-              'required-property',
-            ],
-          },
-        ],
-        output: dedent`
-          type Type = {
-            c(): void
-            b?: {
-              property: string;
-            }
-            [key: string]: string;
-            a: string
-          }
-        `,
-        code: dedent`
-          type Type = {
-            a: string
-            [key: string]: string;
-            b?: {
-              property: string;
-            }
-            c(): void
-          }
-        `,
-      })
-    })
-
-    it('prioritizes selectors over modifiers quantity', async () => {
-      await invalid({
-        errors: [
-          {
-            data: {
-              leftGroup: 'required-property',
-              rightGroup: 'method',
-              left: 'property',
-              right: 'method',
-            },
-            messageId: 'unexpectedObjectTypesGroupOrder',
-          },
-        ],
-        options: [
-          {
-            ...options,
-            groups: ['method', 'required-property'],
-          },
-        ],
-        output: dedent`
-          type Type = {
-            method(): void
-            property: string
-          }
-        `,
-        code: dedent`
-          type Type = {
-            property: string
-            method(): void
-          }
-        `,
-      })
-    })
-
-    it('prioritizes index-signature over member', async () => {
-      await invalid({
-        errors: [
-          {
-            data: {
-              rightGroup: 'index-signature',
-              right: '[key: string]',
-              leftGroup: 'member',
-              left: 'member',
-            },
-            messageId: 'unexpectedObjectTypesGroupOrder',
-          },
-        ],
-        output: dedent`
-          type Type = {
-            [key: string]: string;
-            member: "something";
-          }
-        `,
-        code: dedent`
-          type Type = {
-            member: "something";
-            [key: string]: string;
-          }
-        `,
-        options: [
-          {
-            ...options,
-            groups: ['index-signature', 'member'],
-          },
-        ],
-      })
-    })
-
-    it('prioritizes method over member', async () => {
-      await invalid({
-        errors: [
-          {
-            data: {
-              rightGroup: 'method',
-              leftGroup: 'member',
-              right: 'method',
-              left: 'member',
-            },
-            messageId: 'unexpectedObjectTypesGroupOrder',
-          },
-        ],
-        output: dedent`
-          type Type = {
-            method(): string
-            member: "something"
-          }
-        `,
-        code: dedent`
-          type Type = {
-            member: "something"
-            method(): string
-          }
-        `,
-        options: [
-          {
-            ...options,
-            groups: ['method', 'member'],
-          },
-        ],
-      })
-    })
-
-    it('prioritizes property over member', async () => {
-      await invalid({
-        errors: [
-          {
-            data: {
-              rightGroup: 'property',
-              leftGroup: 'member',
-              right: 'property',
-              left: 'method',
-            },
-            messageId: 'unexpectedObjectTypesGroupOrder',
-          },
-        ],
-        output: dedent`
-          type Type = {
-            property: string
-            method(): string
-          }
-        `,
-        code: dedent`
-          type Type = {
-            method(): string
-            property: string
-          }
-        `,
-        options: [
-          {
-            ...options,
-            groups: ['property', 'member'],
-          },
-        ],
-      })
-    })
-
-    it('prioritizes multiline over optional', async () => {
-      await invalid({
-        errors: [
-          {
-            data: {
-              rightGroup: 'multiline-property',
-              leftGroup: 'optional-property',
-              right: 'multilineProperty',
-              left: 'optionalProperty',
-            },
-            messageId: 'unexpectedObjectTypesGroupOrder',
-          },
-        ],
-        output: dedent`
-          type Type = {
-            multilineProperty: {
-              a: string
-            }
-            optionalProperty?: string
-          }
-        `,
-        code: dedent`
-          type Type = {
-            optionalProperty?: string
-            multilineProperty: {
-              a: string
-            }
-          }
-        `,
-        options: [
-          {
-            ...options,
-            groups: ['multiline-property', 'optional-property'],
-          },
-        ],
-      })
-    })
-
-    it('prioritizes multiline over required', async () => {
-      await invalid({
-        errors: [
-          {
-            data: {
-              rightGroup: 'multiline-property',
-              leftGroup: 'required-property',
-              right: 'multilineProperty',
-              left: 'requiredProperty',
-            },
-            messageId: 'unexpectedObjectTypesGroupOrder',
-          },
-        ],
-        output: dedent`
-          type Type = {
-            multilineProperty: {
-              a: string
-            }
-            requiredProperty: string
-          }
-        `,
-        code: dedent`
-          type Type = {
-            requiredProperty: string
-            multilineProperty: {
-              a: string
-            }
-          }
-        `,
-        options: [
-          {
-            ...options,
-            groups: ['multiline-property', 'required-property'],
-          },
-        ],
-      })
-    })
-
-    it('allows overriding options in groups', async () => {
-      await invalid({
-        options: [
-          {
-            groups: [
-              {
-                type: 'alphabetical',
-                newlinesInside: 1,
-                group: 'unknown',
-                order: 'desc',
-              },
-            ],
-            type: 'unsorted',
-          },
-        ],
-        errors: [
-          {
-            messageId: 'unexpectedObjectTypesOrder',
-            data: { right: 'b', left: 'a' },
-          },
-          {
-            messageId: 'missedSpacingBetweenObjectTypeMembers',
-            data: { right: 'b', left: 'a' },
-          },
-        ],
-        output: dedent`
-          type Type = {
-            b: string;
-
-            a: string;
-          }
-        `,
-        code: dedent`
-          type Type = {
-            a: string;
-            b: string;
-          }
-        `,
-      })
-    })
-
-    it('allows overriding "fallbackSort.sortBy" in groups', async () => {
-      await invalid({
-        options: [
-          {
-            groups: [
-              {
-                fallbackSort: { type: 'alphabetical', sortBy: 'value' },
-                type: 'line-length',
-                group: 'unknown',
-              },
-            ],
-          },
-        ],
-        errors: [
-          {
-            messageId: 'unexpectedObjectTypesOrder',
-            data: { right: 'b', left: 'a' },
-          },
-        ],
-        output: dedent`
-          type Type = {
-            b: a;
-            a: b;
-          }
-        `,
-        code: dedent`
-          type Type = {
-            a: b;
-            b: a;
-          }
-        `,
-      })
-    })
-
-    it('filters on selector and modifiers', async () => {
-      await invalid({
-        options: [
-          {
-            customGroups: [
-              {
-                groupName: 'unusedCustomGroup',
-                modifiers: ['optional'],
-                selector: 'method',
-              },
-              {
-                groupName: 'optionalPropertyGroup',
-                modifiers: ['optional'],
-                selector: 'property',
-              },
-              {
-                groupName: 'propertyGroup',
-                selector: 'property',
-              },
-            ],
-            groups: ['propertyGroup', 'optionalPropertyGroup'],
-          },
-        ],
-        errors: [
-          {
-            data: {
-              leftGroup: 'optionalPropertyGroup',
-              rightGroup: 'propertyGroup',
-              right: 'c',
-              left: 'b',
-            },
-            messageId: 'unexpectedObjectTypesGroupOrder',
-          },
-        ],
-        output: dedent`
-          type Type = {
-            c: string
-            a?: string
-            b?: string
-          }
-        `,
-        code: dedent`
-          type Type = {
-            a?: string
-            b?: string
-            c: string
-          }
-        `,
-      })
-    })
-
-    it.each([
-      ['string pattern', 'hello'],
-      ['array with string pattern', ['noMatch', 'hello']],
-      ['regex pattern', { pattern: 'HELLO', flags: 'i' }],
-      [
-        'array with regex pattern',
-        ['noMatch', { pattern: 'HELLO', flags: 'i' }],
-      ],
-    ])(
-      'filters on elementNamePattern with %s',
-      async (_description, elementNamePattern) => {
-        await invalid({
-          options: [
-            {
-              customGroups: [
-                {
-                  groupName: 'propertiesStartingWithHello',
-                  selector: 'property',
-                  elementNamePattern,
-                },
-              ],
-              groups: ['propertiesStartingWithHello', 'unknown'],
-            },
-          ],
-          errors: [
-            {
-              data: {
-                rightGroup: 'propertiesStartingWithHello',
-                right: 'helloProperty',
-                leftGroup: 'unknown',
-                left: 'method',
-              },
-              messageId: 'unexpectedObjectTypesGroupOrder',
-            },
-          ],
-          output: dedent`
-            type Type = {
-              helloProperty: string
-              a: string
-              b: string
-              method(): void
-            }
-          `,
-          code: dedent`
-            type Type = {
-              a: string
-              b: string
-              method(): void
-              helloProperty: string
-            }
-          `,
-        })
-      },
-    )
-
-    it.each([
-      ['string pattern', 'Date'],
-      ['array with string pattern', ['noMatch', 'Date']],
-      ['regex pattern', { pattern: 'DATE', flags: 'i' }],
-      [
-        'array with regex pattern',
-        ['noMatch', { pattern: 'DATE', flags: 'i' }],
-      ],
-    ])(
-      'filters on elementValuePattern with %s',
-      async (_description, dateElementValuePattern) => {
-        await invalid({
-          options: [
-            {
-              customGroups: [
-                {
-                  elementValuePattern: dateElementValuePattern,
-                  groupName: 'date',
-                },
-                {
-                  elementValuePattern: 'number',
-                  groupName: 'number',
-                },
-              ],
-              groups: ['number', 'date', 'unknown'],
-            },
-          ],
-          errors: [
-            {
-              data: {
-                rightGroup: 'number',
-                leftGroup: 'date',
-                right: 'z',
-                left: 'y',
-              },
-              messageId: 'unexpectedObjectTypesGroupOrder',
-            },
-          ],
-          output: dedent`
-            type Type = {
-              a: number
-              z: number
-              b: Date
-              y: Date
-              c(): string
-            }
-          `,
-          code: dedent`
-            type Type = {
-              a: number
-              b: Date
-              y: Date
-              z: number
-              c(): string
-            }
-          `,
-        })
-      },
-    )
-
-    it('sorts custom groups by overriding type and order', async () => {
-      await invalid({
-        errors: [
-          {
-            messageId: 'unexpectedObjectTypesOrder',
-            data: { right: 'bb', left: 'a' },
-          },
-          {
-            messageId: 'unexpectedObjectTypesOrder',
-            data: { right: 'ccc', left: 'bb' },
-          },
-          {
-            messageId: 'unexpectedObjectTypesOrder',
-            data: { right: 'dddd', left: 'ccc' },
-          },
-          {
-            data: {
-              rightGroup: 'reversedPropertiesByLineLength',
-              leftGroup: 'unknown',
-              left: 'method',
-              right: 'eee',
-            },
-            messageId: 'unexpectedObjectTypesGroupOrder',
-          },
-        ],
-        options: [
-          {
-            customGroups: [
-              {
-                groupName: 'reversedPropertiesByLineLength',
-                selector: 'property',
-                type: 'line-length',
-                order: 'desc',
-              },
-            ],
-            groups: ['reversedPropertiesByLineLength', 'unknown'],
-            type: 'alphabetical',
-            order: 'asc',
-          },
-        ],
-        output: dedent`
-          type Type = {
-            dddd: string
-            ccc: string
-            eee: string
-            bb: string
-            ff: string
-            a: string
-            g: string
-            anotherMethod(): void
-            method(): void
-            yetAnotherMethod(): void
-          }
-        `,
-        code: dedent`
-          type Type = {
-            a: string
-            bb: string
-            ccc: string
-            dddd: string
-            method(): void
-            eee: string
-            ff: string
-            g: string
-            anotherMethod(): void
-            yetAnotherMethod(): void
-          }
-        `,
-      })
-    })
-
-    it('sorts custom groups by overriding fallbackSort', async () => {
-      await invalid({
-        options: [
-          {
-            customGroups: [
-              {
-                fallbackSort: {
-                  type: 'alphabetical',
-                  order: 'asc',
-                },
-                elementNamePattern: '^foo',
-                type: 'line-length',
-                groupName: 'foo',
-                order: 'desc',
-              },
-            ],
-            type: 'alphabetical',
-            groups: ['foo'],
-            order: 'asc',
-          },
-        ],
-        errors: [
-          {
-            data: { right: 'fooBar', left: 'fooZar' },
-            messageId: 'unexpectedObjectTypesOrder',
-          },
-        ],
-        output: dedent`
-          type Type = {
-            fooBar: string
-            fooZar: string
-          }
-        `,
-        code: dedent`
-          type Type = {
-            fooZar: string
-            fooBar: string
-          }
-        `,
-      })
-
-      await invalid({
-        options: [
-          {
-            customGroups: [
-              {
-                fallbackSort: {
-                  type: 'alphabetical',
-                  sortBy: 'value',
-                },
-                elementValuePattern: '^foo',
-                type: 'line-length',
-                groupName: 'foo',
-              },
-            ],
-            type: 'alphabetical',
-            groups: ['foo'],
-            order: 'asc',
-          },
-        ],
-        errors: [
-          {
-            messageId: 'unexpectedObjectTypesOrder',
-            data: { right: 'b', left: 'a' },
-          },
-        ],
-        output: dedent`
-          type Type = {
-            b: fooBar
-            a: fooZar
-          }
-        `,
-        code: dedent`
-          type Type = {
-            a: fooZar
-            b: fooBar
-          }
-        `,
-      })
-
-      await invalid({
-        options: [
-          {
-            customGroups: [
-              {
-                fallbackSort: {
-                  type: 'alphabetical',
-                  sortBy: 'name',
-                },
-                elementValuePattern: '.*',
-                groupName: 'allElements',
-              },
-            ],
-            groups: [
-              {
-                fallbackSort: {
-                  type: 'line-length',
-                  sortBy: 'value',
-                },
-                group: 'allElements',
-              },
-            ],
-            type: 'line-length',
-          },
-        ],
-        errors: [
-          {
-            messageId: 'unexpectedObjectTypesOrder',
-            data: { right: 'a', left: 'b' },
-          },
-        ],
-        output: dedent`
-          type Type = {
-            a: b
-            b: a
-          }
-        `,
-        code: dedent`
-          type Type = {
-            b: a
-            a: b
-          }
-        `,
-      })
-    })
-
-    it('sorts custom groups by overriding sortBy', async () => {
-      await invalid({
-        errors: [
-          {
-            data: {
-              rightGroup: 'fooElementsSortedByValue',
-              leftGroup: 'unknown',
-              right: 'fooC',
-              left: 'z',
-            },
-            messageId: 'unexpectedObjectTypesGroupOrder',
-          },
-          {
-            messageId: 'unexpectedObjectTypesOrder',
-            data: { right: 'fooA', left: 'fooB' },
-          },
-          {
-            data: {
-              rightGroup: 'fooElementsSortedByValue',
-              leftGroup: 'unknown',
-              right: 'fooMethod',
-              left: 'a',
-            },
-            messageId: 'unexpectedObjectTypesGroupOrder',
-          },
-        ],
-        options: [
-          {
-            customGroups: [
-              {
-                groupName: 'fooElementsSortedByValue',
-                elementNamePattern: '^foo',
-                sortBy: 'value',
-              },
-            ],
-            groups: ['fooElementsSortedByValue', 'unknown'],
-            type: 'alphabetical',
-            order: 'asc',
-          },
-        ],
-        output: dedent`
-          type Type = {
-            fooA: Date
-            fooC: number
-            fooB: string
-            fooMethod(): void
-            a: string
-            z: boolean
-          }
-        `,
-        code: dedent`
-          type Type = {
-            z: boolean
-            fooC: number
-            fooB: string
-            fooA: Date
-            a: string
-            fooMethod(): void
-          }
-        `,
-      })
-
-      await invalid({
-        options: [
-          {
-            customGroups: [
-              {
-                groupName: 'allElements',
-                elementNamePattern: '.*',
-                sortBy: 'name',
-              },
-            ],
-            groups: [
-              {
-                group: 'allElements',
-                sortBy: 'value',
-              },
-            ],
-            type: 'alphabetical',
-            order: 'asc',
-          },
-        ],
-        errors: [
-          {
-            data: {
-              right: 'a',
-              left: 'b',
-            },
-            messageId: 'unexpectedObjectTypesOrder',
-          },
-        ],
-        output: dedent`
-          type Type = {
-            a: b;
-            b: a;
-          }
-        `,
-        code: dedent`
-          type Type = {
-            b: a;
-            a: b;
-          }
-        `,
-      })
-
-      await invalid({
-        options: [
-          {
-            customGroups: [
-              {
-                fallbackSort: {
-                  type: 'alphabetical',
-                  sortBy: 'name',
-                },
-                groupName: 'allElements',
-                elementNamePattern: '.*',
-              },
-            ],
-            groups: [
-              {
-                fallbackSort: {
-                  type: 'alphabetical',
-                  sortBy: 'value',
-                },
-                group: 'allElements',
-              },
-            ],
-            type: 'line-length',
-            order: 'asc',
-          },
-        ],
-        errors: [
-          {
-            data: {
-              right: 'a',
-              left: 'b',
-            },
-            messageId: 'unexpectedObjectTypesOrder',
-          },
-        ],
-        output: dedent`
-          type Type = {
-            a: b;
-            b: a;
-          }
-        `,
-        code: dedent`
-          type Type = {
-            b: a;
-            a: b;
-          }
-        `,
-      })
-    })
-
-    it('does not sort custom groups with unsorted type', async () => {
-      await invalid({
-        options: [
-          {
-            customGroups: [
-              {
-                groupName: 'unsortedProperties',
-                selector: 'property',
-                type: 'unsorted',
-              },
-            ],
-            groups: ['unsortedProperties', 'unknown'],
-          },
-        ],
-        errors: [
-          {
-            data: {
-              rightGroup: 'unsortedProperties',
-              leftGroup: 'unknown',
-              left: 'method',
-              right: 'c',
-            },
-            messageId: 'unexpectedObjectTypesGroupOrder',
-          },
-        ],
-        output: dedent`
-          type Type = {
-            b
-            a
-            d
-            e
-            c
-            method(): void
-          }
-        `,
-        code: dedent`
-          type Type = {
-            b
-            a
-            d
-            e
-            method(): void
-            c
-          }
-        `,
-      })
-    })
-
-    it('sorts custom group blocks', async () => {
-      await invalid({
-        options: [
-          {
-            customGroups: [
-              {
-                anyOf: [
-                  {
-                    modifiers: ['required'],
-                    selector: 'property',
-                  },
-                  {
-                    modifiers: ['optional'],
-                    selector: 'method',
-                  },
-                ],
-                groupName: 'requiredPropertiesAndOptionalMethods',
-              },
-            ],
-            groups: [
-              ['requiredPropertiesAndOptionalMethods', 'index-signature'],
-              'unknown',
-            ],
-          },
-        ],
-        errors: [
-          {
-            data: {
-              rightGroup: 'requiredPropertiesAndOptionalMethods',
-              leftGroup: 'unknown',
-              right: 'd',
-              left: 'c',
-            },
-            messageId: 'unexpectedObjectTypesGroupOrder',
-          },
-          {
-            data: { right: '[key: string]', left: 'e' },
-            messageId: 'unexpectedObjectTypesOrder',
-          },
-        ],
-        output: dedent`
-          type Type = {
-            [key: string]: string
-            a: string
-            d?: () => void
-            e: string
-            b(): void
-            c?: string
-          }
-        `,
-        code: dedent`
-          type Type = {
-            a: string
-            b(): void
-            c?: string
-            d?: () => void
-            e: string
-            [key: string]: string
-          }
-        `,
-      })
-    })
-
-    it('allows to use regex for element names in custom groups', async () => {
-      await valid({
-        options: [
-          {
-            customGroups: [
-              {
-                elementNamePattern: '^(?!.*Foo).*$',
-                groupName: 'elementsWithoutFoo',
-              },
-            ],
-            groups: ['unknown', 'elementsWithoutFoo'],
-            type: 'alphabetical',
-          },
-        ],
-        code: dedent`
-          type Type = {
-            iHaveFooInMyName: string
-            meTooIHaveFoo: string
-            a: string
-            b: string
-          }
-        `,
-      })
-    })
-
-    it('allows to use newlinesInside: 1', async () => {
-      await invalid({
-        options: [
-          {
-            customGroups: [
-              {
-                selector: 'property',
-                groupName: 'group1',
-                newlinesInside: 1,
-              },
-            ],
-            groups: ['group1'],
-          },
-        ],
-        errors: [
-          {
-            messageId: 'missedSpacingBetweenObjectTypeMembers',
-            data: { right: 'b', left: 'a' },
-          },
-        ],
-        output: dedent`
-          type type = {
-            a
-
-            b
-          }
-        `,
-        code: dedent`
-          type type = {
-            a
-            b
-          }
-        `,
-      })
-    })
-
-    it('allows to use newlinesInside: 0', async () => {
-      await invalid({
-        options: [
-          {
-            customGroups: [
-              {
-                selector: 'property',
-                groupName: 'group1',
-                newlinesInside: 0,
-              },
-            ],
-            type: 'alphabetical',
-            groups: ['group1'],
-          },
-        ],
-        errors: [
-          {
-            messageId: 'extraSpacingBetweenObjectTypeMembers',
-            data: { right: 'b', left: 'a' },
-          },
-        ],
-        output: dedent`
-          type type = {
-            a
-            b
-          }
-        `,
-        code: dedent`
-          type type = {
-            a
-
-            b
-          }
-        `,
-      })
-    })
-
-    it('allows to use regex for custom groups', async () => {
-      await valid({
-        options: [
-          {
-            ...options,
-            customGroups: [
-              {
-                elementNamePattern: '^(?!.*Foo).*$',
-                groupName: 'elementsWithoutFoo',
-              },
-            ],
-            groups: ['unknown', 'elementsWithoutFoo'],
-          },
-        ],
-        code: dedent`
-          type T = {
-            iHaveFooInMyName: string
-            meTooIHaveFoo: string
-            a: string
-            b: string
-          }
-        `,
-      })
-    })
-
-    it('allows to use in class methods', async () => {
-      await invalid({
-        output: dedent`
-          class Class {
-            async method (data: {
-              a: 'aaa'
-              b: 'bb'
-              c: 'c'
-            }) {}
-          }
-        `,
-        code: dedent`
-          class Class {
-            async method (data: {
-              b: 'bb'
-              a: 'aaa'
-              c: 'c'
-            }) {}
-          }
-        `,
-        errors: [
-          {
-            messageId: 'unexpectedObjectTypesOrder',
-            data: { right: 'a', left: 'b' },
-          },
-        ],
-        options: [options],
-      })
-    })
-
-    it('allows to use new line as partition', async () => {
-      await valid({
-        code: dedent`
-          type Type = {
-            d: 'dd'
-            e: 'e'
-
-            c: 'ccc'
-
-            a: 'aaaaa'
-            b: 'bbbb'
-          }
-        `,
-        options: [
-          {
-            ...options,
-            partitionByNewLine: true,
-          },
-        ],
-      })
-
-      await invalid({
-        errors: [
-          {
-            messageId: 'unexpectedObjectTypesOrder',
-            data: { right: 'd', left: 'e' },
-          },
-          {
-            messageId: 'unexpectedObjectTypesOrder',
-            data: { right: 'a', left: 'b' },
-          },
-        ],
-        output: dedent`
-          type Type = {
-            d: 'dd'
-            e: 'e'
-
-            c: 'ccc'
-
-            a: 'aaaaa'
-            b: 'bbbb'
-          }
-        `,
-        code: dedent`
-          type Type = {
-            e: 'e'
-            d: 'dd'
-
-            c: 'ccc'
-
-            b: 'bbbb'
-            a: 'aaaaa'
-          }
-        `,
-        options: [
-          {
-            ...options,
-            partitionByNewLine: true,
-          },
-        ],
-      })
-    })
-
-    it('allows to use partition comments', async () => {
-      await invalid({
-        output: dedent`
-          type Type = {
-            // Part: A
-            // Not partition comment
-            bbb: string
-            cc: string
-            d: string
-            // Part: B
-            aaaa: string
-            e: string
-            // Part: C
-            // Not partition comment
-            fff: string
-            'gg': string
-          }
-        `,
-        code: dedent`
-          type Type = {
-            // Part: A
-            cc: string
-            d: string
-            // Not partition comment
-            bbb: string
-            // Part: B
-            aaaa: string
-            e: string
-            // Part: C
-            'gg': string
-            // Not partition comment
-            fff: string
-          }
-        `,
-        errors: [
-          {
-            messageId: 'unexpectedObjectTypesOrder',
-            data: { right: 'bbb', left: 'd' },
-          },
-          {
-            messageId: 'unexpectedObjectTypesOrder',
-            data: { right: 'fff', left: 'gg' },
-          },
-        ],
-        options: [
-          {
-            ...options,
-            partitionByComment: '^Part',
-          },
-        ],
-      })
-    })
-
-    it('allows to use all comments as parts', async () => {
-      await valid({
-        code: dedent`
-          type Type = {
-            // Comment
-            bb: string
-            // Other comment
-            a: string
-          }
-        `,
-        options: [
-          {
-            ...options,
-            partitionByComment: true,
-          },
-        ],
-      })
-    })
-
-    it('allows to use multiple partition comments', async () => {
-      await invalid({
-        output: dedent`
-          type Type = {
-            /* Partition Comment */
-            // Part: A
-            d: string
-            // Part: B
-            aaa: string
-            bb: string
-            c: string
-            /* Other */
-            e: string
-          }
-        `,
-        code: dedent`
-          type Type = {
-            /* Partition Comment */
-            // Part: A
-            d: string
-            // Part: B
-            aaa: string
-            c: string
-            bb: string
-            /* Other */
-            e: string
-          }
-        `,
-        errors: [
-          {
-            messageId: 'unexpectedObjectTypesOrder',
-            data: { right: 'bb', left: 'c' },
-          },
-        ],
-        options: [
-          {
-            ...options,
-            partitionByComment: ['Partition Comment', 'Part:', 'Other'],
-          },
-        ],
-      })
-    })
-
-    it('allows to use regex for partition comments', async () => {
-      await valid({
-        code: dedent`
-          type Type = {
-            e: string
-            f: string
-            // I am a partition comment because I don't have f o o
-            a: string
-            b: string
-          }
-        `,
-        options: [
-          {
-            ...options,
-            partitionByComment: ['^(?!.*foo).*$'],
-          },
-        ],
-      })
-    })
-
-    it('ignores block comments', async () => {
-      await invalid({
-        options: [
-          {
-            ...options,
-            partitionByComment: {
-              line: true,
-            },
-          },
-        ],
-        errors: [
-          {
-            messageId: 'unexpectedObjectTypesOrder',
-            data: { right: 'a', left: 'b' },
-          },
-        ],
-        output: dedent`
-          type Type = {
-            /* Comment */
-            a: string
-            b: string
-          }
-        `,
-        code: dedent`
-          type Type = {
-            b: string
-            /* Comment */
-            a: string
-          }
-        `,
-      })
-    })
-
-    it('allows to use all line comments as parts', async () => {
-      await valid({
-        options: [
-          {
-            ...options,
-            partitionByComment: {
-              line: true,
-            },
-          },
-        ],
-        code: dedent`
-          type Type = {
-            b: string
-            // Comment
-            a: string
-          }
-        `,
-      })
-    })
-
-    it('allows to use multiple partition line comments', async () => {
-      await valid({
-        code: dedent`
-          type Type = {
-            c: string
-            // b
-            b: string
-            // a
-            a: string
-          }
-        `,
-        options: [
-          {
-            ...options,
-            partitionByComment: {
-              line: ['a', 'b'],
-            },
-          },
-        ],
-      })
-    })
-
-    it('allows to use regex for partition line comments', async () => {
-      await valid({
-        code: dedent`
-          type Type = {
-            b: string
-            // I am a partition comment because I don't have f o o
-            a: string
-          }
-        `,
-        options: [
-          {
-            ...options,
-            partitionByComment: {
-              line: ['^(?!.*foo).*$'],
-            },
-          },
-        ],
-      })
-    })
-
-    it('ignores line comments', async () => {
-      await invalid({
-        options: [
-          {
-            ...options,
-            partitionByComment: {
-              block: true,
-            },
-          },
-        ],
-        errors: [
-          {
-            messageId: 'unexpectedObjectTypesOrder',
-            data: { right: 'a', left: 'b' },
-          },
-        ],
-        output: dedent`
-          type Type = {
-            // Comment
-            a: string
-            b: string
-          }
-        `,
-        code: dedent`
-          type Type = {
-            b: string
-            // Comment
-            a: string
-          }
-        `,
-      })
-    })
-
-    it('allows to use all block comments as parts', async () => {
-      await valid({
-        options: [
-          {
-            ...options,
-            partitionByComment: {
-              block: true,
-            },
-          },
-        ],
-        code: dedent`
-          type Type = {
-            b: string
-            /* Comment */
-            a: string
-          }
-        `,
-      })
-    })
-
-    it('allows to use multiple partition block comments', async () => {
-      await valid({
-        code: dedent`
-          type Type = {
-            c: string
-            /* b */
-            b: string
-            /* a */
-            a: string
-          }
-        `,
-        options: [
-          {
-            ...options,
-            partitionByComment: {
-              block: ['a', 'b'],
-            },
-          },
-        ],
-      })
-    })
-
-    it('allows to use regex for partition block comments', async () => {
-      await valid({
-        code: dedent`
-          type Type = {
-            b: string
-            /* I am a partition comment because I don't have f o o */
-            a: string
-          }
-        `,
-        options: [
-          {
-            ...options,
-            partitionByComment: {
-              block: ['^(?!.*foo).*$'],
-            },
-          },
-        ],
-      })
-    })
-
-    it('allows to trim special characters', async () => {
-      await valid({
-        code: dedent`
-          type Type = {
-            _a: string
-            b: string
-            _c: string
-          }
-        `,
-        options: [
-          {
-            ...options,
-            specialCharacters: 'trim',
-          },
-        ],
-      })
-    })
-
-    it('allows to remove special characters', async () => {
-      await valid({
-        options: [
-          {
-            ...options,
-            specialCharacters: 'remove',
-          },
-        ],
-        code: dedent`
-          type Type = {
-            ab: string
-            a_c: string
-          }
-        `,
-      })
-    })
-
-    it('allows to use locale', async () => {
-      await valid({
-        code: dedent`
-          type Type = {
-            你好: string
-            世界: string
-            a: string
-            A: string
-            b: string
-            B: string
-          }
-        `,
-        options: [{ ...options, locales: 'zh-CN' }],
-      })
-    })
-
-    it('allows to use method group', async () => {
-      await valid({
-        code: dedent`
-          type Type = {
-            b(): void
-            c: (((v: false) => 'false') | ((v: true) => 'true')) & ((v: any) => any)
-            a: string
-            d: string
-          }
-        `,
-        options: [
-          {
-            ...options,
-            groups: ['method', 'unknown'],
-          },
-        ],
-      })
-    })
-
-    it('removes newlines between and inside groups by default when "newlinesBetween" is 0', async () => {
-      await invalid({
-        errors: [
-          {
-            messageId: 'extraSpacingBetweenObjectTypeMembers',
-            data: { right: 'y', left: 'a' },
-          },
-          {
-            messageId: 'unexpectedObjectTypesOrder',
-            data: { right: 'b', left: 'z' },
-          },
-          {
-            messageId: 'extraSpacingBetweenObjectTypeMembers',
-            data: { right: 'b', left: 'z' },
-          },
-        ],
-        code: dedent`
-          type Type = {
-            a: () => null,
-
-
-           y: "y",
-          z: "z",
-
-              b: "b",
-          }
-        `,
-        output: dedent`
-          type Type = {
-            a: () => null,
-           b: "b",
-          y: "y",
-              z: "z",
-          }
-        `,
-        options: [
-          {
-            ...options,
-            groups: ['method', 'unknown'],
-            newlinesBetween: 0,
-          },
-        ],
-      })
-    })
-
-    it('removes newlines inside groups when newlinesInside is 0', async () => {
-      await invalid({
-        errors: [
-          {
-            messageId: 'unexpectedObjectTypesOrder',
-            data: { right: 'b', left: 'z' },
-          },
-          {
-            messageId: 'extraSpacingBetweenObjectTypeMembers',
-            data: { right: 'b', left: 'z' },
-          },
-        ],
-        output: dedent`
-          type Type = {
-            a: () => null,
-
-
-           b: "b",
-          y: "y",
-              z: "z",
-          }
-        `,
-        code: dedent`
-          type Type = {
-            a: () => null,
-
-
-           y: "y",
-          z: "z",
-
-              b: "b",
-          }
-        `,
-        options: [
-          {
-            ...options,
-            groups: ['method', 'unknown'],
-            newlinesInside: 0,
-          },
-        ],
-      })
-    })
-
-    it('removes newlines between groups when newlinesBetween is 0', async () => {
-      await invalid({
-        errors: [
-          {
-            messageId: 'extraSpacingBetweenObjectTypeMembers',
-            data: { right: 'y', left: 'a' },
-          },
-          {
-            messageId: 'unexpectedObjectTypesOrder',
-            data: { right: 'b', left: 'z' },
-          },
-        ],
-        options: [
-          {
-            ...options,
-            groups: ['method', 'unknown'],
-            newlinesInside: 'ignore',
-            newlinesBetween: 0,
-          },
-        ],
-        code: dedent`
-          type Type = {
-            a: () => null,
-
-
-           y: "y",
-          z: "z",
-
-              b: "b",
-          }
-        `,
-        output: dedent`
-          type Type = {
-            a: () => null,
-           b: "b",
-          y: "y",
-
-              z: "z",
-          }
-        `,
-      })
-    })
-
-    it('handles newlinesBetween between consecutive groups', async () => {
-      await invalid({
-        options: [
-          {
-            ...options,
-            customGroups: [
-              { elementNamePattern: 'a', groupName: 'a' },
-              { elementNamePattern: 'b', groupName: 'b' },
-              { elementNamePattern: 'c', groupName: 'c' },
-              { elementNamePattern: 'd', groupName: 'd' },
-              { elementNamePattern: 'e', groupName: 'e' },
-            ],
-            groups: [
-              'a',
-              { newlinesBetween: 1 },
-              'b',
-              { newlinesBetween: 1 },
-              'c',
-              { newlinesBetween: 0 },
-              'd',
-              { newlinesBetween: 'ignore' },
-              'e',
-            ],
-            newlinesBetween: 1,
-          },
-        ],
-        errors: [
-          {
-            messageId: 'missedSpacingBetweenObjectTypeMembers',
-            data: { right: 'b', left: 'a' },
-          },
-          {
-            messageId: 'extraSpacingBetweenObjectTypeMembers',
-            data: { right: 'c', left: 'b' },
-          },
-          {
-            messageId: 'extraSpacingBetweenObjectTypeMembers',
-            data: { right: 'd', left: 'c' },
-          },
-        ],
-        output: dedent`
-          type Type = {
-            a: string
-
-            b: string
-
-            c: string
-            d: string
-
-
-            e: string
-          }
-        `,
-        code: dedent`
-          type Type = {
-            a: string
-            b: string
-
-
-            c: string
-
-            d: string
-
-
-            e: string
-          }
-        `,
-      })
-    })
-
-    it.each([
-      ['2 and 0', 2, 0],
-      ['2 and ignore', 2, 'ignore'],
-      ['0 and 2', 0, 2],
-      ['ignore and 2', 'ignore', 2],
-    ])(
-      'enforces newlines when global option is %s',
-      async (_description, globalNewlinesBetween, groupNewlinesBetween) => {
-        await invalid({
-          options: [
-            {
-              ...options,
-              customGroups: [
-                { elementNamePattern: 'a', groupName: 'a' },
-                { elementNamePattern: 'b', groupName: 'b' },
-                { groupName: 'unusedGroup', elementNamePattern: 'X' },
-              ],
-              groups: [
-                'a',
-                'unusedGroup',
-                { newlinesBetween: groupNewlinesBetween },
-                'b',
-              ],
-              newlinesBetween: globalNewlinesBetween,
-            },
-          ],
-          errors: [
-            {
-              messageId: 'missedSpacingBetweenObjectTypeMembers',
-              data: { right: 'b', left: 'a' },
-            },
-          ],
-          output: dedent`
-            type Type = {
-              a: string
-
-
-              b: string
-            }
-          `,
-          code: dedent`
-            type Type = {
-              a: string
-              b: string
-            }
-          `,
-        })
-      },
-    )
-
-    it.each([
-      ['1', 1],
-      ['2', 2],
-      ['ignore', 'ignore'],
-      ['0', 0],
-    ])(
-      'enforces no newline when global option is %s and newlinesBetween: 0 exists between all groups',
-      async (_description, globalNewlinesBetween) => {
-        await invalid({
-          options: [
-            {
-              ...options,
-              customGroups: [
-                { elementNamePattern: 'a', groupName: 'a' },
-                { elementNamePattern: 'b', groupName: 'b' },
-                { elementNamePattern: 'c', groupName: 'c' },
-                { groupName: 'unusedGroup', elementNamePattern: 'X' },
-              ],
-              groups: [
-                'a',
-                { newlinesBetween: 0 },
-                'unusedGroup',
-                { newlinesBetween: 0 },
-                'b',
-                { newlinesBetween: 1 },
-                'c',
-              ],
-              newlinesBetween: globalNewlinesBetween,
-            },
-          ],
-          errors: [
-            {
-              messageId: 'extraSpacingBetweenObjectTypeMembers',
-              data: { right: 'b', left: 'a' },
-            },
-          ],
-          output: dedent`
-            type T = {
-              a: string
-              b: string
-            }
-          `,
-          code: dedent`
-            type T = {
-              a: string
-
-              b: string
-            }
-          `,
-        })
-      },
-    )
-
-    it.each([
-      ['ignore and 0', 'ignore', 0],
-      ['0 and ignore', 0, 'ignore'],
-    ])(
-      'does not enforce a newline when global option is %s',
-      async (_description, globalNewlinesBetween, groupNewlinesBetween) => {
-        await valid({
-          options: [
-            {
-              ...options,
-              customGroups: [
-                { elementNamePattern: 'a', groupName: 'a' },
-                { elementNamePattern: 'b', groupName: 'b' },
-                { groupName: 'unusedGroup', elementNamePattern: 'X' },
-              ],
-              groups: [
-                'a',
-                'unusedGroup',
-                { newlinesBetween: groupNewlinesBetween },
-                'b',
-              ],
-              newlinesBetween: globalNewlinesBetween,
-            },
-          ],
-          code: dedent`
-            type Type = {
-              a: string
-
-              b: string
-            }
-          `,
-        })
-
-        await valid({
-          options: [
-            {
-              ...options,
-              customGroups: [
-                { elementNamePattern: 'a', groupName: 'a' },
-                { elementNamePattern: 'b', groupName: 'b' },
-                { groupName: 'unusedGroup', elementNamePattern: 'X' },
-              ],
-              groups: [
-                'a',
-                'unusedGroup',
-                { newlinesBetween: groupNewlinesBetween },
-                'b',
-              ],
-              newlinesBetween: globalNewlinesBetween,
-            },
-          ],
-          code: dedent`
-            type Type = {
-              a: string
-              b: string
-            }
-          `,
-        })
-      },
-    )
-
-    it('handles newlines and comment after fixes', async () => {
-      await invalid({
-        errors: [
-          {
-            data: {
-              rightGroup: 'property',
-              leftGroup: 'method',
-              right: 'a',
-              left: 'b',
-            },
-            messageId: 'unexpectedObjectTypesGroupOrder',
-          },
-        ],
-        output: dedent`
-          type Test = {
-            a: string // Comment after
-
-            b: () => void
-            c: () => void
-          };
-        `,
-        code: dedent`
-          type Test = {
-            b: () => void
-            a: string // Comment after
-
-            c: () => void
-          };
-        `,
-        options: [
-          {
-            groups: ['property', 'method'],
-            newlinesBetween: 1,
-            newlinesInside: 0,
-          },
-        ],
-      })
-    })
-
-    it('keeps trailing comments attached when elements are reordered', async () => {
-      await invalid({
-        errors: [
-          {
-            messageId: 'unexpectedObjectTypesOrder',
-            data: { right: 'a', left: 'b' },
-          },
-        ],
-        output: dedent`
-          type Type = {
-            a: 2 /* a */
-            b: 1, /* b */ }
-        `,
-        code: dedent`
-          type Type = {
-            b: 1, /* b */
-            a: 2 /* a */ }
-        `,
-        options: [options],
-      })
-
-      await invalid({
-        errors: [
-          {
-            messageId: 'unexpectedObjectTypesOrder',
-            data: { right: 'a', left: 'b' },
-          },
-        ],
-        output: dedent`
-          type Type = {
-            a: 2
-            b: 1, // b
-           }
-        `,
-        code: dedent`
-          type Type = {
-            b: 1, // b
-            a: 2 }
-        `,
-        options: [options],
-      })
-    })
-
-    it('ignores newline fixes between different partitions with newlinesBetween: 0', async () => {
-      await invalid({
-        options: [
-          {
-            ...options,
-            customGroups: [
-              {
-                elementNamePattern: 'a',
-                groupName: 'a',
-              },
-            ],
-            groups: ['a', 'unknown'],
-            partitionByComment: true,
-            newlinesBetween: 0,
-          },
-        ],
-        output: dedent`
-          type Type = {
-            a: string
-
-            // Partition comment
-
-            b: string
-            c: string
-          }
-        `,
-        code: dedent`
-          type Type = {
-            a: string
-
-            // Partition comment
-
-            c: string
-            b: string
-          }
-        `,
-        errors: [
-          {
-            messageId: 'unexpectedObjectTypesOrder',
-            data: { right: 'b', left: 'c' },
-          },
-        ],
-      })
-    })
-
-    it('sorts inline elements correctly', async () => {
-      await invalid({
-        errors: [
-          {
-            messageId: 'unexpectedObjectTypesOrder',
-            data: { right: 'a', left: 'b' },
-          },
-        ],
-        output: dedent`
-          type Type = {
-            a: string; b: string,
-          }
-        `,
-        code: dedent`
-          type Type = {
-            b: string, a: string
-          }
-        `,
-        options: [options],
-      })
-
-      await invalid({
-        errors: [
-          {
-            messageId: 'unexpectedObjectTypesOrder',
-            data: { right: 'a', left: 'b' },
-          },
-        ],
-        output: dedent`
-          type Type = {
-            a: string; b: string,
-          }
-        `,
-        code: dedent`
-          type Type = {
-            b: string, a: string;
-          }
-        `,
-        options: [options],
-      })
-
-      await invalid({
-        errors: [
-          {
-            messageId: 'unexpectedObjectTypesOrder',
-            data: { right: 'a', left: 'b' },
-          },
-        ],
-        output: dedent`
-          type Type = {
-            a: string, b: string,
-          }
-        `,
-        code: dedent`
-          type Type = {
-            b: string, a: string,
-          }
-        `,
-        options: [options],
-      })
-    })
-
-    it('does not sort call signature declarations', async () => {
-      await valid({
-        code: dedent`
-          type Type = {
-            <Parameters extends Record<string, number | string>>(
-              input: AFunction<[Parameters], string>
-            ): Alternatives<Parameters>
-            <A extends CountA>(input: Input): AFunction<
-              [number],
-              A[keyof A]
-            >
-          }
-        `,
-        options: [options],
-      })
-    })
-
-    it('does not sort constructor declarations', async () => {
-      await valid({
-        code: dedent`
-          type Type = {
-            new (value: number | string): number;
-            new (value: number): unknown;
-          }
-        `,
-        options: [options],
-      })
-
-      await valid({
-        code: dedent`
-          type Type = {
-            new (value: number): unknown;
-            new (value: number | string): number;
-          }
-        `,
-        options: [options],
-      })
-
-      await valid({
-        code: dedent`
-          type Type = {
-            b: string;
-            new (value: number): unknown;
-            new (value: number | string): number;
-            a: string;
-          }
-        `,
-        options: [options],
-      })
-    })
-
-    it.each([
-      ['string pattern', '^[rgb]$'],
-      ['array with string pattern', ['noMatch', '^[rgb]$']],
-      ['regex pattern', { pattern: '^[RGB]$', flags: 'i' }],
-      [
-        'array with regex pattern',
-        ['noMatch', { pattern: '^[RGB]$', flags: 'i' }],
-      ],
-    ])(
-      'allows to use allNamesMatchPattern with %s',
-      async (_description, rgbAllNamesMatchPattern) => {
-        await invalid({
-          options: [
-            {
-              ...options,
-              useConfigurationIf: {
-                allNamesMatchPattern: 'foo',
-              },
-            },
-            {
-              ...options,
-              customGroups: [
-                {
-                  elementNamePattern: 'r',
-                  groupName: 'r',
-                },
-                {
-                  elementNamePattern: 'g',
-                  groupName: 'g',
-                },
-                {
-                  elementNamePattern: 'b',
-                  groupName: 'b',
-                },
-              ],
-              useConfigurationIf: {
-                allNamesMatchPattern: rgbAllNamesMatchPattern,
-              },
-              groups: ['r', 'g', 'b'],
-            },
-          ],
-          errors: [
-            {
-              data: {
-                rightGroup: 'g',
-                leftGroup: 'b',
-                right: 'g',
-                left: 'b',
-              },
-              messageId: 'unexpectedObjectTypesGroupOrder',
-            },
-            {
-              data: {
-                rightGroup: 'r',
-                leftGroup: 'g',
-                right: 'r',
-                left: 'g',
-              },
-              messageId: 'unexpectedObjectTypesGroupOrder',
-            },
-          ],
-          output: dedent`
-            type Type = {
-              r: string
-              g: string
-              b: string
-            }
-          `,
-          code: dedent`
-            type Type = {
-              b: string
-              g: string
-              r: string
-            }
-          `,
-        })
-      },
-    )
-
-    describe('useConfigurationIf.declarationMatchesPattern', () => {
-      it('detects declaration name by pattern', async () => {
-        await valid({
-          options: [
-            {
-              useConfigurationIf: {
-                declarationMatchesPattern: '^Type$',
-              },
-              type: 'unsorted',
-            },
-            options,
-          ],
-          code: dedent`
-            type Type = {
-              b: string
-              c: string
-              a: string
-            }
-          `,
-        })
-
-        await valid({
-          options: [
-            {
-              useConfigurationIf: {
-                declarationMatchesPattern: '^field$',
-              },
-              type: 'unsorted',
-            },
-            options,
-          ],
-          code: dedent`
-            type Type = {
-              field: A & {
-                b: string
-                c: string
-                a: string
-              }
-            }
-          `,
-        })
-
-        await valid({
-          options: [
-            {
-              useConfigurationIf: {
-                declarationMatchesPattern: '^field$',
-              },
-              type: 'unsorted',
-            },
-            options,
-          ],
-          code: dedent`
-            type Type = {
-              'field': A & {
-                b: string
-                c: string
-                a: string
-              }
-            }
-          `,
-        })
-
-        await valid({
-          options: [
-            {
-              useConfigurationIf: {
-                declarationMatchesPattern: '^field$',
-              },
-              type: 'unsorted',
-            },
-            options,
-          ],
-          code: dedent`
-            type Type = {
-              [field]: A & {
-                b: string
-                c: string
-                a: string
-              }
-            }
-          `,
-        })
-
-        await valid({
-          options: [
-            {
-              useConfigurationIf: {
-                declarationMatchesPattern: String.raw`^\[first, ignoreMe, ...remaining\]$`,
-              },
-              type: 'unsorted',
-            },
-            options,
-          ],
-          code: dedent`
-            let [first, ignoreMe, ...remaining]: {
-              b: string
-              c: string
-              a: string
-            }[]
-          `,
-        })
-
-        await valid({
-          options: [
-            {
-              useConfigurationIf: {
-                declarationMatchesPattern: '^ignoreByAssertion$',
-              },
-              type: 'unsorted',
-            },
-            options,
-          ],
-          code: dedent`
-            const ignoreByAssertion = {} as {
-              b: string
-              c: string
-              a: string
-            }
-          `,
-        })
-
-        await valid({
-          options: [
-            {
-              useConfigurationIf: {
-                declarationMatchesPattern: String.raw`^\[first, second\]$`,
-              },
-              type: 'unsorted',
-            },
-            options,
-          ],
-          code: dedent`
-            const [first, second] = {} as [{
-              b: string
-              c: string
-              a: string
-            }, number]
-          `,
-        })
-
-        await valid({
-          options: [
-            {
-              useConfigurationIf: {
-                declarationMatchesPattern: '^field$',
-              },
-              type: 'unsorted',
-            },
-            options,
-          ],
-          code: dedent`
-            class Class {
-              @dec()
-              field: {
-                b: string
-                c: string
-                a: string
-              }
-            }
-          `,
-        })
-
-        await valid({
-          options: [
-            {
-              useConfigurationIf: {
-                declarationMatchesPattern: String.raw`^foo\(\)$`,
-              },
-              type: 'unsorted',
-            },
-            options,
-          ],
-          code: dedent`
-            type Type = {
-              [foo()]: {
-                b: string
-                c: string
-                a: string
-              }
-            }
-          `,
-        })
-
-        await valid({
-          options: [
-            {
-              useConfigurationIf: {
-                declarationMatchesPattern: '^ignoreMe$',
-              },
-              type: 'unsorted',
-            },
-            options,
-          ],
-          code: dedent`
-            const ignoreMe: {
-              b: string
-              c: string
-              a: string
-            }[]
-          `,
-        })
-
-        await valid({
-          options: [
-            {
-              useConfigurationIf: {
-                declarationMatchesPattern: '^#config$',
-              },
-              type: 'unsorted',
-            },
-            options,
-          ],
-          code: dedent`
-            class Service {
-              #config!: {
-                b: string
-                c: string
-                a: string
-              }
-            }
-          `,
-        })
-
-        await invalid({
-          options: [
-            {
-              useConfigurationIf: {
-                declarationMatchesPattern: '^Type$',
-              },
-              type: 'unsorted',
-            },
-            options,
-          ],
-          errors: [
-            {
-              messageId: 'unexpectedObjectTypesOrder',
-              data: { right: 'a', left: 'b' },
-            },
-          ],
-          output: dedent`
-            type OtherType = {
-              a: string
-              b: string
-            }
-          `,
-          code: dedent`
-            type OtherType = {
-              b: string
-              a: string
-            }
-          `,
-        })
-      })
-
-      it('matches shallow declarations', async () => {
-        await valid({
-          options: [
-            {
-              ...options,
-              useConfigurationIf: {
-                declarationMatchesPattern: {
-                  pattern: '^shallow$',
-                },
-              },
-              type: 'unsorted',
-            },
-            {
-              type: 'alphabetical',
-            },
-          ],
-          code: dedent`
-            let shallow: {
-              b: "b",
-              a: "a",
-            }
-          `,
-        })
-
-        await valid({
-          options: [
-            {
-              ...options,
-              useConfigurationIf: {
-                declarationMatchesPattern: {
-                  pattern: '^shallow$',
-                },
-              },
-              type: 'unsorted',
-            },
-            {
-              type: 'alphabetical',
-            },
-          ],
-          code: dedent`
-            let shallow = {} as {
-              b: "b",
-              a: "a",
-            }
-          `,
-        })
-      })
-
-      it('matches deep declarations', async () => {
-        await valid({
-          options: [
-            {
-              ...options,
-              useConfigurationIf: {
-                declarationMatchesPattern: {
-                  pattern: '^deep$',
-                  scope: 'deep',
-                },
-              },
-              type: 'unsorted',
-            },
-            {
-              type: 'alphabetical',
-            },
-          ],
-          code: dedent`
-            let deep: {
-              b: "b",
-              a: "a",
-              [nested1]: {
-                b: "b",
-                a: "a",
-              }
-            };
-          `,
-        })
-
-        await valid({
-          options: [
-            {
-              ...options,
-              useConfigurationIf: {
-                declarationMatchesPattern: {
-                  pattern: '^deep$',
-                  scope: 'deep',
-                },
-              },
-              type: 'unsorted',
-            },
-            {
-              type: 'alphabetical',
-            },
-          ],
-          code: dedent`
-            let variable: {
-              deep: {
-                b: "b",
-                a: "a",
-                [nested1]: {
-                  b: "b",
-                  a: "a",
-                }
-              };
-            }
-          `,
-        })
-
-        await valid({
-          options: [
-            {
-              ...options,
-              useConfigurationIf: {
-                declarationMatchesPattern: {
-                  pattern: '^deep$',
-                  scope: 'deep',
-                },
-              },
-              type: 'unsorted',
-            },
-            {
-              type: 'alphabetical',
-            },
-          ],
-          code: dedent`
-            let deep = {} as {
-              b: "b",
-              a: "a",
-              [nested1]: {
-                b: "b",
-                a: "a",
-              }
-            };
-          `,
-        })
-
-        await valid({
-          options: [
-            {
-              ...options,
-              useConfigurationIf: {
-                declarationMatchesPattern: {
-                  pattern: '^Deep$',
-                  scope: 'deep',
-                },
-              },
-              type: 'unsorted',
-            },
-            {
-              type: 'alphabetical',
-            },
-          ],
-          code: dedent`
-            interface Deep {
-              nested: {
-                b: "b",
-                a: "a",
-                [nested1]: {
-                  b: "b",
-                  a: "a",
-                }
-              };
-            }
-          `,
-        })
-      })
-
-      it('matches shallow and deep declarations at the same time', async () => {
-        await invalid({
-          options: [
-            {
-              ...options,
-              useConfigurationIf: {
-                declarationMatchesPattern: [
-                  {
-                    pattern: '^implicitShallow$',
-                  },
-                  {
-                    pattern: '^shallow$',
-                    scope: 'shallow',
-                  },
-                  {
-                    pattern: '^deep$',
-                    scope: 'deep',
-                  },
-                ],
-              },
-              type: 'unsorted',
-            },
-            {
-              type: 'alphabetical',
-            },
-          ],
-          output: dedent`
-            let shallow: {
-              b: "b",
-              a: "a",
-              [nested]: {
-                a: "a",
-                b: "b",
-              }
-            };
-
-            let implicitShallow: {
-              b: "b",
-              a: "a",
-              [nested]: {
-                a: "a",
-                b: "b",
-              }
-            };
-
-            let deep: {
-              b: "b",
-              a: "a",
-              [nested1]: {
-                b: "b",
-                a: "a",
-              }
-            };
-          `,
-          code: dedent`
-            let shallow: {
-              b: "b",
-              a: "a",
-              [nested]: {
-                b: "b",
-                a: "a",
-              }
-            };
-
-            let implicitShallow: {
-              b: "b",
-              a: "a",
-              [nested]: {
-                b: "b",
-                a: "a",
-              }
-            };
-
-            let deep: {
-              b: "b",
-              a: "a",
-              [nested1]: {
-                b: "b",
-                a: "a",
-              }
-            };
-          `,
-          errors: [
-            {
-              messageId: 'unexpectedObjectTypesOrder',
-              data: { right: 'a', left: 'b' },
-            },
-            {
-              messageId: 'unexpectedObjectTypesOrder',
-              data: { right: 'a', left: 'b' },
-            },
-          ],
-        })
-      })
-    })
-
-    it('does not match configuration if no declaration name', async () => {
-      await invalid({
-        options: [
-          {
-            useConfigurationIf: {
-              declarationMatchesPattern: '^Type$',
-            },
-            type: 'unsorted',
-          },
-          options,
-        ],
-        errors: [
-          {
-            messageId: 'unexpectedObjectTypesOrder',
-            data: { right: 'b', left: 'c' },
-          },
-        ],
-        output: dedent`
-          type Type = {
-            a: {
-              b: string
-              c: string
-            }
-          }
-        `,
-        code: dedent`
-          type Type = {
-            a: {
-              c: string
-              b: string
-            }
-          }
-        `,
-      })
-    })
-
-    it('applies configuration when object only has numeric keys', async () => {
-      await valid({
-        options: [
-          {
-            useConfigurationIf: {
-              hasNumericKeysOnly: true,
-            },
-            type: 'unsorted',
-          },
-        ],
-        code: dedent`
-          type Type = {
-            5: number
-            2: SomeObject
-            3: number
-            8: number
-          }
-        `,
-      })
-
-      await valid({
-        options: [
-          {
-            useConfigurationIf: {
-              hasNumericKeysOnly: false,
-            },
-            type: 'unsorted',
-          },
-        ],
-        code: dedent`
-          type Type = {
-            5: number
-            two: SomeObject
-            3: number
-            8: number
-          }
-        `,
-      })
-
-      await invalid({
-        options: [
-          {
-            useConfigurationIf: {
-              hasNumericKeysOnly: true,
-            },
-            type: 'unsorted',
-          },
-          options,
-        ],
-        errors: [
-          {
-            messageId: 'unexpectedObjectTypesOrder',
-            data: { right: '1', left: '2' },
-          },
-        ],
-        output: dedent`
-          type Type = {
-            '1': number
-            2: number
-          }
-        `,
-        code: dedent`
-          type Type = {
-            2: number
-            '1': number
-          }
-        `,
-      })
-    })
-
-    describe('useConfigurationIf.declarationCommentMatchesPattern', () => {
-      it('detects declaration comment by pattern', async () => {
-        await valid({
-          options: [
-            {
-              useConfigurationIf: {
-                declarationCommentMatchesPattern: '^Ignore me$',
-              },
-              type: 'unsorted',
-            },
-            options,
-          ],
-          code: dedent`
-            // Ignore me
-            type Type = {
-              b: string
-              a: string
-            }
-          `,
-        })
-
-        await valid({
-          options: [
-            {
-              useConfigurationIf: {
-                declarationCommentMatchesPattern: '^Ignore me$',
-              },
-              type: 'unsorted',
-            },
-            options,
-          ],
-          code: dedent`
-            // Ignore me
-            type Type = A & {
-              b: string
-              a: string
-            }
-          `,
-        })
-
-        await invalid({
-          options: [
-            {
-              useConfigurationIf: {
-                declarationCommentMatchesPattern: '^Ignore me$',
-              },
-              type: 'unsorted',
-            },
-            options,
-          ],
-          errors: [
-            {
-              messageId: 'unexpectedObjectTypesOrder',
-              data: { right: 'a', left: 'b' },
-            },
-          ],
-          output: dedent`
-            // Do NOT ignore me
-            type Type = {
-              a: string
-              b: string
-            }
-          `,
-          code: dedent`
-            // Do NOT ignore me
-            type Type = {
-              b: string
-              a: string
-            }
-          `,
-        })
-      })
-
-      it('matches shallow declarations', async () => {
-        await valid({
-          options: [
-            {
-              ...options,
-              useConfigurationIf: {
-                declarationCommentMatchesPattern: {
-                  pattern: '^shallow$',
-                },
-              },
-              type: 'unsorted',
-            },
-            {
-              type: 'alphabetical',
-            },
-          ],
-          code: dedent`
-            // shallow
-            let v: {
-              b: "b",
-              a: "a",
-            }
-          `,
-        })
-
-        await valid({
-          options: [
-            {
-              ...options,
-              useConfigurationIf: {
-                declarationCommentMatchesPattern: {
-                  pattern: '^shallow$',
-                },
-              },
-              type: 'unsorted',
-            },
-            {
-              type: 'alphabetical',
-            },
-          ],
-          code: dedent`
-            // shallow
-            let v = {} as {
-              b: "b",
-              a: "a",
-            }
-          `,
-        })
-      })
-
-      it('matches deep declarations', async () => {
-        await valid({
-          options: [
-            {
-              ...options,
-              useConfigurationIf: {
-                declarationCommentMatchesPattern: {
-                  pattern: '^deep$',
-                  scope: 'deep',
-                },
-              },
-              type: 'unsorted',
-            },
-            {
-              type: 'alphabetical',
-            },
-          ],
-          code: dedent`
-            // deep
-            let v: {
-              b: "b",
-              a: "a",
-              [nested1]: {
-                b: "b",
-                a: "a",
-              }
-            };
-          `,
-        })
-
-        await valid({
-          options: [
-            {
-              ...options,
-              useConfigurationIf: {
-                declarationCommentMatchesPattern: {
-                  pattern: '^deep$',
-                  scope: 'deep',
-                },
-              },
-              type: 'unsorted',
-            },
-            {
-              type: 'alphabetical',
-            },
-          ],
-          code: dedent`
-            let variable: {
-              // deep
-              field: {
-                b: "b",
-                a: "a",
-                [nested1]: {
-                  b: "b",
-                  a: "a",
-                }
-              };
-            }
-          `,
-        })
-
-        await valid({
-          options: [
-            {
-              ...options,
-              useConfigurationIf: {
-                declarationCommentMatchesPattern: {
-                  pattern: '^deep$',
-                  scope: 'deep',
-                },
-              },
-              type: 'unsorted',
-            },
-            {
-              type: 'alphabetical',
-            },
-          ],
-          code: dedent`
-            // deep
-            let v = {} as {
-              b: "b",
-              a: "a",
-              [nested1]: {
-                b: "b",
-                a: "a",
-              }
-            };
-          `,
-        })
-
-        await valid({
-          options: [
-            {
-              ...options,
-              useConfigurationIf: {
-                declarationCommentMatchesPattern: {
-                  pattern: '^deep$',
-                  scope: 'deep',
-                },
-              },
-              type: 'unsorted',
-            },
-            {
-              type: 'alphabetical',
-            },
-          ],
-          code: dedent`
-            // deep
-            interface Interface {
-              nested: {
-                b: "b",
-                a: "a",
-                [nested1]: {
-                  b: "b",
-                  a: "a",
-                }
-              };
-            }
-          `,
-        })
-      })
-
-      it('matches shallow and deep declarations at the same time', async () => {
-        await invalid({
-          options: [
-            {
-              ...options,
-              useConfigurationIf: {
-                declarationCommentMatchesPattern: [
-                  {
-                    pattern: '^implicitShallow$',
-                  },
-                  {
-                    pattern: '^shallow$',
-                    scope: 'shallow',
-                  },
-                  {
-                    pattern: '^deep$',
-                    scope: 'deep',
-                  },
-                ],
-              },
-              type: 'unsorted',
-            },
-            {
-              type: 'alphabetical',
-            },
-          ],
-          output: dedent`
-            // shallow
-            let v1: {
-              b: "b",
-              a: "a",
-              [nested]: {
-                a: "a",
-                b: "b",
-              }
-            };
-
-            // implicitShallow
-            let v2: {
-              b: "b",
-              a: "a",
-              [nested]: {
-                a: "a",
-                b: "b",
-              }
-            };
-
-            // deep
-            let v3: {
-              b: "b",
-              a: "a",
-              [nested1]: {
-                b: "b",
-                a: "a",
-              }
-            };
-          `,
-          code: dedent`
-            // shallow
-            let v1: {
-              b: "b",
-              a: "a",
-              [nested]: {
-                b: "b",
-                a: "a",
-              }
-            };
-
-            // implicitShallow
-            let v2: {
-              b: "b",
-              a: "a",
-              [nested]: {
-                b: "b",
-                a: "a",
-              }
-            };
-
-            // deep
-            let v3: {
-              b: "b",
-              a: "a",
-              [nested1]: {
-                b: "b",
-                a: "a",
-              }
-            };
-          `,
-          errors: [
-            {
-              messageId: 'unexpectedObjectTypesOrder',
-              data: { right: 'a', left: 'b' },
-            },
-            {
-              messageId: 'unexpectedObjectTypesOrder',
-              data: { right: 'a', left: 'b' },
-            },
-          ],
-        })
-      })
-    })
-
-    describe('useConfigurationIf.matchesAstSelector', () => {
-      it('skips config when selector does not match the sorted node type', async () => {
-        await invalid({
-          options: [
-            {
-              ...options,
-              useConfigurationIf: {
-                matchesAstSelector: 'TSTypeAliasDeclaration',
-              },
-              type: 'unsorted',
-            },
-          ],
-          errors: [
-            {
-              data: {
-                right: 'a',
-                left: 'b',
-              },
-              messageId: 'unexpectedObjectTypesOrder',
-            },
-          ],
-          output: dedent`
-            type Type = {
-              a: string
-              b: string
-            }
-          `,
-          code: dedent`
-            type Type = {
-              b: string
-              a: string
-            }
-          `,
-        })
-      })
-
-      it('applies config when selector matches the sorted node type', async () => {
-        await valid({
-          options: [
-            {
-              ...options,
-              useConfigurationIf: {
-                matchesAstSelector: 'TSTypeLiteral',
-              },
-              type: 'unsorted',
-            },
-          ],
-          code: dedent`
-            type Type = {
-              b: string
-              a: string
-            }
-          `,
-        })
-
-        await valid({
-          options: [
-            {
-              ...options,
-              useConfigurationIf: {
-                matchesAstSelector: 'TSTypeLiteral',
-              },
-              type: 'unsorted',
-            },
-          ],
-          code: dedent`
-            let x: {
-              b: string
-              a: string
-            }
-          `,
-        })
-      })
-
-      it('falls through to next matching config when not matching', async () => {
-        await invalid({
-          options: [
-            {
-              ...options,
-              useConfigurationIf: {
-                matchesAstSelector: '* > TSTypeLiteral',
-                allNamesMatchPattern: '^[ac]$',
-              },
-              type: 'unsorted',
-            },
-            {
-              ...options,
-              useConfigurationIf: {
-                matchesAstSelector: 'TSTypeLiteral',
-              },
-              type: 'alphabetical',
-            },
-            {
-              type: 'unsorted',
-            },
-          ],
-          errors: [
-            {
-              data: {
-                right: 'a',
-                left: 'b',
-              },
-              messageId: 'unexpectedObjectTypesOrder',
-            },
-          ],
-          output: dedent`
-            type Type = {
-              a: string
-              b: string
-            }
-          `,
-          code: dedent`
-            type Type = {
-              b: string
-              a: string
-            }
-          `,
-        })
-
-        await invalid({
-          options: [
-            {
-              ...options,
-              useConfigurationIf: {
-                matchesAstSelector: 'TSTypeLiteral',
-                allNamesMatchPattern: '^[ac]$',
-              },
-              type: 'unsorted',
-            },
-            {
-              ...options,
-              useConfigurationIf: {
-                matchesAstSelector: 'TSTypeLiteral',
-              },
-              type: 'alphabetical',
-            },
-            {
-              type: 'unsorted',
-            },
-          ],
-          errors: [
-            {
-              data: {
-                right: 'a',
-                left: 'b',
-              },
-              messageId: 'unexpectedObjectTypesOrder',
-            },
-          ],
-          output: dedent`
-            type Type = {
-              a: string
-              b: string
-            }
-          `,
-          code: dedent`
-            type Type = {
-              b: string
-              a: string
-            }
-          `,
-        })
-
-        await invalid({
-          options: [
-            {
-              ...options,
-              useConfigurationIf: {
-                matchesAstSelector: 'TSTypeLiteral',
-                allNamesMatchPattern: '^[ac]$',
-              },
-              type: 'unsorted',
-            },
-            {
-              ...options,
-              useConfigurationIf: {
-                allNamesMatchPattern: '^[ab]$',
-              },
-              type: 'alphabetical',
-              order: 'desc',
-            },
-            {
-              type: 'unsorted',
-            },
-          ],
+    ruleTester.run(`${ruleName}(${type}): sorts type members`, rule, {
+      invalid: [
+        {
           errors: [
             {
               data: {
                 right: 'b',
-                left: 'a',
+                left: 'c',
               },
               messageId: 'unexpectedObjectTypesOrder',
             },
           ],
           output: dedent`
             type Type = {
-              b: string
-              a: string
+              a: 'aaa'
+              b: 'bb'
+              c: 'c'
             }
           `,
           code: dedent`
             type Type = {
-              a: string
-              b: string
+              a: 'aaa'
+              c: 'c'
+              b: 'bb'
             }
           `,
-        })
-      })
-
-      it('applies first matching option when selectors overlap', async () => {
-        await valid({
-          options: [
-            {
-              ...options,
-              useConfigurationIf: {
-                matchesAstSelector: 'TSTypeLiteral',
-              },
-              type: 'unsorted',
-            },
-            {
-              ...options,
-              useConfigurationIf: {
-                matchesAstSelector: '* > TSTypeLiteral',
-              },
-              type: 'alphabetical',
-            },
-          ],
+          options: [options],
+        },
+      ],
+      valid: [
+        {
           code: dedent`
             type Type = {
-              b: string
-              a: string
+              a: 'aaa'
+              b: 'bb'
+              c: 'c'
             }
           `,
-        })
+          options: [options],
+        },
+      ],
+    })
 
-        await invalid({
-          options: [
-            {
-              ...options,
-              useConfigurationIf: {
-                matchesAstSelector: 'TSTypeLiteral',
+    ruleTester.run(
+      `${ruleName}(${type}): sorts type members in function args`,
+      rule,
+      {
+        invalid: [
+          {
+            errors: [
+              {
+                data: {
+                  right: 'a',
+                  left: 'b',
+                },
+                messageId: 'unexpectedObjectTypesOrder',
               },
-              type: 'alphabetical',
-            },
-            {
-              ...options,
-              useConfigurationIf: {
-                matchesAstSelector: '* > TSTypeLiteral',
+            ],
+            output: dedent`
+              let Func = (arguments: {
+                a: 'aaa'
+                b: 'bb'
+                c: 'c'
+              }) => {
+                // ...
+              }
+            `,
+            code: dedent`
+              let Func = (arguments: {
+                b: 'bb'
+                a: 'aaa'
+                c: 'c'
+              }) => {
+                // ...
+              }
+            `,
+            options: [options],
+          },
+        ],
+        valid: [
+          {
+            code: dedent`
+              let Func = (arguments: {
+                a: 'aaa'
+                b: 'bb'
+                c: 'c'
+              }) => {
+                // ...
+              }
+            `,
+            options: [options],
+          },
+        ],
+      },
+    )
+
+    ruleTester.run(
+      `${ruleName}(${type}): sorts type members with computed keys`,
+      rule,
+      {
+        invalid: [
+          {
+            errors: [
+              {
+                data: {
+                  right: '[key: string]',
+                  left: 'a',
+                },
+                messageId: 'unexpectedObjectTypesOrder',
               },
-              type: 'unsorted',
-            },
-          ],
+              {
+                data: {
+                  left: 'value',
+                  right: 'c',
+                },
+                messageId: 'unexpectedObjectTypesOrder',
+              },
+            ],
+            output: dedent`
+              type Type = {
+                [key: string]: string
+                a?: 'aaa'
+                b: 'bb'
+                c: 'c'
+                [value]: string
+              }
+            `,
+            code: dedent`
+              type Type = {
+                a?: 'aaa'
+                [key: string]: string
+                b: 'bb'
+                [value]: string
+                c: 'c'
+              }
+            `,
+            options: [options],
+          },
+        ],
+        valid: [
+          {
+            code: dedent`
+              type Type = {
+                [key: string]: string
+                a?: 'aaa'
+                b: 'bb'
+                c: 'c'
+                [value]: string
+              }
+            `,
+            options: [options],
+          },
+        ],
+      },
+    )
+
+    ruleTester.run(
+      `${ruleName}(${type}): sorts type members with any key types`,
+      rule,
+      {
+        invalid: [
+          {
+            output: dedent`
+              type Type = {
+                [...values]
+                [[data]]: string
+                [name in v]?
+                [8]: Value
+                arrowFunc?: () => void
+                func(): void
+              }
+            `,
+            code: dedent`
+              type Type = {
+                [...values]
+                [[data]]: string
+                [name in v]?
+                [8]: Value
+                func(): void
+                arrowFunc?: () => void
+              }
+            `,
+            errors: [
+              {
+                data: {
+                  right: 'arrowFunc',
+                  left: 'func',
+                },
+                messageId: 'unexpectedObjectTypesOrder',
+              },
+            ],
+            options: [options],
+          },
+        ],
+        valid: [
+          {
+            code: dedent`
+              type Type = {
+                [...values]
+                [[data]]: string
+                [name in v]?
+                [8]: Value
+                arrowFunc?: () => void
+                func(): void
+              }
+            `,
+            options: [options],
+          },
+        ],
+      },
+    )
+
+    ruleTester.run(`${ruleName}(${type}): sorts inline type members`, rule, {
+      invalid: [
+        {
           errors: [
             {
               data: {
@@ -3732,5292 +251,3894 @@ describe('sort-object-types', () => {
             },
           ],
           output: dedent`
-            type Type = {
-              a: string
-              b: string
-            }
+            func<{ a: 'aa'; b: 'b'; }>(/* ... */)
           `,
           code: dedent`
-            type Type = {
-              b: string
-              a: string
-            }
+            func<{ b: 'b'; a: 'aa' }>(/* ... */)
           `,
-        })
+          options: [options],
+        },
+      ],
+      valid: [
+        {
+          code: dedent`
+            func<{ a: 'aa'; b: 'b' }>(/* ... */)
+          `,
+          options: [options],
+        },
+      ],
+    })
+
+    ruleTester.run(
+      `${ruleName}(${type}): sorts complex predefined groups`,
+      rule,
+      {
+        invalid: [
+          {
+            errors: [
+              {
+                data: {
+                  leftGroup: 'required-property',
+                  rightGroup: 'index-signature',
+                  right: '[key: string]',
+                  left: 'a',
+                },
+                messageId: 'unexpectedObjectTypesGroupOrder',
+              },
+              {
+                data: {
+                  rightGroup: 'optional-multiline',
+                  leftGroup: 'index-signature',
+                  left: '[key: string]',
+                  right: 'b',
+                },
+                messageId: 'unexpectedObjectTypesGroupOrder',
+              },
+              {
+                data: {
+                  leftGroup: 'optional-multiline',
+                  rightGroup: 'required-method',
+                  right: 'c',
+                  left: 'b',
+                },
+                messageId: 'unexpectedObjectTypesGroupOrder',
+              },
+            ],
+            options: [
+              {
+                ...options,
+                groups: [
+                  'unknown',
+                  'required-method',
+                  'optional-multiline',
+                  'index-signature',
+                  'required-property',
+                ],
+              },
+            ],
+            output: dedent`
+              type Type = {
+                c(): void
+                b?: {
+                  property: string;
+                }
+                [key: string]: string;
+                a: string
+              }
+            `,
+            code: dedent`
+              type Type = {
+                a: string
+                [key: string]: string;
+                b?: {
+                  property: string;
+                }
+                c(): void
+              }
+            `,
+          },
+        ],
+        valid: [],
+      },
+    )
+
+    ruleTester.run(
+      `${ruleName}(${type}): prioritize selectors over modifiers quantity`,
+      rule,
+      {
+        invalid: [
+          {
+            errors: [
+              {
+                data: {
+                  leftGroup: 'required-property',
+                  rightGroup: 'method',
+                  left: 'property',
+                  right: 'method',
+                },
+                messageId: 'unexpectedObjectTypesGroupOrder',
+              },
+            ],
+            options: [
+              {
+                ...options,
+                groups: ['method', 'required-property'],
+              },
+            ],
+            output: dedent`
+              type Type = {
+                method(): void
+                property: string
+              }
+            `,
+            code: dedent`
+              type Type = {
+                property: string
+                method(): void
+              }
+            `,
+          },
+        ],
+        valid: [],
+      },
+    )
+
+    describe(`${ruleName}(${type}): selectors priority`, () => {
+      ruleTester.run(
+        `${ruleName}(${type}): prioritize index-signature over multiline`,
+        rule,
+        {
+          invalid: [
+            {
+              errors: [
+                {
+                  data: {
+                    rightGroup: 'index-signature',
+                    left: 'multilineProperty',
+                    right: '[key: string]',
+                    leftGroup: 'multiline',
+                  },
+                  messageId: 'unexpectedObjectTypesGroupOrder',
+                },
+              ],
+              output: dedent`
+                type Type = {
+                  [key: string]: string;
+                  multilineProperty: {
+                    a: string
+                  }
+                }
+              `,
+              code: dedent`
+                type Type = {
+                  multilineProperty: {
+                    a: string
+                  }
+                  [key: string]: string;
+                }
+              `,
+              options: [
+                {
+                  ...options,
+                  groups: ['index-signature', 'multiline'],
+                },
+              ],
+            },
+          ],
+          valid: [],
+        },
+      )
+
+      ruleTester.run(
+        `${ruleName}(${type}): prioritize method over multiline`,
+        rule,
+        {
+          invalid: [
+            {
+              errors: [
+                {
+                  data: {
+                    left: 'multilineProperty',
+                    leftGroup: 'multiline',
+                    rightGroup: 'method',
+                    right: 'method',
+                  },
+                  messageId: 'unexpectedObjectTypesGroupOrder',
+                },
+              ],
+              output: dedent`
+                type Type = {
+                  method(): string
+                  multilineProperty: {
+                    a: string
+                  }
+                }
+              `,
+              code: dedent`
+                type Type = {
+                  multilineProperty: {
+                    a: string
+                  }
+                  method(): string
+                }
+              `,
+              options: [
+                {
+                  ...options,
+                  groups: ['method', 'multiline'],
+                },
+              ],
+            },
+          ],
+          valid: [],
+        },
+      )
+
+      ruleTester.run(
+        `${ruleName}(${type}): prioritize multiline over property`,
+        rule,
+        {
+          invalid: [
+            {
+              errors: [
+                {
+                  data: {
+                    right: 'multilineProperty',
+                    rightGroup: 'multiline',
+                    leftGroup: 'property',
+                    left: 'property',
+                  },
+                  messageId: 'unexpectedObjectTypesGroupOrder',
+                },
+              ],
+              output: dedent`
+                type Type = {
+                  multilineProperty: {
+                    a: string
+                  }
+                  property: string
+                }
+              `,
+              code: dedent`
+                type Type = {
+                  property: string
+                  multilineProperty: {
+                    a: string
+                  }
+                }
+              `,
+              options: [
+                {
+                  ...options,
+                  groups: ['multiline', 'property'],
+                },
+              ],
+            },
+          ],
+          valid: [],
+        },
+      )
+
+      ruleTester.run(
+        `${ruleName}(${type}): prioritize property over member`,
+        rule,
+        {
+          invalid: [
+            {
+              errors: [
+                {
+                  data: {
+                    rightGroup: 'property',
+                    leftGroup: 'member',
+                    right: 'property',
+                    left: 'method',
+                  },
+                  messageId: 'unexpectedObjectTypesGroupOrder',
+                },
+              ],
+              output: dedent`
+                type Type = {
+                  property: string
+                  method(): string
+                }
+              `,
+              code: dedent`
+                type Type = {
+                  method(): string
+                  property: string
+                }
+              `,
+              options: [
+                {
+                  ...options,
+                  groups: ['property', 'member'],
+                },
+              ],
+            },
+          ],
+          valid: [],
+        },
+      )
+    })
+
+    describe(`${ruleName}(${type}): modifiers priority`, () => {
+      ruleTester.run(
+        `${ruleName}(${type}): prioritize multiline over optional`,
+        rule,
+        {
+          invalid: [
+            {
+              errors: [
+                {
+                  data: {
+                    rightGroup: 'multiline-property',
+                    leftGroup: 'optional-property',
+                    right: 'multilineProperty',
+                    left: 'optionalProperty',
+                  },
+                  messageId: 'unexpectedObjectTypesGroupOrder',
+                },
+              ],
+              output: dedent`
+                type Type = {
+                  multilineProperty: {
+                    a: string
+                  }
+                  optionalProperty?: string
+                }
+              `,
+              code: dedent`
+                type Type = {
+                  optionalProperty?: string
+                  multilineProperty: {
+                    a: string
+                  }
+                }
+              `,
+              options: [
+                {
+                  ...options,
+                  groups: ['multiline-property', 'optional-property'],
+                },
+              ],
+            },
+          ],
+          valid: [],
+        },
+      )
+
+      ruleTester.run(
+        `${ruleName}(${type}): prioritize multiline over required`,
+        rule,
+        {
+          invalid: [
+            {
+              errors: [
+                {
+                  data: {
+                    rightGroup: 'multiline-property',
+                    leftGroup: 'required-property',
+                    right: 'multilineProperty',
+                    left: 'requiredProperty',
+                  },
+                  messageId: 'unexpectedObjectTypesGroupOrder',
+                },
+              ],
+              output: dedent`
+                type Type = {
+                  multilineProperty: {
+                    a: string
+                  }
+                  requiredProperty: string
+                }
+              `,
+              code: dedent`
+                type Type = {
+                  requiredProperty: string
+                  multilineProperty: {
+                    a: string
+                  }
+                }
+              `,
+              options: [
+                {
+                  ...options,
+                  groups: ['multiline-property', 'required-property'],
+                },
+              ],
+            },
+          ],
+          valid: [],
+        },
+      )
+    })
+
+    ruleTester.run(
+      `${ruleName}(${type}): allows to set groups for sorting`,
+      rule,
+      {
+        invalid: [
+          {
+            errors: [
+              {
+                data: {
+                  rightGroup: 'multiline',
+                  leftGroup: 'unknown',
+                  right: 'd',
+                  left: 'c',
+                },
+                messageId: 'unexpectedObjectTypesGroupOrder',
+              },
+              {
+                data: {
+                  leftGroup: 'multiline',
+                  rightGroup: 'g',
+                  right: 'g',
+                  left: 'd',
+                },
+                messageId: 'unexpectedObjectTypesGroupOrder',
+              },
+            ],
+            output: dedent`
+              type Type = {
+                g: 'g'
+                d: {
+                  e: 'e'
+                  f: 'f'
+                }
+                a: 'aaa'
+                b: 'bb'
+                c: 'c'
+              }
+            `,
+            code: dedent`
+              type Type = {
+                a: 'aaa'
+                b: 'bb'
+                c: 'c'
+                d: {
+                  e: 'e'
+                  f: 'f'
+                }
+                g: 'g'
+              }
+            `,
+            options: [
+              {
+                ...options,
+                customGroups: {
+                  g: 'g',
+                },
+                groups: ['g', 'multiline', 'unknown'],
+              },
+            ],
+          },
+        ],
+        valid: [
+          {
+            code: dedent`
+              type Type = {
+                g: 'g'
+                d: {
+                  e: 'e'
+                  f: 'f'
+                }
+                a: 'aaa'
+                b: 'bb'
+                c: 'c'
+              }
+            `,
+            options: [
+              {
+                ...options,
+                customGroups: {
+                  g: 'g',
+                },
+                groups: ['g', 'multiline', 'unknown'],
+              },
+            ],
+          },
+        ],
+      },
+    )
+
+    describe(`${ruleName}: custom groups`, () => {
+      ruleTester.run(`${ruleName}: filters on selector and modifiers`, rule, {
+        invalid: [
+          {
+            options: [
+              {
+                customGroups: [
+                  {
+                    groupName: 'unusedCustomGroup',
+                    modifiers: ['optional'],
+                    selector: 'method',
+                  },
+                  {
+                    groupName: 'optionalPropertyGroup',
+                    modifiers: ['optional'],
+                    selector: 'property',
+                  },
+                  {
+                    groupName: 'propertyGroup',
+                    selector: 'property',
+                  },
+                ],
+                groups: ['propertyGroup', 'optionalPropertyGroup'],
+              },
+            ],
+            errors: [
+              {
+                data: {
+                  leftGroup: 'optionalPropertyGroup',
+                  rightGroup: 'propertyGroup',
+                  right: 'c',
+                  left: 'b',
+                },
+                messageId: 'unexpectedObjectTypesGroupOrder',
+              },
+            ],
+            output: dedent`
+              type Type = {
+                c: string
+                a?: string
+                b?: string
+              }
+            `,
+            code: dedent`
+              type Type = {
+                a?: string
+                b?: string
+                c: string
+              }
+            `,
+          },
+        ],
+        valid: [],
       })
 
-      it('picks the first matching option when multiple options match', async () => {
-        await invalid({
+      for (let elementNamePattern of [
+        'hello',
+        ['noMatch', 'hello'],
+        { pattern: 'HELLO', flags: 'i' },
+        ['noMatch', { pattern: 'HELLO', flags: 'i' }],
+      ]) {
+        ruleTester.run(`${ruleName}: filters on elementNamePattern`, rule, {
+          invalid: [
+            {
+              options: [
+                {
+                  customGroups: [
+                    {
+                      groupName: 'propertiesStartingWithHello',
+                      selector: 'property',
+                      elementNamePattern,
+                    },
+                  ],
+                  groups: ['propertiesStartingWithHello', 'unknown'],
+                },
+              ],
+              errors: [
+                {
+                  data: {
+                    rightGroup: 'propertiesStartingWithHello',
+                    right: 'helloProperty',
+                    leftGroup: 'unknown',
+                    left: 'method',
+                  },
+                  messageId: 'unexpectedObjectTypesGroupOrder',
+                },
+              ],
+              output: dedent`
+                type Type = {
+                  helloProperty: string
+                  a: string
+                  b: string
+                  method(): void
+                }
+              `,
+              code: dedent`
+                type Type = {
+                  a: string
+                  b: string
+                  method(): void
+                  helloProperty: string
+                }
+              `,
+            },
+          ],
+          valid: [],
+        })
+      }
+
+      ruleTester.run(
+        `${ruleName}: sort custom groups by overriding 'type' and 'order'`,
+        rule,
+        {
+          invalid: [
+            {
+              errors: [
+                {
+                  data: {
+                    right: 'bb',
+                    left: 'a',
+                  },
+                  messageId: 'unexpectedObjectTypesOrder',
+                },
+                {
+                  data: {
+                    right: 'ccc',
+                    left: 'bb',
+                  },
+                  messageId: 'unexpectedObjectTypesOrder',
+                },
+                {
+                  data: {
+                    right: 'dddd',
+                    left: 'ccc',
+                  },
+                  messageId: 'unexpectedObjectTypesOrder',
+                },
+                {
+                  data: {
+                    rightGroup: 'reversedPropertiesByLineLength',
+                    leftGroup: 'unknown',
+                    left: 'method',
+                    right: 'eee',
+                  },
+                  messageId: 'unexpectedObjectTypesGroupOrder',
+                },
+              ],
+              options: [
+                {
+                  customGroups: [
+                    {
+                      groupName: 'reversedPropertiesByLineLength',
+                      selector: 'property',
+                      type: 'line-length',
+                      order: 'desc',
+                    },
+                  ],
+                  groups: ['reversedPropertiesByLineLength', 'unknown'],
+                  type: 'alphabetical',
+                  order: 'asc',
+                },
+              ],
+              output: dedent`
+                type Type = {
+                  dddd: string
+                  ccc: string
+                  eee: string
+                  bb: string
+                  ff: string
+                  a: string
+                  g: string
+                  anotherMethod(): void
+                  method(): void
+                  yetAnotherMethod(): void
+                }
+              `,
+              code: dedent`
+                type Type = {
+                  a: string
+                  bb: string
+                  ccc: string
+                  dddd: string
+                  method(): void
+                  eee: string
+                  ff: string
+                  g: string
+                  anotherMethod(): void
+                  yetAnotherMethod(): void
+                }
+              `,
+            },
+          ],
+          valid: [],
+        },
+      )
+
+      ruleTester.run(
+        `${ruleName}: does not sort custom groups with 'unsorted' type`,
+        rule,
+        {
+          invalid: [
+            {
+              options: [
+                {
+                  customGroups: [
+                    {
+                      groupName: 'unsortedProperties',
+                      selector: 'property',
+                      type: 'unsorted',
+                    },
+                  ],
+                  groups: ['unsortedProperties', 'unknown'],
+                },
+              ],
+              errors: [
+                {
+                  data: {
+                    rightGroup: 'unsortedProperties',
+                    leftGroup: 'unknown',
+                    left: 'method',
+                    right: 'c',
+                  },
+                  messageId: 'unexpectedObjectTypesGroupOrder',
+                },
+              ],
+              output: dedent`
+                type Type = {
+                  b
+                  a
+                  d
+                  e
+                  c
+                  method(): void
+                }
+              `,
+              code: dedent`
+                type Type = {
+                  b
+                  a
+                  d
+                  e
+                  method(): void
+                  c
+                }
+              `,
+            },
+          ],
+          valid: [],
+        },
+      )
+
+      ruleTester.run(`${ruleName}: sort custom group blocks`, rule, {
+        invalid: [
+          {
+            options: [
+              {
+                customGroups: [
+                  {
+                    anyOf: [
+                      {
+                        modifiers: ['required'],
+                        selector: 'property',
+                      },
+                      {
+                        modifiers: ['optional'],
+                        selector: 'method',
+                      },
+                    ],
+                    groupName: 'requiredPropertiesAndOptionalMethods',
+                  },
+                ],
+                groups: [
+                  ['requiredPropertiesAndOptionalMethods', 'index-signature'],
+                  'unknown',
+                ],
+              },
+            ],
+            errors: [
+              {
+                data: {
+                  rightGroup: 'requiredPropertiesAndOptionalMethods',
+                  leftGroup: 'unknown',
+                  right: 'd',
+                  left: 'c',
+                },
+                messageId: 'unexpectedObjectTypesGroupOrder',
+              },
+              {
+                data: {
+                  right: '[key: string]',
+                  left: 'e',
+                },
+                messageId: 'unexpectedObjectTypesOrder',
+              },
+            ],
+            output: dedent`
+              type Type = {
+                [key: string]: string
+                a: string
+                d?: () => void
+                e: string
+                b(): void
+                c?: string
+              }
+            `,
+            code: dedent`
+              type Type = {
+                a: string
+                b(): void
+                c?: string
+                d?: () => void
+                e: string
+                [key: string]: string
+              }
+            `,
+          },
+        ],
+        valid: [],
+      })
+
+      ruleTester.run(
+        `${ruleName}: allows to use regex for element names in custom groups`,
+        rule,
+        {
+          valid: [
+            {
+              options: [
+                {
+                  customGroups: [
+                    {
+                      elementNamePattern: '^(?!.*Foo).*$',
+                      groupName: 'elementsWithoutFoo',
+                    },
+                  ],
+                  groups: ['unknown', 'elementsWithoutFoo'],
+                  type: 'alphabetical',
+                },
+              ],
+              code: dedent`
+                type Type = {
+                  iHaveFooInMyName: string
+                  meTooIHaveFoo: string
+                  a: string
+                  b: string
+                }
+              `,
+            },
+          ],
+          invalid: [],
+        },
+      )
+
+      describe('newlinesInside', () => {
+        ruleTester.run(
+          `${ruleName}: allows to use newlinesInside: always`,
+          rule,
+          {
+            invalid: [
+              {
+                options: [
+                  {
+                    customGroups: [
+                      {
+                        newlinesInside: 'always',
+                        selector: 'property',
+                        groupName: 'group1',
+                      },
+                    ],
+                    groups: ['group1'],
+                  },
+                ],
+                errors: [
+                  {
+                    data: {
+                      right: 'b',
+                      left: 'a',
+                    },
+                    messageId: 'missedSpacingBetweenObjectTypeMembers',
+                  },
+                ],
+                output: dedent`
+                  type type = {
+                    a
+
+                    b
+                  }
+                `,
+                code: dedent`
+                  type type = {
+                    a
+                    b
+                  }
+                `,
+              },
+            ],
+            valid: [],
+          },
+        )
+
+        ruleTester.run(
+          `${ruleName}: allows to use newlinesInside: never`,
+          rule,
+          {
+            invalid: [
+              {
+                options: [
+                  {
+                    customGroups: [
+                      {
+                        newlinesInside: 'never',
+                        selector: 'property',
+                        groupName: 'group1',
+                      },
+                    ],
+                    type: 'alphabetical',
+                    groups: ['group1'],
+                  },
+                ],
+                errors: [
+                  {
+                    data: {
+                      right: 'b',
+                      left: 'a',
+                    },
+                    messageId: 'extraSpacingBetweenObjectTypeMembers',
+                  },
+                ],
+                output: dedent`
+                  type type = {
+                    a
+                    b
+                  }
+                `,
+                code: dedent`
+                  type type = {
+                    a
+
+                    b
+                  }
+                `,
+              },
+            ],
+            valid: [],
+          },
+        )
+      })
+    })
+
+    ruleTester.run(
+      `${ruleName}(${type}): allows to use regex for custom groups`,
+      rule,
+      {
+        valid: [
+          {
+            options: [
+              {
+                ...options,
+                customGroups: {
+                  elementsWithoutFoo: '^(?!.*Foo).*$',
+                },
+                groups: ['unknown', 'elementsWithoutFoo'],
+              },
+            ],
+            code: dedent`
+              type T = {
+                iHaveFooInMyName: string
+                meTooIHaveFoo: string
+                a: string
+                b: string
+              }
+            `,
+          },
+        ],
+        invalid: [],
+      },
+    )
+
+    ruleTester.run(
+      `${ruleName}(${type}): allows to use in class methods`,
+      rule,
+      {
+        invalid: [
+          {
+            errors: [
+              {
+                data: {
+                  right: 'a',
+                  left: 'b',
+                },
+                messageId: 'unexpectedObjectTypesOrder',
+              },
+            ],
+            output: dedent`
+              class Class {
+                async method (data: {
+                  a: 'aaa'
+                  b: 'bb'
+                  c: 'c'
+                }) {}
+              }
+            `,
+            code: dedent`
+              class Class {
+                async method (data: {
+                  b: 'bb'
+                  a: 'aaa'
+                  c: 'c'
+                }) {}
+              }
+            `,
+            options: [options],
+          },
+        ],
+        valid: [],
+      },
+    )
+
+    ruleTester.run(
+      `${ruleName}(${type}): allows to use new line as partition`,
+      rule,
+      {
+        invalid: [
+          {
+            errors: [
+              {
+                data: {
+                  right: 'd',
+                  left: 'e',
+                },
+                messageId: 'unexpectedObjectTypesOrder',
+              },
+              {
+                data: {
+                  right: 'a',
+                  left: 'b',
+                },
+                messageId: 'unexpectedObjectTypesOrder',
+              },
+            ],
+            output: dedent`
+              type Type = {
+                d: 'dd'
+                e: 'e'
+
+                c: 'ccc'
+
+                a: 'aaaaa'
+                b: 'bbbb'
+              }
+            `,
+            code: dedent`
+              type Type = {
+                e: 'e'
+                d: 'dd'
+
+                c: 'ccc'
+
+                b: 'bbbb'
+                a: 'aaaaa'
+              }
+            `,
+            options: [
+              {
+                ...options,
+                partitionByNewLine: true,
+              },
+            ],
+          },
+        ],
+        valid: [
+          {
+            code: dedent`
+              type Type = {
+                d: 'dd'
+                e: 'e'
+
+                c: 'ccc'
+
+                a: 'aaaaa'
+                b: 'bbbb'
+              }
+            `,
+            options: [
+              {
+                ...options,
+                partitionByNewLine: true,
+              },
+            ],
+          },
+        ],
+      },
+    )
+
+    describe(`${ruleName}(${type}): partition comments`, () => {
+      ruleTester.run(
+        `${ruleName}(${type}): allows to use partition comments`,
+        rule,
+        {
+          invalid: [
+            {
+              output: dedent`
+                type Type = {
+                  // Part: A
+                  // Not partition comment
+                  bbb: string
+                  cc: string
+                  d: string
+                  // Part: B
+                  aaaa: string
+                  e: string
+                  // Part: C
+                  // Not partition comment
+                  fff: string
+                  'gg': string
+                }
+              `,
+              code: dedent`
+                type Type = {
+                  // Part: A
+                  cc: string
+                  d: string
+                  // Not partition comment
+                  bbb: string
+                  // Part: B
+                  aaaa: string
+                  e: string
+                  // Part: C
+                  'gg': string
+                  // Not partition comment
+                  fff: string
+                }
+              `,
+              errors: [
+                {
+                  data: {
+                    right: 'bbb',
+                    left: 'd',
+                  },
+                  messageId: 'unexpectedObjectTypesOrder',
+                },
+                {
+                  data: {
+                    right: 'fff',
+                    left: 'gg',
+                  },
+                  messageId: 'unexpectedObjectTypesOrder',
+                },
+              ],
+              options: [
+                {
+                  ...options,
+                  partitionByComment: '^Part',
+                },
+              ],
+            },
+          ],
+          valid: [],
+        },
+      )
+
+      ruleTester.run(
+        `${ruleName}(${type}): allows to use all comments as parts`,
+        rule,
+        {
+          valid: [
+            {
+              code: dedent`
+                type Type = {
+                  // Comment
+                  bb: string
+                  // Other comment
+                  a: string
+                }
+              `,
+              options: [
+                {
+                  ...options,
+                  partitionByComment: true,
+                },
+              ],
+            },
+          ],
+          invalid: [],
+        },
+      )
+
+      ruleTester.run(
+        `${ruleName}(${type}): allows to use multiple partition comments`,
+        rule,
+        {
+          invalid: [
+            {
+              output: dedent`
+                type Type = {
+                  /* Partition Comment */
+                  // Part: A
+                  d: string
+                  // Part: B
+                  aaa: string
+                  bb: string
+                  c: string
+                  /* Other */
+                  e: string
+                }
+              `,
+              code: dedent`
+                type Type = {
+                  /* Partition Comment */
+                  // Part: A
+                  d: string
+                  // Part: B
+                  aaa: string
+                  c: string
+                  bb: string
+                  /* Other */
+                  e: string
+                }
+              `,
+              errors: [
+                {
+                  data: {
+                    right: 'bb',
+                    left: 'c',
+                  },
+                  messageId: 'unexpectedObjectTypesOrder',
+                },
+              ],
+              options: [
+                {
+                  ...options,
+                  partitionByComment: ['Partition Comment', 'Part:', 'Other'],
+                },
+              ],
+            },
+          ],
+          valid: [],
+        },
+      )
+
+      ruleTester.run(
+        `${ruleName}(${type}): allows to use regex for partition comments`,
+        rule,
+        {
+          valid: [
+            {
+              code: dedent`
+                type Type = {
+                  e: string
+                  f: string
+                  // I am a partition comment because I don't have f o o
+                  a: string
+                  b: string
+                }
+              `,
+              options: [
+                {
+                  ...options,
+                  partitionByComment: ['^(?!.*foo).*$'],
+                },
+              ],
+            },
+          ],
+          invalid: [],
+        },
+      )
+
+      describe(`${ruleName}(${type}): allows to use "partitionByComment.line"`, () => {
+        ruleTester.run(`${ruleName}(${type}): ignores block comments`, rule, {
+          invalid: [
+            {
+              errors: [
+                {
+                  data: {
+                    right: 'a',
+                    left: 'b',
+                  },
+                  messageId: 'unexpectedObjectTypesOrder',
+                },
+              ],
+              options: [
+                {
+                  ...options,
+                  partitionByComment: {
+                    line: true,
+                  },
+                },
+              ],
+              output: dedent`
+                type Type = {
+                  /* Comment */
+                  a: string
+                  b: string
+                }
+              `,
+              code: dedent`
+                type Type = {
+                  b: string
+                  /* Comment */
+                  a: string
+                }
+              `,
+            },
+          ],
+          valid: [],
+        })
+
+        ruleTester.run(
+          `${ruleName}(${type}): allows to use all comments as parts`,
+          rule,
+          {
+            valid: [
+              {
+                options: [
+                  {
+                    ...options,
+                    partitionByComment: {
+                      line: true,
+                    },
+                  },
+                ],
+                code: dedent`
+                  type Type = {
+                    b: string
+                    // Comment
+                    a: string
+                  }
+                `,
+              },
+            ],
+            invalid: [],
+          },
+        )
+
+        ruleTester.run(
+          `${ruleName}(${type}): allows to use multiple partition comments`,
+          rule,
+          {
+            valid: [
+              {
+                code: dedent`
+                  type Type = {
+                    c: string
+                    // b
+                    b: string
+                    // a
+                    a: string
+                  }
+                `,
+                options: [
+                  {
+                    ...options,
+                    partitionByComment: {
+                      line: ['a', 'b'],
+                    },
+                  },
+                ],
+              },
+            ],
+            invalid: [],
+          },
+        )
+
+        ruleTester.run(
+          `${ruleName}(${type}): allows to use regex for partition comments`,
+          rule,
+          {
+            valid: [
+              {
+                code: dedent`
+                  type Type = {
+                    b: string
+                    // I am a partition comment because I don't have f o o
+                    a: string
+                  }
+                `,
+                options: [
+                  {
+                    ...options,
+                    partitionByComment: {
+                      line: ['^(?!.*foo).*$'],
+                    },
+                  },
+                ],
+              },
+            ],
+            invalid: [],
+          },
+        )
+      })
+
+      describe(`${ruleName}(${type}): allows to use "partitionByComment.block"`, () => {
+        ruleTester.run(`${ruleName}(${type}): ignores line comments`, rule, {
+          invalid: [
+            {
+              errors: [
+                {
+                  data: {
+                    right: 'a',
+                    left: 'b',
+                  },
+                  messageId: 'unexpectedObjectTypesOrder',
+                },
+              ],
+              options: [
+                {
+                  ...options,
+                  partitionByComment: {
+                    block: true,
+                  },
+                },
+              ],
+              output: dedent`
+                type Type = {
+                  // Comment
+                  a: string
+                  b: string
+                }
+              `,
+              code: dedent`
+                type Type = {
+                  b: string
+                  // Comment
+                  a: string
+                }
+              `,
+            },
+          ],
+          valid: [],
+        })
+
+        ruleTester.run(
+          `${ruleName}(${type}): allows to use all comments as parts`,
+          rule,
+          {
+            valid: [
+              {
+                options: [
+                  {
+                    ...options,
+                    partitionByComment: {
+                      block: true,
+                    },
+                  },
+                ],
+                code: dedent`
+                  type Type = {
+                    b: string
+                    /* Comment */
+                    a: string
+                  }
+                `,
+              },
+            ],
+            invalid: [],
+          },
+        )
+
+        ruleTester.run(
+          `${ruleName}(${type}): allows to use multiple partition comments`,
+          rule,
+          {
+            valid: [
+              {
+                code: dedent`
+                  type Type = {
+                    c: string
+                    /* b */
+                    b: string
+                    /* a */
+                    a: string
+                  }
+                `,
+                options: [
+                  {
+                    ...options,
+                    partitionByComment: {
+                      block: ['a', 'b'],
+                    },
+                  },
+                ],
+              },
+            ],
+            invalid: [],
+          },
+        )
+
+        ruleTester.run(
+          `${ruleName}(${type}): allows to use regex for partition comments`,
+          rule,
+          {
+            valid: [
+              {
+                code: dedent`
+                  type Type = {
+                    b: string
+                    /* I am a partition comment because I don't have f o o */
+                    a: string
+                  }
+                `,
+                options: [
+                  {
+                    ...options,
+                    partitionByComment: {
+                      block: ['^(?!.*foo).*$'],
+                    },
+                  },
+                ],
+              },
+            ],
+            invalid: [],
+          },
+        )
+      })
+    })
+
+    ruleTester.run(
+      `${ruleName}(${type}): allows to sort required values first`,
+      rule,
+      {
+        invalid: [
+          {
+            errors: [
+              {
+                data: {
+                  left: 'bbbb',
+                  right: 'ccc',
+                },
+                messageId: 'unexpectedObjectTypesOrder',
+              },
+              {
+                data: {
+                  left: 'dd',
+                  right: 'e',
+                },
+                messageId: 'unexpectedObjectTypesOrder',
+              },
+            ],
+            output: dedent`
+              type Type = {
+                ccc: string
+                e: string
+                aaaaa?: string
+                bbbb?: string
+                dd?: string
+              }
+            `,
+            code: dedent`
+              type Type = {
+                aaaaa?: string
+                bbbb?: string
+                ccc: string
+                dd?: string
+                e: string
+              }
+            `,
+            options: [
+              {
+                ...options,
+                groupKind: 'required-first',
+              },
+            ],
+          },
+        ],
+        valid: [
+          {
+            code: dedent`
+              type Type = {
+                ccc: string
+                e: string
+                aaaaa?: string
+                bbbb?: string
+                dd?: string
+              }
+            `,
+            options: [
+              {
+                ...options,
+                groupKind: 'required-first',
+              },
+            ],
+          },
+        ],
+      },
+    )
+
+    ruleTester.run(
+      `${ruleName}(${type}): allows to sort optional values first`,
+      rule,
+      {
+        invalid: [
+          {
+            errors: [
+              {
+                data: {
+                  left: 'ccc',
+                  right: 'dd',
+                },
+                messageId: 'unexpectedObjectTypesOrder',
+              },
+            ],
+            output: dedent`
+              type Type = {
+                aaaaa?: string
+                bbbb?: string
+                dd?: string
+                ccc: string
+                e: string
+              }
+            `,
+            code: dedent`
+              type Type = {
+                aaaaa?: string
+                bbbb?: string
+                ccc: string
+                dd?: string
+                e: string
+              }
+            `,
+            options: [
+              {
+                ...options,
+                groupKind: 'optional-first',
+              },
+            ],
+          },
+        ],
+        valid: [
+          {
+            code: dedent`
+              type Type = {
+                aaaaa?: string
+                bbbb?: string
+                dd?: string
+                ccc: string
+                e: string
+              }
+            `,
+            options: [
+              {
+                ...options,
+                groupKind: 'optional-first',
+              },
+            ],
+          },
+        ],
+      },
+    )
+
+    ruleTester.run(
+      `${ruleName}(${type}): allows to trim special characters`,
+      rule,
+      {
+        valid: [
+          {
+            code: dedent`
+              type Type = {
+                _a: string
+                b: string
+                _c: string
+              }
+            `,
+            options: [
+              {
+                ...options,
+                specialCharacters: 'trim',
+              },
+            ],
+          },
+        ],
+        invalid: [],
+      },
+    )
+
+    ruleTester.run(
+      `${ruleName}(${type}): allows to remove special characters`,
+      rule,
+      {
+        valid: [
+          {
+            options: [
+              {
+                ...options,
+                specialCharacters: 'remove',
+              },
+            ],
+            code: dedent`
+              type Type = {
+                ab: string
+                a_c: string
+              }
+            `,
+          },
+        ],
+        invalid: [],
+      },
+    )
+
+    ruleTester.run(`${ruleName}(${type}): allows to use locale`, rule, {
+      valid: [
+        {
+          code: dedent`
+            type Type = {
+              你好: string
+              世界: string
+              a: string
+              A: string
+              b: string
+              B: string
+            }
+          `,
+          options: [{ ...options, locales: 'zh-CN' }],
+        },
+      ],
+      invalid: [],
+    })
+
+    ruleTester.run(`${ruleName}(${type}): allows to use method group`, rule, {
+      valid: [
+        {
+          code: dedent`
+            type Type = {
+              b(): void
+              c: (((v: false) => 'false') | ((v: true) => 'true')) & ((v: any) => any)
+              a: string
+              d: string
+            }
+          `,
           options: [
             {
               ...options,
-              type: 'alphabetical',
-            },
-            {
-              ...options,
-              useConfigurationIf: {
-                matchesAstSelector: 'TSTypeLiteral',
-              },
-              type: 'unsorted',
+              groups: ['method', 'unknown'],
             },
           ],
-          errors: [
+        },
+      ],
+      invalid: [],
+    })
+
+    describe(`${ruleName}: newlinesBetween`, () => {
+      ruleTester.run(
+        `${ruleName}(${type}): removes newlines when never`,
+        rule,
+        {
+          invalid: [
             {
-              data: {
-                right: 'a',
-                left: 'b',
-              },
-              messageId: 'unexpectedObjectTypesOrder',
+              errors: [
+                {
+                  data: {
+                    right: 'y',
+                    left: 'a',
+                  },
+                  messageId: 'extraSpacingBetweenObjectTypeMembers',
+                },
+                {
+                  data: {
+                    right: 'b',
+                    left: 'z',
+                  },
+                  messageId: 'unexpectedObjectTypesOrder',
+                },
+                {
+                  data: {
+                    right: 'b',
+                    left: 'z',
+                  },
+                  messageId: 'extraSpacingBetweenObjectTypeMembers',
+                },
+              ],
+              code: dedent`
+                type Type = {
+                  a: () => null,
+
+
+                 y: "y",
+                z: "z",
+
+                    b: "b",
+                }
+              `,
+              output: dedent`
+                type Type = {
+                  a: () => null,
+                 b: "b",
+                y: "y",
+                    z: "z",
+                }
+              `,
+              options: [
+                {
+                  ...options,
+                  groups: ['method', 'unknown'],
+                  newlinesBetween: 'never',
+                },
+              ],
             },
           ],
-          output: dedent`
-            type Type = {
-              a: string
-              b: string
-            }
-          `,
-          code: dedent`
-            type Type = {
-              b: string
-              a: string
-            }
-          `,
+          valid: [],
+        },
+      )
+
+      ruleTester.run(
+        `${ruleName}(${type}): keeps one newline when always`,
+        rule,
+        {
+          invalid: [
+            {
+              errors: [
+                {
+                  data: {
+                    right: 'z',
+                    left: 'a',
+                  },
+                  messageId: 'extraSpacingBetweenObjectTypeMembers',
+                },
+                {
+                  data: {
+                    right: 'y',
+                    left: 'z',
+                  },
+                  messageId: 'unexpectedObjectTypesOrder',
+                },
+                {
+                  data: {
+                    right: 'b',
+                    left: 'y',
+                  },
+                  messageId: 'missedSpacingBetweenObjectTypeMembers',
+                },
+              ],
+              output: dedent`
+                type Type = {
+                  a: () => null,
+
+                 y: "y",
+                z: "z",
+
+                    b: {
+                      // Newline stuff
+                    },
+                }
+              `,
+              code: dedent`
+                type Type = {
+                  a: () => null,
+
+
+                 z: "z",
+                y: "y",
+                    b: {
+                      // Newline stuff
+                    },
+                }
+              `,
+              options: [
+                {
+                  ...options,
+                  groups: ['method', 'unknown', 'multiline'],
+                  newlinesBetween: 'always',
+                },
+              ],
+            },
+          ],
+          valid: [],
+        },
+      )
+
+      describe(`${ruleName}(${type}): "newlinesBetween" inside groups`, () => {
+        ruleTester.run(
+          `${ruleName}(${type}): handles "newlinesBetween" between consecutive groups`,
+          rule,
+          {
+            invalid: [
+              {
+                options: [
+                  {
+                    ...options,
+                    groups: [
+                      'a',
+                      { newlinesBetween: 'always' },
+                      'b',
+                      { newlinesBetween: 'always' },
+                      'c',
+                      { newlinesBetween: 'never' },
+                      'd',
+                      { newlinesBetween: 'ignore' },
+                      'e',
+                    ],
+                    customGroups: [
+                      { elementNamePattern: 'a', groupName: 'a' },
+                      { elementNamePattern: 'b', groupName: 'b' },
+                      { elementNamePattern: 'c', groupName: 'c' },
+                      { elementNamePattern: 'd', groupName: 'd' },
+                      { elementNamePattern: 'e', groupName: 'e' },
+                    ],
+                    newlinesBetween: 'always',
+                  },
+                ],
+                errors: [
+                  {
+                    data: {
+                      right: 'b',
+                      left: 'a',
+                    },
+                    messageId: 'missedSpacingBetweenObjectTypeMembers',
+                  },
+                  {
+                    data: {
+                      right: 'c',
+                      left: 'b',
+                    },
+                    messageId: 'extraSpacingBetweenObjectTypeMembers',
+                  },
+                  {
+                    data: {
+                      right: 'd',
+                      left: 'c',
+                    },
+                    messageId: 'extraSpacingBetweenObjectTypeMembers',
+                  },
+                ],
+                output: dedent`
+                  type Type = {
+                    a: string
+
+                    b: string
+
+                    c: string
+                    d: string
+
+
+                    e: string
+                  }
+                `,
+                code: dedent`
+                  type Type = {
+                    a: string
+                    b: string
+
+
+                    c: string
+
+                    d: string
+
+
+                    e: string
+                  }
+                `,
+              },
+            ],
+            valid: [],
+          },
+        )
+
+        describe(`${ruleName}(${type}): "newlinesBetween" between non-consecutive groups`, () => {
+          for (let [globalNewlinesBetween, groupNewlinesBetween] of [
+            ['always', 'never'] as const,
+            ['always', 'ignore'] as const,
+            ['never', 'always'] as const,
+            ['ignore', 'always'] as const,
+          ]) {
+            ruleTester.run(
+              `${ruleName}(${type}): enforces a newline if the global option is "${globalNewlinesBetween}" and the group option is "${groupNewlinesBetween}"`,
+              rule,
+              {
+                invalid: [
+                  {
+                    options: [
+                      {
+                        ...options,
+                        customGroups: [
+                          { elementNamePattern: 'a', groupName: 'a' },
+                          { elementNamePattern: 'b', groupName: 'b' },
+                          { groupName: 'unusedGroup', elementNamePattern: 'X' },
+                        ],
+                        groups: [
+                          'a',
+                          'unusedGroup',
+                          { newlinesBetween: groupNewlinesBetween },
+                          'b',
+                        ],
+                        newlinesBetween: globalNewlinesBetween,
+                      },
+                    ],
+                    errors: [
+                      {
+                        data: {
+                          right: 'b',
+                          left: 'a',
+                        },
+                        messageId: 'missedSpacingBetweenObjectTypeMembers',
+                      },
+                    ],
+                    output: dedent`
+                      type Type = {
+                        a: string
+
+                        b: string
+                      }
+                    `,
+                    code: dedent`
+                      type Type = {
+                        a: string
+                        b: string
+                      }
+                    `,
+                  },
+                ],
+                valid: [],
+              },
+            )
+          }
+
+          for (let [globalNewlinesBetween, groupNewlinesBetween] of [
+            ['ignore', 'never'] as const,
+            ['never', 'ignore'] as const,
+          ]) {
+            ruleTester.run(
+              `${ruleName}(${type}): does not enforce a newline if the global option is "${globalNewlinesBetween}" and the group option is "${groupNewlinesBetween}"`,
+              rule,
+              {
+                valid: [
+                  {
+                    options: [
+                      {
+                        ...options,
+                        customGroups: [
+                          { elementNamePattern: 'a', groupName: 'a' },
+                          { elementNamePattern: 'b', groupName: 'b' },
+                          { groupName: 'unusedGroup', elementNamePattern: 'X' },
+                        ],
+                        groups: [
+                          'a',
+                          'unusedGroup',
+                          { newlinesBetween: groupNewlinesBetween },
+                          'b',
+                        ],
+                        newlinesBetween: globalNewlinesBetween,
+                      },
+                    ],
+                    code: dedent`
+                      type Type = {
+                        a: string
+
+                        b: string
+                      }
+                    `,
+                  },
+                  {
+                    options: [
+                      {
+                        ...options,
+                        customGroups: [
+                          { elementNamePattern: 'a', groupName: 'a' },
+                          { elementNamePattern: 'b', groupName: 'b' },
+                          { groupName: 'unusedGroup', elementNamePattern: 'X' },
+                        ],
+                        groups: [
+                          'a',
+                          'unusedGroup',
+                          { newlinesBetween: groupNewlinesBetween },
+                          'b',
+                        ],
+                        newlinesBetween: globalNewlinesBetween,
+                      },
+                    ],
+                    code: dedent`
+                      type Type = {
+                        a: string
+                        b: string
+                      }
+                    `,
+                  },
+                ],
+                invalid: [],
+              },
+            )
+          }
         })
       })
-    })
 
-    it('allows sorting by value', async () => {
-      await invalid({
-        errors: [
-          {
-            messageId: 'unexpectedObjectTypesOrder',
-            data: { right: 'b', left: 'a' },
-          },
-        ],
-        output: dedent`
-          type Type = {
-            b: 'a'
-            a: 'b'
-          }
-        `,
-        options: [
-          {
-            sortBy: 'value',
-            ...options,
-          },
-        ],
-        code: dedent`
-          type Type = {
-            a: 'b'
-            b: 'a'
-          }
-        `,
-      })
-    })
+      ruleTester.run(
+        `${ruleName}(${type}): handles newlines and comment after fixes`,
+        rule,
+        {
+          invalid: [
+            {
+              output: [
+                dedent`
+                  type Test = {
+                    a: string // Comment after
+                    b: () => void
 
-    it('does not enforce sorting of non-properties in the same group', async () => {
-      await invalid({
-        errors: [
-          {
-            messageId: 'unexpectedObjectTypesOrder',
-            data: { right: 'a', left: 'z' },
-          },
-          {
-            messageId: 'unexpectedObjectTypesOrder',
-            data: { right: 'y', left: 'a' },
-          },
-        ],
-        output: dedent`
-          type Type = {
-            y: 'y'
-            a(): void
-            z: 'z'
-          }
-        `,
-        code: dedent`
-          type Type = {
-            z: 'z'
-            a(): void
-            y: 'y'
-          }
-        `,
-        options: [
-          {
-            sortBy: 'value',
-            ...options,
-          },
-        ],
-      })
+                    c: () => void
+                  };
+                `,
+                dedent`
+                  type Test = {
+                    a: string // Comment after
 
-      await invalid({
-        errors: [
-          {
-            data: { right: '[key: string]', left: 'z' },
-            messageId: 'unexpectedObjectTypesOrder',
-          },
-          {
-            data: {
-              left: '[key: string]',
-              right: 'y',
+                    b: () => void
+                    c: () => void
+                  };
+                `,
+              ],
+              errors: [
+                {
+                  data: {
+                    rightGroup: 'property',
+                    leftGroup: 'method',
+                    right: 'a',
+                    left: 'b',
+                  },
+                  messageId: 'unexpectedObjectTypesGroupOrder',
+                },
+              ],
+              code: dedent`
+                type Test = {
+                  b: () => void
+                  a: string // Comment after
+
+                  c: () => void
+                };
+              `,
+              options: [
+                {
+                  groups: ['property', 'method'],
+                  newlinesBetween: 'always',
+                },
+              ],
             },
-            messageId: 'unexpectedObjectTypesOrder',
-          },
-        ],
-        output: dedent`
-          type Type = {
-            y: 'y'
-            [key: string]
-            z: 'z'
-          }
-        `,
-        code: dedent`
-          type Type = {
-            z: 'z'
-            [key: string]
-            y: 'y'
-          }
-        `,
-        options: [
-          {
-            sortBy: 'value',
-            ...options,
-          },
-        ],
-      })
+          ],
+          valid: [],
+        },
+      )
     })
 
-    it('enforces grouping but does not enforce sorting of non-properties', async () => {
-      await invalid({
-        errors: [
+    ruleTester.run(
+      `${ruleName}(${type}): sorts inline elements correctly`,
+      rule,
+      {
+        invalid: [
           {
-            data: {
-              leftGroup: 'unknown',
-              rightGroup: 'method',
-              right: 'a',
-              left: 'z',
-            },
-            messageId: 'unexpectedObjectTypesGroupOrder',
+            errors: [
+              {
+                data: {
+                  right: 'a',
+                  left: 'b',
+                },
+                messageId: 'unexpectedObjectTypesOrder',
+              },
+            ],
+            output: dedent`
+              type Type = {
+                a: string; b: string,
+              }
+            `,
+            code: dedent`
+              type Type = {
+                b: string, a: string
+              }
+            `,
+            options: [options],
+          },
+          {
+            errors: [
+              {
+                data: {
+                  right: 'a',
+                  left: 'b',
+                },
+                messageId: 'unexpectedObjectTypesOrder',
+              },
+            ],
+            output: dedent`
+              type Type = {
+                a: string; b: string,
+              }
+            `,
+            code: dedent`
+              type Type = {
+                b: string, a: string;
+              }
+            `,
+            options: [options],
+          },
+          {
+            errors: [
+              {
+                data: {
+                  right: 'a',
+                  left: 'b',
+                },
+                messageId: 'unexpectedObjectTypesOrder',
+              },
+            ],
+            output: dedent`
+              type Type = {
+                a: string, b: string,
+              }
+            `,
+            code: dedent`
+              type Type = {
+                b: string, a: string,
+              }
+            `,
+            options: [options],
           },
         ],
-        options: [
+        valid: [],
+      },
+    )
+    ruleTester.run(
+      `${ruleName}(${type}): does not sort call signature declarations`,
+      rule,
+      {
+        valid: [
           {
-            sortBy: 'value',
-            ...options,
-            groups: ['method', 'unknown'],
+            code: dedent`
+              type Type = {
+                <Parameters extends Record<string, number | string>>(
+                  input: AFunction<[Parameters], string>
+                ): Alternatives<Parameters>
+                <A extends CountA>(input: Input): AFunction<
+                  [number],
+                  A[keyof A]
+                >
+              }
+            `,
+            options: [options],
           },
         ],
-        output: dedent`
-          type Type = {
-            b(): void
-            a(): void
-            z: 'z'
-          }
-        `,
-        code: dedent`
-          type Type = {
-            b(): void
-            z: 'z'
-            a(): void
-          }
-        `,
+        invalid: [],
+      },
+    )
+
+    ruleTester.run(
+      `${ruleName}(${type}): does not sort constructor declarations`,
+      rule,
+      {
+        valid: [
+          {
+            code: dedent`
+              type Type = {
+                new (value: number | string): number;
+                new (value: number): unknown;
+              }
+            `,
+            options: [options],
+          },
+          {
+            code: dedent`
+              type Type = {
+                new (value: number): unknown;
+                new (value: number | string): number;
+              }
+            `,
+            options: [options],
+          },
+        ],
+        invalid: [],
+      },
+    )
+
+    describe(`${ruleName}(${type}): allows to use 'useConfigurationIf'`, () => {
+      for (let rgbAllNamesMatchPattern of [
+        '^r|g|b$',
+        ['noMatch', '^r|g|b$'],
+        { pattern: '^R|G|B$', flags: 'i' },
+        ['noMatch', { pattern: '^R|G|B$', flags: 'i' }],
+      ]) {
+        ruleTester.run(
+          `${ruleName}(${type}): allows to use 'allNamesMatchPattern'`,
+          rule,
+          {
+            invalid: [
+              {
+                errors: [
+                  {
+                    data: {
+                      rightGroup: 'g',
+                      leftGroup: 'b',
+                      right: 'g',
+                      left: 'b',
+                    },
+                    messageId: 'unexpectedObjectTypesGroupOrder',
+                  },
+                  {
+                    data: {
+                      rightGroup: 'r',
+                      leftGroup: 'g',
+                      right: 'r',
+                      left: 'g',
+                    },
+                    messageId: 'unexpectedObjectTypesGroupOrder',
+                  },
+                ],
+                options: [
+                  {
+                    ...options,
+                    useConfigurationIf: {
+                      allNamesMatchPattern: 'foo',
+                    },
+                  },
+                  {
+                    ...options,
+                    customGroups: {
+                      r: 'r',
+                      g: 'g',
+                      b: 'b',
+                    },
+                    useConfigurationIf: {
+                      allNamesMatchPattern: rgbAllNamesMatchPattern,
+                    },
+                    groups: ['r', 'g', 'b'],
+                  },
+                ],
+                output: dedent`
+                  type Type = {
+                    r: string
+                    g: string
+                    b: string
+                  }
+                `,
+                code: dedent`
+                  type Type = {
+                    b: string
+                    g: string
+                    r: string
+                  }
+                `,
+              },
+            ],
+            valid: [],
+          },
+        )
+      }
+
+      describe(`${ruleName}(${type}): allows to use 'declarationMatchesPattern'`, () => {
+        ruleTester.run(
+          `${ruleName}(${type}): detects declaration name by pattern`,
+          rule,
+          {
+            invalid: [
+              {
+                options: [
+                  {
+                    useConfigurationIf: {
+                      declarationMatchesPattern: '^Type$',
+                    },
+                    type: 'unsorted',
+                  },
+                  options,
+                ],
+                errors: [
+                  {
+                    data: {
+                      right: 'a',
+                      left: 'b',
+                    },
+                    messageId: 'unexpectedObjectTypesOrder',
+                  },
+                ],
+                output: dedent`
+                  type OtherType = {
+                    a: string
+                    b: string
+                  }
+                `,
+                code: dedent`
+                  type OtherType = {
+                    b: string
+                    a: string
+                  }
+                `,
+              },
+            ],
+            valid: [
+              {
+                options: [
+                  {
+                    useConfigurationIf: {
+                      declarationMatchesPattern: '^Type$',
+                    },
+                    type: 'unsorted',
+                  },
+                  options,
+                ],
+                code: dedent`
+                  type Type = {
+                    b: string
+                    c: string
+                    a: string
+                  }
+                `,
+              },
+            ],
+          },
+        )
+
+        ruleTester.run(
+          `${ruleName}(${type}): does not match configuration if no declaration name`,
+          rule,
+          {
+            invalid: [
+              {
+                options: [
+                  {
+                    useConfigurationIf: {
+                      declarationMatchesPattern: '^Type$',
+                    },
+                    type: 'unsorted',
+                  },
+                  options,
+                ],
+                errors: [
+                  {
+                    data: {
+                      right: 'b',
+                      left: 'c',
+                    },
+                    messageId: 'unexpectedObjectTypesOrder',
+                  },
+                ],
+                output: dedent`
+                  type Type = {
+                    a: {
+                      b: string
+                      c: string
+                    }
+                  }
+                `,
+                code: dedent`
+                  type Type = {
+                    a: {
+                      c: string
+                      b: string
+                    }
+                  }
+                `,
+              },
+            ],
+            valid: [],
+          },
+        )
       })
     })
   })
 
-  describe('natural', () => {
+  describe(`${ruleName}: sorting by natural order`, () => {
+    let type = 'natural-order'
+
     let options = {
+      ignoreCase: true,
       type: 'natural',
       order: 'asc',
     } as const
 
-    it('sorts type members', async () => {
-      await valid({
-        code: dedent`
-          type Type = {
-            a: 'aaa'
-            b: 'bb'
-            c: 'c'
-          }
-        `,
-        options: [options],
-      })
-
-      await invalid({
-        errors: [
-          {
-            messageId: 'unexpectedObjectTypesOrder',
-            data: { right: 'b', left: 'c' },
-          },
-        ],
-        output: dedent`
-          type Type = {
-            a: 'aaa'
-            b: 'bb'
-            c: 'c'
-          }
-        `,
-        code: dedent`
-          type Type = {
-            a: 'aaa'
-            c: 'c'
-            b: 'bb'
-          }
-        `,
-        options: [options],
-      })
-    })
-
-    it('sorts type members in function args', async () => {
-      await valid({
-        code: dedent`
-          let Func = (arguments: {
-            a: 'aaa'
-            b: 'bb'
-            c: 'c'
-          }) => {
-            // ...
-          }
-        `,
-        options: [options],
-      })
-
-      await invalid({
-        output: dedent`
-          let Func = (arguments: {
-            a: 'aaa'
-            b: 'bb'
-            c: 'c'
-          }) => {
-            // ...
-          }
-        `,
-        code: dedent`
-          let Func = (arguments: {
-            b: 'bb'
-            a: 'aaa'
-            c: 'c'
-          }) => {
-            // ...
-          }
-        `,
-        errors: [
-          {
-            messageId: 'unexpectedObjectTypesOrder',
-            data: { right: 'a', left: 'b' },
-          },
-        ],
-        options: [options],
-      })
-    })
-
-    it('sorts type members with computed keys', async () => {
-      await valid({
-        code: dedent`
-          type Type = {
-            [key: string]: string
-            a?: 'aaa'
-            b: 'bb'
-            c: 'c'
-            [value]: string
-          }
-        `,
-        options: [options],
-      })
-
-      await invalid({
-        errors: [
-          {
-            data: { right: '[key: string]', left: 'a' },
-            messageId: 'unexpectedObjectTypesOrder',
-          },
-          {
-            data: {
-              left: 'value',
-              right: 'c',
-            },
-            messageId: 'unexpectedObjectTypesOrder',
-          },
-        ],
-        output: dedent`
-          type Type = {
-            [key: string]: string
-            a?: 'aaa'
-            b: 'bb'
-            c: 'c'
-            [value]: string
-          }
-        `,
-        code: dedent`
-          type Type = {
-            a?: 'aaa'
-            [key: string]: string
-            b: 'bb'
-            [value]: string
-            c: 'c'
-          }
-        `,
-        options: [options],
-      })
-    })
-
-    it('sorts type members with any key types', async () => {
-      await valid({
-        code: dedent`
-          type Type = {
-            [8]: Value
-            [...values]
-            [[data]]: string
-            [name in v]?
-            arrowFunc?: () => void
-            func(): void
-          }
-        `,
-        options: [options],
-      })
-
-      await invalid({
-        errors: [
-          {
-            data: {
-              left: '[name in v]',
-              right: '8',
-            },
-            messageId: 'unexpectedObjectTypesOrder',
-          },
-          {
-            data: { right: 'arrowFunc', left: 'func' },
-            messageId: 'unexpectedObjectTypesOrder',
-          },
-        ],
-        output: dedent`
-          type Type = {
-            [8]: Value
-            [...values]
-            [[data]]: string
-            [name in v]?
-            arrowFunc?: () => void
-            func(): void
-          }
-        `,
-        code: dedent`
-          type Type = {
-            [...values]
-            [[data]]: string
-            [name in v]?
-            [8]: Value
-            func(): void
-            arrowFunc?: () => void
-          }
-        `,
-        options: [options],
-      })
-    })
-
-    it('sorts inline type members', async () => {
-      await valid({
-        code: dedent`
-          func<{ a: 'aa'; b: 'b' }>(/* ... */)
-        `,
-        options: [options],
-      })
-
-      await invalid({
-        errors: [
-          {
-            messageId: 'unexpectedObjectTypesOrder',
-            data: { right: 'a', left: 'b' },
-          },
-        ],
-        output: dedent`
-          func<{ a: 'aa'; b: 'b'; }>(/* ... */)
-        `,
-        code: dedent`
-          func<{ b: 'b'; a: 'aa' }>(/* ... */)
-        `,
-        options: [options],
-      })
-    })
-
-    it('sorts complex predefined groups', async () => {
-      await invalid({
-        errors: [
-          {
-            data: {
-              leftGroup: 'required-property',
-              rightGroup: 'index-signature',
-              right: '[key: string]',
-              left: 'a',
-            },
-            messageId: 'unexpectedObjectTypesGroupOrder',
-          },
-          {
-            data: {
-              rightGroup: 'optional-multiline-member',
-              leftGroup: 'index-signature',
-              left: '[key: string]',
-              right: 'b',
-            },
-            messageId: 'unexpectedObjectTypesGroupOrder',
-          },
-          {
-            data: {
-              leftGroup: 'optional-multiline-member',
-              rightGroup: 'required-method',
-              right: 'c',
-              left: 'b',
-            },
-            messageId: 'unexpectedObjectTypesGroupOrder',
-          },
-        ],
-        options: [
-          {
-            ...options,
-            groups: [
-              'unknown',
-              'required-method',
-              'optional-multiline-member',
-              'index-signature',
-              'required-property',
-            ],
-          },
-        ],
-        output: dedent`
-          type Type = {
-            c(): void
-            b?: {
-              property: string;
-            }
-            [key: string]: string;
-            a: string
-          }
-        `,
-        code: dedent`
-          type Type = {
-            a: string
-            [key: string]: string;
-            b?: {
-              property: string;
-            }
-            c(): void
-          }
-        `,
-      })
-    })
-
-    it('prioritizes selectors over modifiers quantity', async () => {
-      await invalid({
-        errors: [
-          {
-            data: {
-              leftGroup: 'required-property',
-              rightGroup: 'method',
-              left: 'property',
-              right: 'method',
-            },
-            messageId: 'unexpectedObjectTypesGroupOrder',
-          },
-        ],
-        options: [
-          {
-            ...options,
-            groups: ['method', 'required-property'],
-          },
-        ],
-        output: dedent`
-          type Type = {
-            method(): void
-            property: string
-          }
-        `,
-        code: dedent`
-          type Type = {
-            property: string
-            method(): void
-          }
-        `,
-      })
-    })
-
-    it('prioritizes index-signature over member', async () => {
-      await invalid({
-        errors: [
-          {
-            data: {
-              rightGroup: 'index-signature',
-              right: '[key: string]',
-              leftGroup: 'member',
-              left: 'member',
-            },
-            messageId: 'unexpectedObjectTypesGroupOrder',
-          },
-        ],
-        output: dedent`
-          type Type = {
-            [key: string]: string;
-            member: "something";
-          }
-        `,
-        code: dedent`
-          type Type = {
-            member: "something";
-            [key: string]: string;
-          }
-        `,
-        options: [
-          {
-            ...options,
-            groups: ['index-signature', 'member'],
-          },
-        ],
-      })
-    })
-
-    it('prioritizes method over member', async () => {
-      await invalid({
-        errors: [
-          {
-            data: {
-              rightGroup: 'method',
-              leftGroup: 'member',
-              right: 'method',
-              left: 'member',
-            },
-            messageId: 'unexpectedObjectTypesGroupOrder',
-          },
-        ],
-        output: dedent`
-          type Type = {
-            method(): string
-            member: "something"
-          }
-        `,
-        code: dedent`
-          type Type = {
-            member: "something"
-            method(): string
-          }
-        `,
-        options: [
-          {
-            ...options,
-            groups: ['method', 'member'],
-          },
-        ],
-      })
-    })
-
-    it('prioritizes property over member', async () => {
-      await invalid({
-        errors: [
-          {
-            data: {
-              rightGroup: 'property',
-              leftGroup: 'member',
-              right: 'property',
-              left: 'method',
-            },
-            messageId: 'unexpectedObjectTypesGroupOrder',
-          },
-        ],
-        output: dedent`
-          type Type = {
-            property: string
-            method(): string
-          }
-        `,
-        code: dedent`
-          type Type = {
-            method(): string
-            property: string
-          }
-        `,
-        options: [
-          {
-            ...options,
-            groups: ['property', 'member'],
-          },
-        ],
-      })
-    })
-
-    it('prioritizes multiline over optional', async () => {
-      await invalid({
-        errors: [
-          {
-            data: {
-              rightGroup: 'multiline-property',
-              leftGroup: 'optional-property',
-              right: 'multilineProperty',
-              left: 'optionalProperty',
-            },
-            messageId: 'unexpectedObjectTypesGroupOrder',
-          },
-        ],
-        output: dedent`
-          type Type = {
-            multilineProperty: {
-              a: string
-            }
-            optionalProperty?: string
-          }
-        `,
-        code: dedent`
-          type Type = {
-            optionalProperty?: string
-            multilineProperty: {
-              a: string
-            }
-          }
-        `,
-        options: [
-          {
-            ...options,
-            groups: ['multiline-property', 'optional-property'],
-          },
-        ],
-      })
-    })
-
-    it('prioritizes multiline over required', async () => {
-      await invalid({
-        errors: [
-          {
-            data: {
-              rightGroup: 'multiline-property',
-              leftGroup: 'required-property',
-              right: 'multilineProperty',
-              left: 'requiredProperty',
-            },
-            messageId: 'unexpectedObjectTypesGroupOrder',
-          },
-        ],
-        output: dedent`
-          type Type = {
-            multilineProperty: {
-              a: string
-            }
-            requiredProperty: string
-          }
-        `,
-        code: dedent`
-          type Type = {
-            requiredProperty: string
-            multilineProperty: {
-              a: string
-            }
-          }
-        `,
-        options: [
-          {
-            ...options,
-            groups: ['multiline-property', 'required-property'],
-          },
-        ],
-      })
-    })
-
-    it('filters on selector and modifiers', async () => {
-      await invalid({
-        options: [
-          {
-            customGroups: [
-              {
-                groupName: 'unusedCustomGroup',
-                modifiers: ['optional'],
-                selector: 'method',
-              },
-              {
-                groupName: 'optionalPropertyGroup',
-                modifiers: ['optional'],
-                selector: 'property',
-              },
-              {
-                groupName: 'propertyGroup',
-                selector: 'property',
-              },
-            ],
-            groups: ['propertyGroup', 'optionalPropertyGroup'],
-          },
-        ],
-        errors: [
-          {
-            data: {
-              leftGroup: 'optionalPropertyGroup',
-              rightGroup: 'propertyGroup',
-              right: 'c',
-              left: 'b',
-            },
-            messageId: 'unexpectedObjectTypesGroupOrder',
-          },
-        ],
-        output: dedent`
-          type Type = {
-            c: string
-            a?: string
-            b?: string
-          }
-        `,
-        code: dedent`
-          type Type = {
-            a?: string
-            b?: string
-            c: string
-          }
-        `,
-      })
-    })
-
-    it.each([
-      ['string pattern', 'hello'],
-      ['array with string pattern', ['noMatch', 'hello']],
-      ['regex pattern', { pattern: 'HELLO', flags: 'i' }],
-      [
-        'array with regex pattern',
-        ['noMatch', { pattern: 'HELLO', flags: 'i' }],
-      ],
-    ])(
-      'filters on elementNamePattern with %s',
-      async (_description, elementNamePattern) => {
-        await invalid({
-          options: [
-            {
-              customGroups: [
-                {
-                  groupName: 'propertiesStartingWithHello',
-                  selector: 'property',
-                  elementNamePattern,
-                },
-              ],
-              groups: ['propertiesStartingWithHello', 'unknown'],
-            },
-          ],
+    ruleTester.run(`${ruleName}(${type}): sorts type members`, rule, {
+      invalid: [
+        {
           errors: [
             {
               data: {
-                rightGroup: 'propertiesStartingWithHello',
-                right: 'helloProperty',
-                leftGroup: 'unknown',
-                left: 'method',
+                right: 'b',
+                left: 'c',
               },
-              messageId: 'unexpectedObjectTypesGroupOrder',
+              messageId: 'unexpectedObjectTypesOrder',
             },
           ],
           output: dedent`
             type Type = {
-              helloProperty: string
-              a: string
-              b: string
-              method(): void
-            }
-          `,
-          code: dedent`
-            type Type = {
-              a: string
-              b: string
-              method(): void
-              helloProperty: string
-            }
-          `,
-        })
-      },
-    )
-
-    it.each([
-      ['string pattern', 'Date'],
-      ['array with string pattern', ['noMatch', 'Date']],
-      ['regex pattern', { pattern: 'DATE', flags: 'i' }],
-      [
-        'array with regex pattern',
-        ['noMatch', { pattern: 'DATE', flags: 'i' }],
-      ],
-    ])(
-      'filters on elementValuePattern with %s',
-      async (_description, dateElementValuePattern) => {
-        await invalid({
-          options: [
-            {
-              customGroups: [
-                {
-                  elementValuePattern: dateElementValuePattern,
-                  groupName: 'date',
-                },
-                {
-                  elementValuePattern: 'number',
-                  groupName: 'number',
-                },
-              ],
-              groups: ['number', 'date', 'unknown'],
-            },
-          ],
-          errors: [
-            {
-              data: {
-                rightGroup: 'number',
-                leftGroup: 'date',
-                right: 'z',
-                left: 'y',
-              },
-              messageId: 'unexpectedObjectTypesGroupOrder',
-            },
-          ],
-          output: dedent`
-            type Type = {
-              a: number
-              z: number
-              b: Date
-              y: Date
-              c(): string
-            }
-          `,
-          code: dedent`
-            type Type = {
-              a: number
-              b: Date
-              y: Date
-              z: number
-              c(): string
-            }
-          `,
-        })
-      },
-    )
-
-    it('sorts custom groups by overriding type and order', async () => {
-      await invalid({
-        errors: [
-          {
-            messageId: 'unexpectedObjectTypesOrder',
-            data: { right: 'bb', left: 'a' },
-          },
-          {
-            messageId: 'unexpectedObjectTypesOrder',
-            data: { right: 'ccc', left: 'bb' },
-          },
-          {
-            messageId: 'unexpectedObjectTypesOrder',
-            data: { right: 'dddd', left: 'ccc' },
-          },
-          {
-            data: {
-              rightGroup: 'reversedPropertiesByLineLength',
-              leftGroup: 'unknown',
-              left: 'method',
-              right: 'eee',
-            },
-            messageId: 'unexpectedObjectTypesGroupOrder',
-          },
-        ],
-        options: [
-          {
-            customGroups: [
-              {
-                groupName: 'reversedPropertiesByLineLength',
-                selector: 'property',
-                type: 'line-length',
-                order: 'desc',
-              },
-            ],
-            groups: ['reversedPropertiesByLineLength', 'unknown'],
-            type: 'alphabetical',
-            order: 'asc',
-          },
-        ],
-        output: dedent`
-          type Type = {
-            dddd: string
-            ccc: string
-            eee: string
-            bb: string
-            ff: string
-            a: string
-            g: string
-            anotherMethod(): void
-            method(): void
-            yetAnotherMethod(): void
-          }
-        `,
-        code: dedent`
-          type Type = {
-            a: string
-            bb: string
-            ccc: string
-            dddd: string
-            method(): void
-            eee: string
-            ff: string
-            g: string
-            anotherMethod(): void
-            yetAnotherMethod(): void
-          }
-        `,
-      })
-    })
-
-    it('sorts custom groups by overriding fallbackSort', async () => {
-      await invalid({
-        options: [
-          {
-            customGroups: [
-              {
-                fallbackSort: {
-                  type: 'alphabetical',
-                  order: 'asc',
-                },
-                elementNamePattern: '^foo',
-                type: 'line-length',
-                groupName: 'foo',
-                order: 'desc',
-              },
-            ],
-            type: 'alphabetical',
-            groups: ['foo'],
-            order: 'asc',
-          },
-        ],
-        errors: [
-          {
-            data: { right: 'fooBar', left: 'fooZar' },
-            messageId: 'unexpectedObjectTypesOrder',
-          },
-        ],
-        output: dedent`
-          type Type = {
-            fooBar: string
-            fooZar: string
-          }
-        `,
-        code: dedent`
-          type Type = {
-            fooZar: string
-            fooBar: string
-          }
-        `,
-      })
-
-      await invalid({
-        options: [
-          {
-            customGroups: [
-              {
-                fallbackSort: {
-                  type: 'alphabetical',
-                  sortBy: 'value',
-                },
-                elementValuePattern: '^foo',
-                type: 'line-length',
-                groupName: 'foo',
-              },
-            ],
-            type: 'alphabetical',
-            groups: ['foo'],
-            order: 'asc',
-          },
-        ],
-        errors: [
-          {
-            messageId: 'unexpectedObjectTypesOrder',
-            data: { right: 'b', left: 'a' },
-          },
-        ],
-        output: dedent`
-          type Type = {
-            b: fooBar
-            a: fooZar
-          }
-        `,
-        code: dedent`
-          type Type = {
-            a: fooZar
-            b: fooBar
-          }
-        `,
-      })
-    })
-
-    it('sorts custom groups by overriding sortBy', async () => {
-      await invalid({
-        errors: [
-          {
-            data: {
-              rightGroup: 'fooElementsSortedByValue',
-              leftGroup: 'unknown',
-              right: 'fooC',
-              left: 'z',
-            },
-            messageId: 'unexpectedObjectTypesGroupOrder',
-          },
-          {
-            messageId: 'unexpectedObjectTypesOrder',
-            data: { right: 'fooA', left: 'fooB' },
-          },
-          {
-            data: {
-              rightGroup: 'fooElementsSortedByValue',
-              leftGroup: 'unknown',
-              right: 'fooMethod',
-              left: 'a',
-            },
-            messageId: 'unexpectedObjectTypesGroupOrder',
-          },
-        ],
-        options: [
-          {
-            customGroups: [
-              {
-                groupName: 'fooElementsSortedByValue',
-                elementNamePattern: '^foo',
-                sortBy: 'value',
-              },
-            ],
-            groups: ['fooElementsSortedByValue', 'unknown'],
-            type: 'alphabetical',
-            order: 'asc',
-          },
-        ],
-        output: dedent`
-          type Type = {
-            fooA: Date
-            fooC: number
-            fooB: string
-            fooMethod(): void
-            a: string
-            z: boolean
-          }
-        `,
-        code: dedent`
-          type Type = {
-            z: boolean
-            fooC: number
-            fooB: string
-            fooA: Date
-            a: string
-            fooMethod(): void
-          }
-        `,
-      })
-    })
-
-    it('does not sort custom groups with unsorted type', async () => {
-      await invalid({
-        options: [
-          {
-            customGroups: [
-              {
-                groupName: 'unsortedProperties',
-                selector: 'property',
-                type: 'unsorted',
-              },
-            ],
-            groups: ['unsortedProperties', 'unknown'],
-          },
-        ],
-        errors: [
-          {
-            data: {
-              rightGroup: 'unsortedProperties',
-              leftGroup: 'unknown',
-              left: 'method',
-              right: 'c',
-            },
-            messageId: 'unexpectedObjectTypesGroupOrder',
-          },
-        ],
-        output: dedent`
-          type Type = {
-            b
-            a
-            d
-            e
-            c
-            method(): void
-          }
-        `,
-        code: dedent`
-          type Type = {
-            b
-            a
-            d
-            e
-            method(): void
-            c
-          }
-        `,
-      })
-    })
-
-    it('sorts custom group blocks', async () => {
-      await invalid({
-        options: [
-          {
-            customGroups: [
-              {
-                anyOf: [
-                  {
-                    modifiers: ['required'],
-                    selector: 'property',
-                  },
-                  {
-                    modifiers: ['optional'],
-                    selector: 'method',
-                  },
-                ],
-                groupName: 'requiredPropertiesAndOptionalMethods',
-              },
-            ],
-            groups: [
-              ['requiredPropertiesAndOptionalMethods', 'index-signature'],
-              'unknown',
-            ],
-          },
-        ],
-        errors: [
-          {
-            data: {
-              rightGroup: 'requiredPropertiesAndOptionalMethods',
-              leftGroup: 'unknown',
-              right: 'd',
-              left: 'c',
-            },
-            messageId: 'unexpectedObjectTypesGroupOrder',
-          },
-          {
-            data: { right: '[key: string]', left: 'e' },
-            messageId: 'unexpectedObjectTypesOrder',
-          },
-        ],
-        output: dedent`
-          type Type = {
-            [key: string]: string
-            a: string
-            d?: () => void
-            e: string
-            b(): void
-            c?: string
-          }
-        `,
-        code: dedent`
-          type Type = {
-            a: string
-            b(): void
-            c?: string
-            d?: () => void
-            e: string
-            [key: string]: string
-          }
-        `,
-      })
-    })
-
-    it('allows to use regex for element names in custom groups', async () => {
-      await valid({
-        options: [
-          {
-            customGroups: [
-              {
-                elementNamePattern: '^(?!.*Foo).*$',
-                groupName: 'elementsWithoutFoo',
-              },
-            ],
-            groups: ['unknown', 'elementsWithoutFoo'],
-            type: 'alphabetical',
-          },
-        ],
-        code: dedent`
-          type Type = {
-            iHaveFooInMyName: string
-            meTooIHaveFoo: string
-            a: string
-            b: string
-          }
-        `,
-      })
-    })
-
-    it('allows to use newlinesInside: 1', async () => {
-      await invalid({
-        options: [
-          {
-            customGroups: [
-              {
-                selector: 'property',
-                groupName: 'group1',
-                newlinesInside: 1,
-              },
-            ],
-            groups: ['group1'],
-          },
-        ],
-        errors: [
-          {
-            messageId: 'missedSpacingBetweenObjectTypeMembers',
-            data: { right: 'b', left: 'a' },
-          },
-        ],
-        output: dedent`
-          type type = {
-            a
-
-            b
-          }
-        `,
-        code: dedent`
-          type type = {
-            a
-            b
-          }
-        `,
-      })
-    })
-
-    it('allows to use newlinesInside: 0', async () => {
-      await invalid({
-        options: [
-          {
-            customGroups: [
-              {
-                selector: 'property',
-                groupName: 'group1',
-                newlinesInside: 0,
-              },
-            ],
-            type: 'alphabetical',
-            groups: ['group1'],
-          },
-        ],
-        errors: [
-          {
-            messageId: 'extraSpacingBetweenObjectTypeMembers',
-            data: { right: 'b', left: 'a' },
-          },
-        ],
-        output: dedent`
-          type type = {
-            a
-            b
-          }
-        `,
-        code: dedent`
-          type type = {
-            a
-
-            b
-          }
-        `,
-      })
-    })
-
-    it('allows to use regex for custom groups', async () => {
-      await valid({
-        options: [
-          {
-            ...options,
-            customGroups: [
-              {
-                elementNamePattern: '^(?!.*Foo).*$',
-                groupName: 'elementsWithoutFoo',
-              },
-            ],
-            groups: ['unknown', 'elementsWithoutFoo'],
-          },
-        ],
-        code: dedent`
-          type T = {
-            iHaveFooInMyName: string
-            meTooIHaveFoo: string
-            a: string
-            b: string
-          }
-        `,
-      })
-    })
-
-    it('allows to use in class methods', async () => {
-      await invalid({
-        output: dedent`
-          class Class {
-            async method (data: {
               a: 'aaa'
               b: 'bb'
               c: 'c'
-            }) {}
-          }
-        `,
-        code: dedent`
-          class Class {
-            async method (data: {
-              b: 'bb'
+            }
+          `,
+          code: dedent`
+            type Type = {
               a: 'aaa'
               c: 'c'
-            }) {}
-          }
-        `,
-        errors: [
-          {
-            messageId: 'unexpectedObjectTypesOrder',
-            data: { right: 'a', left: 'b' },
-          },
-        ],
-        options: [options],
-      })
-    })
-
-    it('allows to use new line as partition', async () => {
-      await valid({
-        code: dedent`
-          type Type = {
-            d: 'dd'
-            e: 'e'
-
-            c: 'ccc'
-
-            a: 'aaaaa'
-            b: 'bbbb'
-          }
-        `,
-        options: [
-          {
-            ...options,
-            partitionByNewLine: true,
-          },
-        ],
-      })
-
-      await invalid({
-        errors: [
-          {
-            messageId: 'unexpectedObjectTypesOrder',
-            data: { right: 'd', left: 'e' },
-          },
-          {
-            messageId: 'unexpectedObjectTypesOrder',
-            data: { right: 'a', left: 'b' },
-          },
-        ],
-        output: dedent`
-          type Type = {
-            d: 'dd'
-            e: 'e'
-
-            c: 'ccc'
-
-            a: 'aaaaa'
-            b: 'bbbb'
-          }
-        `,
-        code: dedent`
-          type Type = {
-            e: 'e'
-            d: 'dd'
-
-            c: 'ccc'
-
-            b: 'bbbb'
-            a: 'aaaaa'
-          }
-        `,
-        options: [
-          {
-            ...options,
-            partitionByNewLine: true,
-          },
-        ],
-      })
-    })
-
-    it('allows to use partition comments', async () => {
-      await invalid({
-        output: dedent`
-          type Type = {
-            // Part: A
-            // Not partition comment
-            bbb: string
-            cc: string
-            d: string
-            // Part: B
-            aaaa: string
-            e: string
-            // Part: C
-            // Not partition comment
-            fff: string
-            'gg': string
-          }
-        `,
-        code: dedent`
-          type Type = {
-            // Part: A
-            cc: string
-            d: string
-            // Not partition comment
-            bbb: string
-            // Part: B
-            aaaa: string
-            e: string
-            // Part: C
-            'gg': string
-            // Not partition comment
-            fff: string
-          }
-        `,
-        errors: [
-          {
-            messageId: 'unexpectedObjectTypesOrder',
-            data: { right: 'bbb', left: 'd' },
-          },
-          {
-            messageId: 'unexpectedObjectTypesOrder',
-            data: { right: 'fff', left: 'gg' },
-          },
-        ],
-        options: [
-          {
-            ...options,
-            partitionByComment: '^Part',
-          },
-        ],
-      })
-    })
-
-    it('allows to use all comments as parts', async () => {
-      await valid({
-        code: dedent`
-          type Type = {
-            // Comment
-            bb: string
-            // Other comment
-            a: string
-          }
-        `,
-        options: [
-          {
-            ...options,
-            partitionByComment: true,
-          },
-        ],
-      })
-    })
-
-    it('allows to use multiple partition comments', async () => {
-      await invalid({
-        output: dedent`
-          type Type = {
-            /* Partition Comment */
-            // Part: A
-            d: string
-            // Part: B
-            aaa: string
-            bb: string
-            c: string
-            /* Other */
-            e: string
-          }
-        `,
-        code: dedent`
-          type Type = {
-            /* Partition Comment */
-            // Part: A
-            d: string
-            // Part: B
-            aaa: string
-            c: string
-            bb: string
-            /* Other */
-            e: string
-          }
-        `,
-        errors: [
-          {
-            messageId: 'unexpectedObjectTypesOrder',
-            data: { right: 'bb', left: 'c' },
-          },
-        ],
-        options: [
-          {
-            ...options,
-            partitionByComment: ['Partition Comment', 'Part:', 'Other'],
-          },
-        ],
-      })
-    })
-
-    it('allows to use regex for partition comments', async () => {
-      await valid({
-        code: dedent`
-          type Type = {
-            e: string
-            f: string
-            // I am a partition comment because I don't have f o o
-            a: string
-            b: string
-          }
-        `,
-        options: [
-          {
-            ...options,
-            partitionByComment: ['^(?!.*foo).*$'],
-          },
-        ],
-      })
-    })
-
-    it('ignores block comments', async () => {
-      await invalid({
-        options: [
-          {
-            ...options,
-            partitionByComment: {
-              line: true,
-            },
-          },
-        ],
-        errors: [
-          {
-            messageId: 'unexpectedObjectTypesOrder',
-            data: { right: 'a', left: 'b' },
-          },
-        ],
-        output: dedent`
-          type Type = {
-            /* Comment */
-            a: string
-            b: string
-          }
-        `,
-        code: dedent`
-          type Type = {
-            b: string
-            /* Comment */
-            a: string
-          }
-        `,
-      })
-    })
-
-    it('allows to use all line comments as parts', async () => {
-      await valid({
-        options: [
-          {
-            ...options,
-            partitionByComment: {
-              line: true,
-            },
-          },
-        ],
-        code: dedent`
-          type Type = {
-            b: string
-            // Comment
-            a: string
-          }
-        `,
-      })
-    })
-
-    it('allows to use multiple partition line comments', async () => {
-      await valid({
-        code: dedent`
-          type Type = {
-            c: string
-            // b
-            b: string
-            // a
-            a: string
-          }
-        `,
-        options: [
-          {
-            ...options,
-            partitionByComment: {
-              line: ['a', 'b'],
-            },
-          },
-        ],
-      })
-    })
-
-    it('allows to use regex for partition line comments', async () => {
-      await valid({
-        code: dedent`
-          type Type = {
-            b: string
-            // I am a partition comment because I don't have f o o
-            a: string
-          }
-        `,
-        options: [
-          {
-            ...options,
-            partitionByComment: {
-              line: ['^(?!.*foo).*$'],
-            },
-          },
-        ],
-      })
-    })
-
-    it('ignores line comments', async () => {
-      await invalid({
-        options: [
-          {
-            ...options,
-            partitionByComment: {
-              block: true,
-            },
-          },
-        ],
-        errors: [
-          {
-            messageId: 'unexpectedObjectTypesOrder',
-            data: { right: 'a', left: 'b' },
-          },
-        ],
-        output: dedent`
-          type Type = {
-            // Comment
-            a: string
-            b: string
-          }
-        `,
-        code: dedent`
-          type Type = {
-            b: string
-            // Comment
-            a: string
-          }
-        `,
-      })
-    })
-
-    it('allows to use all block comments as parts', async () => {
-      await valid({
-        options: [
-          {
-            ...options,
-            partitionByComment: {
-              block: true,
-            },
-          },
-        ],
-        code: dedent`
-          type Type = {
-            b: string
-            /* Comment */
-            a: string
-          }
-        `,
-      })
-    })
-
-    it('allows to use multiple partition block comments', async () => {
-      await valid({
-        code: dedent`
-          type Type = {
-            c: string
-            /* b */
-            b: string
-            /* a */
-            a: string
-          }
-        `,
-        options: [
-          {
-            ...options,
-            partitionByComment: {
-              block: ['a', 'b'],
-            },
-          },
-        ],
-      })
-    })
-
-    it('allows to use regex for partition block comments', async () => {
-      await valid({
-        code: dedent`
-          type Type = {
-            b: string
-            /* I am a partition comment because I don't have f o o */
-            a: string
-          }
-        `,
-        options: [
-          {
-            ...options,
-            partitionByComment: {
-              block: ['^(?!.*foo).*$'],
-            },
-          },
-        ],
-      })
-    })
-
-    it('allows to trim special characters', async () => {
-      await valid({
-        code: dedent`
-          type Type = {
-            _a: string
-            b: string
-            _c: string
-          }
-        `,
-        options: [
-          {
-            ...options,
-            specialCharacters: 'trim',
-          },
-        ],
-      })
-    })
-
-    it('allows to remove special characters', async () => {
-      await valid({
-        options: [
-          {
-            ...options,
-            specialCharacters: 'remove',
-          },
-        ],
-        code: dedent`
-          type Type = {
-            ab: string
-            a_c: string
-          }
-        `,
-      })
-    })
-
-    it('allows to use locale', async () => {
-      await valid({
-        code: dedent`
-          type Type = {
-            你好: string
-            世界: string
-            a: string
-            A: string
-            b: string
-            B: string
-          }
-        `,
-        options: [{ ...options, locales: 'zh-CN' }],
-      })
-    })
-
-    it('allows to use method group', async () => {
-      await valid({
-        code: dedent`
-          type Type = {
-            b(): void
-            c: (((v: false) => 'false') | ((v: true) => 'true')) & ((v: any) => any)
-            a: string
-            d: string
-          }
-        `,
-        options: [
-          {
-            ...options,
-            groups: ['method', 'unknown'],
-          },
-        ],
-      })
-    })
-
-    it('removes newlines between groups when newlinesBetween is 0', async () => {
-      await invalid({
-        errors: [
-          {
-            messageId: 'extraSpacingBetweenObjectTypeMembers',
-            data: { right: 'y', left: 'a' },
-          },
-          {
-            messageId: 'unexpectedObjectTypesOrder',
-            data: { right: 'b', left: 'z' },
-          },
-        ],
-        options: [
-          {
-            ...options,
-            groups: ['method', 'unknown'],
-            newlinesInside: 'ignore',
-            newlinesBetween: 0,
-          },
-        ],
-        code: dedent`
-          type Type = {
-            a: () => null,
-
-
-           y: "y",
-          z: "z",
-
-              b: "b",
-          }
-        `,
-        output: dedent`
-          type Type = {
-            a: () => null,
-           b: "b",
-          y: "y",
-
-              z: "z",
-          }
-        `,
-      })
-    })
-
-    it('handles newlinesBetween between consecutive groups', async () => {
-      await invalid({
-        options: [
-          {
-            ...options,
-            customGroups: [
-              { elementNamePattern: 'a', groupName: 'a' },
-              { elementNamePattern: 'b', groupName: 'b' },
-              { elementNamePattern: 'c', groupName: 'c' },
-              { elementNamePattern: 'd', groupName: 'd' },
-              { elementNamePattern: 'e', groupName: 'e' },
-            ],
-            groups: [
-              'a',
-              { newlinesBetween: 1 },
-              'b',
-              { newlinesBetween: 1 },
-              'c',
-              { newlinesBetween: 0 },
-              'd',
-              { newlinesBetween: 'ignore' },
-              'e',
-            ],
-            newlinesBetween: 1,
-          },
-        ],
-        errors: [
-          {
-            messageId: 'missedSpacingBetweenObjectTypeMembers',
-            data: { right: 'b', left: 'a' },
-          },
-          {
-            messageId: 'extraSpacingBetweenObjectTypeMembers',
-            data: { right: 'c', left: 'b' },
-          },
-          {
-            messageId: 'extraSpacingBetweenObjectTypeMembers',
-            data: { right: 'd', left: 'c' },
-          },
-        ],
-        output: dedent`
-          type Type = {
-            a: string
-
-            b: string
-
-            c: string
-            d: string
-
-
-            e: string
-          }
-        `,
-        code: dedent`
-          type Type = {
-            a: string
-            b: string
-
-
-            c: string
-
-            d: string
-
-
-            e: string
-          }
-        `,
-      })
-    })
-
-    it.each([
-      ['2 and 0', 2, 0],
-      ['2 and ignore', 2, 'ignore'],
-      ['0 and 2', 0, 2],
-      ['ignore and 2', 'ignore', 2],
-    ])(
-      'enforces newlines when global option is %s',
-      async (_description, globalNewlinesBetween, groupNewlinesBetween) => {
-        await invalid({
-          options: [
-            {
-              ...options,
-              customGroups: [
-                { elementNamePattern: 'a', groupName: 'a' },
-                { elementNamePattern: 'b', groupName: 'b' },
-                { groupName: 'unusedGroup', elementNamePattern: 'X' },
-              ],
-              groups: [
-                'a',
-                'unusedGroup',
-                { newlinesBetween: groupNewlinesBetween },
-                'b',
-              ],
-              newlinesBetween: globalNewlinesBetween,
-            },
-          ],
-          errors: [
-            {
-              messageId: 'missedSpacingBetweenObjectTypeMembers',
-              data: { right: 'b', left: 'a' },
-            },
-          ],
-          output: dedent`
-            type Type = {
-              a: string
-
-
-              b: string
+              b: 'bb'
             }
           `,
-          code: dedent`
-            type Type = {
-              a: string
-              b: string
-            }
-          `,
-        })
-      },
-    )
-
-    it.each([
-      ['1', 1],
-      ['2', 2],
-      ['ignore', 'ignore'],
-      ['0', 0],
-    ])(
-      'enforces no newline when global option is %s and newlinesBetween: 0 exists between all groups',
-      async (_description, globalNewlinesBetween) => {
-        await invalid({
-          options: [
-            {
-              ...options,
-              customGroups: [
-                { elementNamePattern: 'a', groupName: 'a' },
-                { elementNamePattern: 'b', groupName: 'b' },
-                { elementNamePattern: 'c', groupName: 'c' },
-                { groupName: 'unusedGroup', elementNamePattern: 'X' },
-              ],
-              groups: [
-                'a',
-                { newlinesBetween: 0 },
-                'unusedGroup',
-                { newlinesBetween: 0 },
-                'b',
-                { newlinesBetween: 1 },
-                'c',
-              ],
-              newlinesBetween: globalNewlinesBetween,
-            },
-          ],
-          errors: [
-            {
-              messageId: 'extraSpacingBetweenObjectTypeMembers',
-              data: { right: 'b', left: 'a' },
-            },
-          ],
-          output: dedent`
-            type T = {
-              a: string
-              b: string
-            }
-          `,
-          code: dedent`
-            type T = {
-              a: string
-
-              b: string
-            }
-          `,
-        })
-      },
-    )
-
-    it.each([
-      ['ignore and 0', 'ignore', 0],
-      ['0 and ignore', 0, 'ignore'],
-    ])(
-      'does not enforce a newline when global option is %s',
-      async (_description, globalNewlinesBetween, groupNewlinesBetween) => {
-        await valid({
-          options: [
-            {
-              ...options,
-              customGroups: [
-                { elementNamePattern: 'a', groupName: 'a' },
-                { elementNamePattern: 'b', groupName: 'b' },
-                { groupName: 'unusedGroup', elementNamePattern: 'X' },
-              ],
-              groups: [
-                'a',
-                'unusedGroup',
-                { newlinesBetween: groupNewlinesBetween },
-                'b',
-              ],
-              newlinesBetween: globalNewlinesBetween,
-            },
-          ],
-          code: dedent`
-            type Type = {
-              a: string
-
-              b: string
-            }
-          `,
-        })
-
-        await valid({
-          options: [
-            {
-              ...options,
-              customGroups: [
-                { elementNamePattern: 'a', groupName: 'a' },
-                { elementNamePattern: 'b', groupName: 'b' },
-                { groupName: 'unusedGroup', elementNamePattern: 'X' },
-              ],
-              groups: [
-                'a',
-                'unusedGroup',
-                { newlinesBetween: groupNewlinesBetween },
-                'b',
-              ],
-              newlinesBetween: globalNewlinesBetween,
-            },
-          ],
-          code: dedent`
-            type Type = {
-              a: string
-              b: string
-            }
-          `,
-        })
-      },
-    )
-
-    it('handles newlines and comment after fixes', async () => {
-      await invalid({
-        errors: [
-          {
-            data: {
-              rightGroup: 'property',
-              leftGroup: 'method',
-              right: 'a',
-              left: 'b',
-            },
-            messageId: 'unexpectedObjectTypesGroupOrder',
-          },
-        ],
-        output: dedent`
-          type Test = {
-            a: string // Comment after
-
-            b: () => void
-            c: () => void
-          };
-        `,
-        code: dedent`
-          type Test = {
-            b: () => void
-            a: string // Comment after
-
-            c: () => void
-          };
-        `,
-        options: [
-          {
-            groups: ['property', 'method'],
-            newlinesBetween: 1,
-            newlinesInside: 0,
-          },
-        ],
-      })
-    })
-
-    it('ignores newline fixes between different partitions with newlinesBetween: 0', async () => {
-      await invalid({
-        options: [
-          {
-            ...options,
-            customGroups: [
-              {
-                elementNamePattern: 'a',
-                groupName: 'a',
-              },
-            ],
-            groups: ['a', 'unknown'],
-            partitionByComment: true,
-            newlinesBetween: 0,
-          },
-        ],
-        output: dedent`
-          type Type = {
-            a: string
-
-            // Partition comment
-
-            b: string
-            c: string
-          }
-        `,
-        code: dedent`
-          type Type = {
-            a: string
-
-            // Partition comment
-
-            c: string
-            b: string
-          }
-        `,
-        errors: [
-          {
-            messageId: 'unexpectedObjectTypesOrder',
-            data: { right: 'b', left: 'c' },
-          },
-        ],
-      })
-    })
-
-    it('sorts inline elements correctly', async () => {
-      await invalid({
-        errors: [
-          {
-            messageId: 'unexpectedObjectTypesOrder',
-            data: { right: 'a', left: 'b' },
-          },
-        ],
-        output: dedent`
-          type Type = {
-            a: string; b: string,
-          }
-        `,
-        code: dedent`
-          type Type = {
-            b: string, a: string
-          }
-        `,
-        options: [options],
-      })
-
-      await invalid({
-        errors: [
-          {
-            messageId: 'unexpectedObjectTypesOrder',
-            data: { right: 'a', left: 'b' },
-          },
-        ],
-        output: dedent`
-          type Type = {
-            a: string; b: string,
-          }
-        `,
-        code: dedent`
-          type Type = {
-            b: string, a: string;
-          }
-        `,
-        options: [options],
-      })
-
-      await invalid({
-        errors: [
-          {
-            messageId: 'unexpectedObjectTypesOrder',
-            data: { right: 'a', left: 'b' },
-          },
-        ],
-        output: dedent`
-          type Type = {
-            a: string, b: string,
-          }
-        `,
-        code: dedent`
-          type Type = {
-            b: string, a: string,
-          }
-        `,
-        options: [options],
-      })
-    })
-
-    it('does not sort call signature declarations', async () => {
-      await valid({
-        code: dedent`
-          type Type = {
-            <Parameters extends Record<string, number | string>>(
-              input: AFunction<[Parameters], string>
-            ): Alternatives<Parameters>
-            <A extends CountA>(input: Input): AFunction<
-              [number],
-              A[keyof A]
-            >
-          }
-        `,
-        options: [options],
-      })
-    })
-
-    it('does not sort constructor declarations', async () => {
-      await valid({
-        code: dedent`
-          type Type = {
-            new (value: number | string): number;
-            new (value: number): unknown;
-          }
-        `,
-        options: [options],
-      })
-
-      await valid({
-        code: dedent`
-          type Type = {
-            new (value: number): unknown;
-            new (value: number | string): number;
-          }
-        `,
-        options: [options],
-      })
-    })
-
-    it.each([
-      ['string pattern', '^[rgb]$'],
-      ['array with string pattern', ['noMatch', '^[rgb]$']],
-      ['regex pattern', { pattern: '^[RGB]$', flags: 'i' }],
-      [
-        'array with regex pattern',
-        ['noMatch', { pattern: '^[RGB]$', flags: 'i' }],
+          options: [options],
+        },
       ],
-    ])(
-      'allows to use allNamesMatchPattern with %s',
-      async (_description, rgbAllNamesMatchPattern) => {
-        await invalid({
-          options: [
-            {
-              ...options,
-              useConfigurationIf: {
-                allNamesMatchPattern: 'foo',
+      valid: [
+        {
+          code: dedent`
+            type Type = {
+              a: 'aaa'
+              b: 'bb'
+              c: 'c'
+            }
+          `,
+          options: [options],
+        },
+      ],
+    })
+
+    ruleTester.run(
+      `${ruleName}(${type}): sorts type members in function args`,
+      rule,
+      {
+        invalid: [
+          {
+            errors: [
+              {
+                data: {
+                  right: 'a',
+                  left: 'b',
+                },
+                messageId: 'unexpectedObjectTypesOrder',
               },
-            },
-            {
-              ...options,
-              customGroups: [
-                {
-                  elementNamePattern: 'r',
-                  groupName: 'r',
+            ],
+            output: dedent`
+              let Func = (arguments: {
+                a: 'aaa'
+                b: 'bb'
+                c: 'c'
+              }) => {
+                // ...
+              }
+            `,
+            code: dedent`
+              let Func = (arguments: {
+                b: 'bb'
+                a: 'aaa'
+                c: 'c'
+              }) => {
+                // ...
+              }
+            `,
+            options: [options],
+          },
+        ],
+        valid: [
+          {
+            code: dedent`
+              let Func = (arguments: {
+                a: 'aaa'
+                b: 'bb'
+                c: 'c'
+              }) => {
+                // ...
+              }
+            `,
+            options: [options],
+          },
+        ],
+      },
+    )
+
+    ruleTester.run(
+      `${ruleName}(${type}): sorts type members with computed keys`,
+      rule,
+      {
+        invalid: [
+          {
+            errors: [
+              {
+                data: {
+                  right: '[key: string]',
+                  left: 'a',
                 },
-                {
-                  elementNamePattern: 'g',
-                  groupName: 'g',
-                },
-                {
-                  elementNamePattern: 'b',
-                  groupName: 'b',
-                },
-              ],
-              useConfigurationIf: {
-                allNamesMatchPattern: rgbAllNamesMatchPattern,
+                messageId: 'unexpectedObjectTypesOrder',
               },
-              groups: ['r', 'g', 'b'],
-            },
-          ],
+              {
+                data: {
+                  left: 'value',
+                  right: 'c',
+                },
+                messageId: 'unexpectedObjectTypesOrder',
+              },
+            ],
+            output: dedent`
+              type Type = {
+                [key: string]: string
+                a?: 'aaa'
+                b: 'bb'
+                c: 'c'
+                [value]: string
+              }
+            `,
+            code: dedent`
+              type Type = {
+                a?: 'aaa'
+                [key: string]: string
+                b: 'bb'
+                [value]: string
+                c: 'c'
+              }
+            `,
+            options: [options],
+          },
+        ],
+        valid: [
+          {
+            code: dedent`
+              type Type = {
+                [key: string]: string
+                a?: 'aaa'
+                b: 'bb'
+                c: 'c'
+                [value]: string
+              }
+            `,
+            options: [options],
+          },
+        ],
+      },
+    )
+
+    ruleTester.run(
+      `${ruleName}(${type}): sorts type members with any key types`,
+      rule,
+      {
+        invalid: [
+          {
+            errors: [
+              {
+                data: {
+                  left: '[name in v]',
+                  right: '8',
+                },
+                messageId: 'unexpectedObjectTypesOrder',
+              },
+              {
+                data: {
+                  right: 'arrowFunc',
+                  left: 'func',
+                },
+                messageId: 'unexpectedObjectTypesOrder',
+              },
+            ],
+            output: dedent`
+              type Type = {
+                [8]: Value
+                [...values]
+                [[data]]: string
+                [name in v]?
+                arrowFunc?: () => void
+                func(): void
+              }
+            `,
+            code: dedent`
+              type Type = {
+                [...values]
+                [[data]]: string
+                [name in v]?
+                [8]: Value
+                func(): void
+                arrowFunc?: () => void
+              }
+            `,
+            options: [options],
+          },
+        ],
+        valid: [
+          {
+            code: dedent`
+              type Type = {
+                [8]: Value
+                [...values]
+                [[data]]: string
+                [name in v]?
+                arrowFunc?: () => void
+                func(): void
+              }
+            `,
+            options: [options],
+          },
+        ],
+      },
+    )
+
+    ruleTester.run(`${ruleName}(${type}): sorts inline type members`, rule, {
+      invalid: [
+        {
           errors: [
             {
               data: {
-                rightGroup: 'g',
-                leftGroup: 'b',
-                right: 'g',
+                right: 'a',
                 left: 'b',
               },
-              messageId: 'unexpectedObjectTypesGroupOrder',
-            },
-            {
-              data: {
-                rightGroup: 'r',
-                leftGroup: 'g',
-                right: 'r',
-                left: 'g',
-              },
-              messageId: 'unexpectedObjectTypesGroupOrder',
+              messageId: 'unexpectedObjectTypesOrder',
             },
           ],
           output: dedent`
-            type Type = {
-              r: string
-              g: string
-              b: string
-            }
+            func<{ a: 'aa'; b: 'b'; }>(/* ... */)
           `,
           code: dedent`
-            type Type = {
-              b: string
-              g: string
-              r: string
-            }
+            func<{ b: 'b'; a: 'aa' }>(/* ... */)
           `,
-        })
+          options: [options],
+        },
+      ],
+      valid: [
+        {
+          code: dedent`
+            func<{ a: 'aa'; b: 'b' }>(/* ... */)
+          `,
+          options: [options],
+        },
+      ],
+    })
+
+    ruleTester.run(
+      `${ruleName}(${type}): allows to set groups for sorting`,
+      rule,
+      {
+        invalid: [
+          {
+            errors: [
+              {
+                data: {
+                  leftGroup: 'unknown',
+                  rightGroup: 'b',
+                  right: 'b',
+                  left: 'a',
+                },
+                messageId: 'unexpectedObjectTypesGroupOrder',
+              },
+              {
+                data: {
+                  right: 'e',
+                  left: 'f',
+                },
+                messageId: 'unexpectedObjectTypesOrder',
+              },
+            ],
+            output: [
+              dedent`
+                type Type = {
+                  b: 'bb'
+                  a: 'aaa'
+                  c: 'c'
+                  d: {
+                    e: 'ee'
+                    f: 'f'
+                  }
+                }
+              `,
+            ],
+            code: dedent`
+              type Type = {
+                a: 'aaa'
+                b: 'bb'
+                c: 'c'
+                d: {
+                  f: 'f'
+                  e: 'ee'
+                }
+              }
+            `,
+            options: [
+              {
+                ...options,
+                customGroups: {
+                  b: 'b',
+                },
+                groups: ['b', 'unknown', 'multiline'],
+              },
+            ],
+          },
+        ],
+        valid: [
+          {
+            code: dedent`
+              type Type = {
+                b: 'bb'
+                a: 'aaa'
+                c: 'c'
+                d: {
+                  e: 'ee'
+                  f: 'f'
+                }
+              }
+            `,
+            options: [
+              {
+                ...options,
+                customGroups: {
+                  b: 'b',
+                },
+                groups: ['b', 'unknown', 'multiline'],
+              },
+            ],
+          },
+        ],
       },
     )
 
-    it('detects declaration name by pattern', async () => {
-      await valid({
-        options: [
+    ruleTester.run(
+      `${ruleName}(${type}): allows to use new line as partition`,
+      rule,
+      {
+        invalid: [
           {
-            useConfigurationIf: {
-              declarationMatchesPattern: '^Type$',
-            },
-            type: 'unsorted',
-          },
-          options,
-        ],
-        code: dedent`
-          type Type = {
-            b: string
-            c: string
-            a: string
-          }
-        `,
-      })
+            errors: [
+              {
+                data: {
+                  right: 'd',
+                  left: 'e',
+                },
+                messageId: 'unexpectedObjectTypesOrder',
+              },
+              {
+                data: {
+                  right: 'a',
+                  left: 'b',
+                },
+                messageId: 'unexpectedObjectTypesOrder',
+              },
+            ],
+            output: dedent`
+              type Type = {
+                d: 'dd'
+                e: 'e'
 
-      await invalid({
-        options: [
-          {
-            useConfigurationIf: {
-              declarationMatchesPattern: '^Type$',
-            },
-            type: 'unsorted',
-          },
-          options,
-        ],
-        errors: [
-          {
-            messageId: 'unexpectedObjectTypesOrder',
-            data: { right: 'a', left: 'b' },
-          },
-        ],
-        output: dedent`
-          type OtherType = {
-            a: string
-            b: string
-          }
-        `,
-        code: dedent`
-          type OtherType = {
-            b: string
-            a: string
-          }
-        `,
-      })
-    })
+                c: 'ccc'
 
-    it('does not match configuration if no declaration name', async () => {
-      await invalid({
-        options: [
-          {
-            useConfigurationIf: {
-              declarationMatchesPattern: '^Type$',
-            },
-            type: 'unsorted',
+                a: 'aaaaa'
+                b: 'bbbb'
+              }
+            `,
+            code: dedent`
+              type Type = {
+                e: 'e'
+                d: 'dd'
+
+                c: 'ccc'
+
+                b: 'bbbb'
+                a: 'aaaaa'
+              }
+            `,
+            options: [
+              {
+                ...options,
+                partitionByNewLine: true,
+              },
+            ],
           },
-          options,
         ],
-        errors: [
+        valid: [
           {
-            messageId: 'unexpectedObjectTypesOrder',
-            data: { right: 'b', left: 'c' },
+            code: dedent`
+              type Type = {
+                d: 'dd'
+                e: 'e'
+
+                c: 'ccc'
+
+                a: 'aaaaa'
+                b: 'bbbb'
+              }
+            `,
+            options: [
+              {
+                ...options,
+                partitionByNewLine: true,
+              },
+            ],
           },
         ],
-        output: dedent`
-          type Type = {
-            a: {
-              b: string
-              c: string
+      },
+    )
+
+    ruleTester.run(
+      `${ruleName}(${type}): allows to sort required values first`,
+      rule,
+      {
+        invalid: [
+          {
+            errors: [
+              {
+                data: {
+                  left: 'bbbb',
+                  right: 'ccc',
+                },
+                messageId: 'unexpectedObjectTypesOrder',
+              },
+              {
+                data: {
+                  left: 'dd',
+                  right: 'e',
+                },
+                messageId: 'unexpectedObjectTypesOrder',
+              },
+            ],
+            output: dedent`
+              type Type = {
+                ccc: string
+                e: string
+                aaaaa?: string
+                bbbb?: string
+                dd?: string
+              }
+            `,
+            code: dedent`
+              type Type = {
+                aaaaa?: string
+                bbbb?: string
+                ccc: string
+                dd?: string
+                e: string
+              }
+            `,
+            options: [
+              {
+                ...options,
+                groupKind: 'required-first',
+              },
+            ],
+          },
+        ],
+        valid: [
+          {
+            code: dedent`
+              type Type = {
+                ccc: string
+                e: string
+                aaaaa?: string
+                bbbb?: string
+                dd?: string
+              }
+            `,
+            options: [
+              {
+                ...options,
+                groupKind: 'required-first',
+              },
+            ],
+          },
+        ],
+      },
+    )
+
+    ruleTester.run(
+      `${ruleName}(${type}): allows to sort optional values first`,
+      rule,
+      {
+        invalid: [
+          {
+            errors: [
+              {
+                data: {
+                  left: 'ccc',
+                  right: 'dd',
+                },
+                messageId: 'unexpectedObjectTypesOrder',
+              },
+            ],
+            output: dedent`
+              type Type = {
+                aaaaa?: string
+                bbbb?: string
+                dd?: string
+                ccc: string
+                e: string
+              }
+            `,
+            code: dedent`
+              type Type = {
+                aaaaa?: string
+                bbbb?: string
+                ccc: string
+                dd?: string
+                e: string
+              }
+            `,
+            options: [
+              {
+                ...options,
+                groupKind: 'optional-first',
+              },
+            ],
+          },
+        ],
+        valid: [
+          {
+            code: dedent`
+              type Type = {
+                aaaaa?: string
+                bbbb?: string
+                dd?: string
+                ccc: string
+                e: string
+              }
+            `,
+            options: [
+              {
+                ...options,
+                groupKind: 'optional-first',
+              },
+            ],
+          },
+        ],
+      },
+    )
+
+    ruleTester.run(`${ruleName}(${type}): allows to use method group`, rule, {
+      valid: [
+        {
+          code: dedent`
+            type Type = {
+              b(): void
+              c: (((v: false) => 'false') | ((v: true) => 'true')) & ((v: any) => any)
+              a: string
+              d: string
             }
-          }
-        `,
-        code: dedent`
-          type Type = {
-            a: {
-              c: string
-              b: string
-            }
-          }
-        `,
-      })
-    })
-
-    it('allows sorting by value', async () => {
-      await invalid({
-        errors: [
-          {
-            messageId: 'unexpectedObjectTypesOrder',
-            data: { right: 'b', left: 'a' },
-          },
-        ],
-        output: dedent`
-          type Type = {
-            b: 'a'
-            a: 'b'
-          }
-        `,
-        options: [
-          {
-            sortBy: 'value',
-            ...options,
-          },
-        ],
-        code: dedent`
-          type Type = {
-            a: 'b'
-            b: 'a'
-          }
-        `,
-      })
-    })
-
-    it('does not enforce sorting of non-properties in the same group', async () => {
-      await invalid({
-        errors: [
-          {
-            messageId: 'unexpectedObjectTypesOrder',
-            data: { right: 'a', left: 'z' },
-          },
-          {
-            messageId: 'unexpectedObjectTypesOrder',
-            data: { right: 'y', left: 'a' },
-          },
-        ],
-        output: dedent`
-          type Type = {
-            y: 'y'
-            a(): void
-            z: 'z'
-          }
-        `,
-        code: dedent`
-          type Type = {
-            z: 'z'
-            a(): void
-            y: 'y'
-          }
-        `,
-        options: [
-          {
-            sortBy: 'value',
-            ...options,
-          },
-        ],
-      })
-
-      await invalid({
-        errors: [
-          {
-            data: { right: '[key: string]', left: 'z' },
-            messageId: 'unexpectedObjectTypesOrder',
-          },
-          {
-            data: {
-              left: '[key: string]',
-              right: 'y',
+          `,
+          options: [
+            {
+              ...options,
+              groups: ['method', 'unknown'],
             },
-            messageId: 'unexpectedObjectTypesOrder',
-          },
-        ],
-        output: dedent`
-          type Type = {
-            y: 'y'
-            [key: string]
-            z: 'z'
-          }
-        `,
-        code: dedent`
-          type Type = {
-            z: 'z'
-            [key: string]
-            y: 'y'
-          }
-        `,
-        options: [
-          {
-            sortBy: 'value',
-            ...options,
-          },
-        ],
-      })
-    })
-
-    it('enforces grouping but does not enforce sorting of non-properties', async () => {
-      await invalid({
-        errors: [
-          {
-            data: {
-              leftGroup: 'unknown',
-              rightGroup: 'method',
-              right: 'a',
-              left: 'z',
-            },
-            messageId: 'unexpectedObjectTypesGroupOrder',
-          },
-        ],
-        options: [
-          {
-            sortBy: 'value',
-            ...options,
-            groups: ['method', 'unknown'],
-          },
-        ],
-        output: dedent`
-          type Type = {
-            b(): void
-            a(): void
-            z: 'z'
-          }
-        `,
-        code: dedent`
-          type Type = {
-            b(): void
-            z: 'z'
-            a(): void
-          }
-        `,
-      })
+          ],
+        },
+      ],
+      invalid: [],
     })
   })
 
-  describe('line-length', () => {
-    let options = {
-      type: 'line-length',
-      order: 'desc',
-    } as const
+  describe(`${ruleName}: sorts by custom alphabet`, () => {
+    let type = 'custom'
 
-    it('sorts type members', async () => {
-      await valid({
-        code: dedent`
-          type Type = {
-            a: 'aaa'
-            b: 'bb'
-            c: 'c'
-          }
-        `,
-        options: [options],
-      })
-
-      await invalid({
-        errors: [
-          {
-            messageId: 'unexpectedObjectTypesOrder',
-            data: { right: 'b', left: 'c' },
-          },
-        ],
-        output: dedent`
-          type Type = {
-            a: 'aaa'
-            b: 'bb'
-            c: 'c'
-          }
-        `,
-        code: dedent`
-          type Type = {
-            a: 'aaa'
-            c: 'c'
-            b: 'bb'
-          }
-        `,
-        options: [options],
-      })
-    })
-
-    it('sorts type members in function args', async () => {
-      await valid({
-        code: dedent`
-          let Func = (arguments: {
-            a: 'aaa'
-            b: 'bb'
-            c: 'c'
-          }) => {
-            // ...
-          }
-        `,
-        options: [options],
-      })
-
-      await invalid({
-        output: dedent`
-          let Func = (arguments: {
-            a: 'aaa'
-            b: 'bb'
-            c: 'c'
-          }) => {
-            // ...
-          }
-        `,
-        code: dedent`
-          let Func = (arguments: {
-            b: 'bb'
-            a: 'aaa'
-            c: 'c'
-          }) => {
-            // ...
-          }
-        `,
-        errors: [
-          {
-            messageId: 'unexpectedObjectTypesOrder',
-            data: { right: 'a', left: 'b' },
-          },
-        ],
-        options: [options],
-      })
-    })
-
-    it('sorts type members with computed keys', async () => {
-      await valid({
-        code: dedent`
-          type Type = {
-            [key: string]: string
-            [value]: string
-            a?: 'aaa'
-            b: 'bb'
-            c: 'c'
-          }
-        `,
-        options: [options],
-      })
-
-      await invalid({
-        errors: [
-          {
-            data: { right: '[key: string]', left: 'a' },
-            messageId: 'unexpectedObjectTypesOrder',
-          },
-          {
-            messageId: 'unexpectedObjectTypesOrder',
-            data: { right: 'value', left: 'b' },
-          },
-        ],
-        output: dedent`
-          type Type = {
-            [key: string]: string
-            [value]: string
-            a?: 'aaa'
-            b: 'bb'
-            c: 'c'
-          }
-        `,
-        code: dedent`
-          type Type = {
-            a?: 'aaa'
-            [key: string]: string
-            b: 'bb'
-            [value]: string
-            c: 'c'
-          }
-        `,
-        options: [options],
-      })
-    })
-
-    it('sorts type members with any key types', async () => {
-      await valid({
-        code: dedent`
-          type Type = {
-            arrowFunc?: () => void
-            [[data]]: string
-            [name in v]?
-            func(): void
-            [...values]
-            [8]: Value
-          }
-        `,
-        options: [options],
-      })
-
-      await invalid({
-        errors: [
-          {
-            data: {
-              left: '[...values]',
-              right: '[[data]]',
-            },
-            messageId: 'unexpectedObjectTypesOrder',
-          },
-          {
-            messageId: 'unexpectedObjectTypesOrder',
-            data: { right: 'func', left: '8' },
-          },
-          {
-            data: { right: 'arrowFunc', left: 'func' },
-            messageId: 'unexpectedObjectTypesOrder',
-          },
-        ],
-        output: dedent`
-          type Type = {
-            arrowFunc?: () => void
-            [[data]]: string
-            [name in v]?
-            func(): void
-            [...values]
-            [8]: Value
-          }
-        `,
-        code: dedent`
-          type Type = {
-            [...values]
-            [[data]]: string
-            [name in v]?
-            [8]: Value
-            func(): void
-            arrowFunc?: () => void
-          }
-        `,
-        options: [options],
-      })
-    })
-
-    it('sorts inline type members', async () => {
-      await valid({
-        code: dedent`
-          func<{ a: 'aa'; b: 'b' }>(/* ... */)
-        `,
-        options: [options],
-      })
-
-      await invalid({
-        errors: [
-          {
-            messageId: 'unexpectedObjectTypesOrder',
-            data: { right: 'a', left: 'b' },
-          },
-        ],
-        output: dedent`
-          func<{ a: 'aa'; b: 'b'; }>(/* ... */)
-        `,
-        code: dedent`
-          func<{ b: 'b'; a: 'aa' }>(/* ... */)
-        `,
-        options: [options],
-      })
-    })
-
-    it('sorts complex predefined groups', async () => {
-      await invalid({
-        errors: [
-          {
-            data: {
-              leftGroup: 'required-property',
-              rightGroup: 'index-signature',
-              right: '[key: string]',
-              left: 'a',
-            },
-            messageId: 'unexpectedObjectTypesGroupOrder',
-          },
-          {
-            data: {
-              rightGroup: 'optional-multiline-member',
-              leftGroup: 'index-signature',
-              left: '[key: string]',
-              right: 'b',
-            },
-            messageId: 'unexpectedObjectTypesGroupOrder',
-          },
-          {
-            data: {
-              leftGroup: 'optional-multiline-member',
-              rightGroup: 'required-method',
-              right: 'c',
-              left: 'b',
-            },
-            messageId: 'unexpectedObjectTypesGroupOrder',
-          },
-        ],
-        options: [
-          {
-            ...options,
-            groups: [
-              'unknown',
-              'required-method',
-              'optional-multiline-member',
-              'index-signature',
-              'required-property',
-            ],
-          },
-        ],
-        output: dedent`
-          type Type = {
-            c(): void
-            b?: {
-              property: string;
-            }
-            [key: string]: string;
-            a: string
-          }
-        `,
-        code: dedent`
-          type Type = {
-            a: string
-            [key: string]: string;
-            b?: {
-              property: string;
-            }
-            c(): void
-          }
-        `,
-      })
-    })
-
-    it('prioritizes selectors over modifiers quantity', async () => {
-      await invalid({
-        errors: [
-          {
-            data: {
-              leftGroup: 'required-property',
-              rightGroup: 'method',
-              left: 'property',
-              right: 'method',
-            },
-            messageId: 'unexpectedObjectTypesGroupOrder',
-          },
-        ],
-        options: [
-          {
-            ...options,
-            groups: ['method', 'required-property'],
-          },
-        ],
-        output: dedent`
-          type Type = {
-            method(): void
-            property: string
-          }
-        `,
-        code: dedent`
-          type Type = {
-            property: string
-            method(): void
-          }
-        `,
-      })
-    })
-
-    it('prioritizes index-signature over member', async () => {
-      await invalid({
-        errors: [
-          {
-            data: {
-              rightGroup: 'index-signature',
-              right: '[key: string]',
-              leftGroup: 'member',
-              left: 'member',
-            },
-            messageId: 'unexpectedObjectTypesGroupOrder',
-          },
-        ],
-        output: dedent`
-          type Type = {
-            [key: string]: string;
-            member: "something";
-          }
-        `,
-        code: dedent`
-          type Type = {
-            member: "something";
-            [key: string]: string;
-          }
-        `,
-        options: [
-          {
-            ...options,
-            groups: ['index-signature', 'member'],
-          },
-        ],
-      })
-    })
-
-    it('prioritizes method over member', async () => {
-      await invalid({
-        errors: [
-          {
-            data: {
-              rightGroup: 'method',
-              leftGroup: 'member',
-              right: 'method',
-              left: 'member',
-            },
-            messageId: 'unexpectedObjectTypesGroupOrder',
-          },
-        ],
-        output: dedent`
-          type Type = {
-            method(): string
-            member: "something"
-          }
-        `,
-        code: dedent`
-          type Type = {
-            member: "something"
-            method(): string
-          }
-        `,
-        options: [
-          {
-            ...options,
-            groups: ['method', 'member'],
-          },
-        ],
-      })
-    })
-
-    it('prioritizes property over member', async () => {
-      await invalid({
-        errors: [
-          {
-            data: {
-              rightGroup: 'property',
-              leftGroup: 'member',
-              right: 'property',
-              left: 'method',
-            },
-            messageId: 'unexpectedObjectTypesGroupOrder',
-          },
-        ],
-        output: dedent`
-          type Type = {
-            property: string
-            method(): string
-          }
-        `,
-        code: dedent`
-          type Type = {
-            method(): string
-            property: string
-          }
-        `,
-        options: [
-          {
-            ...options,
-            groups: ['property', 'member'],
-          },
-        ],
-      })
-    })
-
-    it('prioritizes multiline over optional', async () => {
-      await invalid({
-        errors: [
-          {
-            data: {
-              rightGroup: 'multiline-property',
-              leftGroup: 'optional-property',
-              right: 'multilineProperty',
-              left: 'optionalProperty',
-            },
-            messageId: 'unexpectedObjectTypesGroupOrder',
-          },
-        ],
-        output: dedent`
-          type Type = {
-            multilineProperty: {
-              a: string
-            }
-            optionalProperty?: string
-          }
-        `,
-        code: dedent`
-          type Type = {
-            optionalProperty?: string
-            multilineProperty: {
-              a: string
-            }
-          }
-        `,
-        options: [
-          {
-            ...options,
-            groups: ['multiline-property', 'optional-property'],
-          },
-        ],
-      })
-    })
-
-    it('prioritizes multiline over required', async () => {
-      await invalid({
-        errors: [
-          {
-            data: {
-              rightGroup: 'multiline-property',
-              leftGroup: 'required-property',
-              right: 'multilineProperty',
-              left: 'requiredProperty',
-            },
-            messageId: 'unexpectedObjectTypesGroupOrder',
-          },
-        ],
-        output: dedent`
-          type Type = {
-            multilineProperty: {
-              a: string
-            }
-            requiredProperty: string
-          }
-        `,
-        code: dedent`
-          type Type = {
-            requiredProperty: string
-            multilineProperty: {
-              a: string
-            }
-          }
-        `,
-        options: [
-          {
-            ...options,
-            groups: ['multiline-property', 'required-property'],
-          },
-        ],
-      })
-    })
-
-    it('filters on selector and modifiers', async () => {
-      await invalid({
-        options: [
-          {
-            customGroups: [
-              {
-                groupName: 'unusedCustomGroup',
-                modifiers: ['optional'],
-                selector: 'method',
-              },
-              {
-                groupName: 'optionalPropertyGroup',
-                modifiers: ['optional'],
-                selector: 'property',
-              },
-              {
-                groupName: 'propertyGroup',
-                selector: 'property',
-              },
-            ],
-            groups: ['propertyGroup', 'optionalPropertyGroup'],
-          },
-        ],
-        errors: [
-          {
-            data: {
-              leftGroup: 'optionalPropertyGroup',
-              rightGroup: 'propertyGroup',
-              right: 'c',
-              left: 'b',
-            },
-            messageId: 'unexpectedObjectTypesGroupOrder',
-          },
-        ],
-        output: dedent`
-          type Type = {
-            c: string
-            a?: string
-            b?: string
-          }
-        `,
-        code: dedent`
-          type Type = {
-            a?: string
-            b?: string
-            c: string
-          }
-        `,
-      })
-    })
-
-    it.each([
-      ['string pattern', 'hello'],
-      ['array with string pattern', ['noMatch', 'hello']],
-      ['regex pattern', { pattern: 'HELLO', flags: 'i' }],
-      [
-        'array with regex pattern',
-        ['noMatch', { pattern: 'HELLO', flags: 'i' }],
-      ],
-    ])(
-      'filters on elementNamePattern with %s',
-      async (_description, elementNamePattern) => {
-        await invalid({
-          options: [
-            {
-              customGroups: [
-                {
-                  groupName: 'propertiesStartingWithHello',
-                  selector: 'property',
-                  elementNamePattern,
-                },
-              ],
-              groups: ['propertiesStartingWithHello', 'unknown'],
-            },
-          ],
-          errors: [
-            {
-              data: {
-                rightGroup: 'propertiesStartingWithHello',
-                right: 'helloProperty',
-                leftGroup: 'unknown',
-                left: 'method',
-              },
-              messageId: 'unexpectedObjectTypesGroupOrder',
-            },
-          ],
-          output: dedent`
-            type Type = {
-              helloProperty: string
-              a: string
-              b: string
-              method(): void
-            }
-          `,
-          code: dedent`
-            type Type = {
-              a: string
-              b: string
-              method(): void
-              helloProperty: string
-            }
-          `,
-        })
-      },
-    )
-
-    it.each([
-      ['string pattern', 'Date'],
-      ['array with string pattern', ['noMatch', 'Date']],
-      ['regex pattern', { pattern: 'DATE', flags: 'i' }],
-      [
-        'array with regex pattern',
-        ['noMatch', { pattern: 'DATE', flags: 'i' }],
-      ],
-    ])(
-      'filters on elementValuePattern with %s',
-      async (_description, dateElementValuePattern) => {
-        await invalid({
-          options: [
-            {
-              customGroups: [
-                {
-                  elementValuePattern: dateElementValuePattern,
-                  groupName: 'date',
-                },
-                {
-                  elementValuePattern: 'number',
-                  groupName: 'number',
-                },
-              ],
-              groups: ['number', 'date', 'unknown'],
-            },
-          ],
-          errors: [
-            {
-              data: {
-                rightGroup: 'number',
-                leftGroup: 'date',
-                right: 'z',
-                left: 'y',
-              },
-              messageId: 'unexpectedObjectTypesGroupOrder',
-            },
-          ],
-          output: dedent`
-            type Type = {
-              a: number
-              z: number
-              b: Date
-              y: Date
-              c(): string
-            }
-          `,
-          code: dedent`
-            type Type = {
-              a: number
-              b: Date
-              y: Date
-              z: number
-              c(): string
-            }
-          `,
-        })
-      },
-    )
-
-    it('sorts custom groups by overriding type and order', async () => {
-      await invalid({
-        errors: [
-          {
-            messageId: 'unexpectedObjectTypesOrder',
-            data: { right: 'bb', left: 'a' },
-          },
-          {
-            messageId: 'unexpectedObjectTypesOrder',
-            data: { right: 'ccc', left: 'bb' },
-          },
-          {
-            messageId: 'unexpectedObjectTypesOrder',
-            data: { right: 'dddd', left: 'ccc' },
-          },
-          {
-            data: {
-              rightGroup: 'reversedPropertiesByLineLength',
-              leftGroup: 'unknown',
-              left: 'method',
-              right: 'eee',
-            },
-            messageId: 'unexpectedObjectTypesGroupOrder',
-          },
-        ],
-        options: [
-          {
-            customGroups: [
-              {
-                groupName: 'reversedPropertiesByLineLength',
-                selector: 'property',
-                type: 'line-length',
-                order: 'desc',
-              },
-            ],
-            groups: ['reversedPropertiesByLineLength', 'unknown'],
-            type: 'alphabetical',
-            order: 'asc',
-          },
-        ],
-        output: dedent`
-          type Type = {
-            dddd: string
-            ccc: string
-            eee: string
-            bb: string
-            ff: string
-            a: string
-            g: string
-            anotherMethod(): void
-            method(): void
-            yetAnotherMethod(): void
-          }
-        `,
-        code: dedent`
-          type Type = {
-            a: string
-            bb: string
-            ccc: string
-            dddd: string
-            method(): void
-            eee: string
-            ff: string
-            g: string
-            anotherMethod(): void
-            yetAnotherMethod(): void
-          }
-        `,
-      })
-    })
-
-    it('sorts custom groups by overriding fallbackSort', async () => {
-      await invalid({
-        options: [
-          {
-            customGroups: [
-              {
-                fallbackSort: {
-                  type: 'alphabetical',
-                  order: 'asc',
-                },
-                elementNamePattern: '^foo',
-                type: 'line-length',
-                groupName: 'foo',
-                order: 'desc',
-              },
-            ],
-            type: 'alphabetical',
-            groups: ['foo'],
-            order: 'asc',
-          },
-        ],
-        errors: [
-          {
-            data: { right: 'fooBar', left: 'fooZar' },
-            messageId: 'unexpectedObjectTypesOrder',
-          },
-        ],
-        output: dedent`
-          type Type = {
-            fooBar: string
-            fooZar: string
-          }
-        `,
-        code: dedent`
-          type Type = {
-            fooZar: string
-            fooBar: string
-          }
-        `,
-      })
-
-      await invalid({
-        options: [
-          {
-            customGroups: [
-              {
-                fallbackSort: {
-                  type: 'alphabetical',
-                  sortBy: 'value',
-                },
-                elementValuePattern: '^foo',
-                type: 'line-length',
-                groupName: 'foo',
-              },
-            ],
-            type: 'alphabetical',
-            groups: ['foo'],
-            order: 'asc',
-          },
-        ],
-        errors: [
-          {
-            messageId: 'unexpectedObjectTypesOrder',
-            data: { right: 'b', left: 'a' },
-          },
-        ],
-        output: dedent`
-          type Type = {
-            b: fooBar
-            a: fooZar
-          }
-        `,
-        code: dedent`
-          type Type = {
-            a: fooZar
-            b: fooBar
-          }
-        `,
-      })
-    })
-
-    it('sorts custom groups by overriding sortBy', async () => {
-      await invalid({
-        errors: [
-          {
-            data: {
-              rightGroup: 'fooElementsSortedByValue',
-              leftGroup: 'unknown',
-              right: 'fooC',
-              left: 'z',
-            },
-            messageId: 'unexpectedObjectTypesGroupOrder',
-          },
-          {
-            messageId: 'unexpectedObjectTypesOrder',
-            data: { right: 'fooA', left: 'fooB' },
-          },
-          {
-            data: {
-              rightGroup: 'fooElementsSortedByValue',
-              leftGroup: 'unknown',
-              right: 'fooMethod',
-              left: 'a',
-            },
-            messageId: 'unexpectedObjectTypesGroupOrder',
-          },
-        ],
-        options: [
-          {
-            customGroups: [
-              {
-                groupName: 'fooElementsSortedByValue',
-                elementNamePattern: '^foo',
-                sortBy: 'value',
-              },
-            ],
-            groups: ['fooElementsSortedByValue', 'unknown'],
-            type: 'alphabetical',
-            order: 'asc',
-          },
-        ],
-        output: dedent`
-          type Type = {
-            fooA: Date
-            fooC: number
-            fooB: string
-            fooMethod(): void
-            a: string
-            z: boolean
-          }
-        `,
-        code: dedent`
-          type Type = {
-            z: boolean
-            fooC: number
-            fooB: string
-            fooA: Date
-            a: string
-            fooMethod(): void
-          }
-        `,
-      })
-    })
-
-    it('does not sort custom groups with unsorted type', async () => {
-      await invalid({
-        options: [
-          {
-            customGroups: [
-              {
-                groupName: 'unsortedProperties',
-                selector: 'property',
-                type: 'unsorted',
-              },
-            ],
-            groups: ['unsortedProperties', 'unknown'],
-          },
-        ],
-        errors: [
-          {
-            data: {
-              rightGroup: 'unsortedProperties',
-              leftGroup: 'unknown',
-              left: 'method',
-              right: 'c',
-            },
-            messageId: 'unexpectedObjectTypesGroupOrder',
-          },
-        ],
-        output: dedent`
-          type Type = {
-            b
-            a
-            d
-            e
-            c
-            method(): void
-          }
-        `,
-        code: dedent`
-          type Type = {
-            b
-            a
-            d
-            e
-            method(): void
-            c
-          }
-        `,
-      })
-    })
-
-    it('sorts custom group blocks', async () => {
-      await invalid({
-        options: [
-          {
-            customGroups: [
-              {
-                anyOf: [
-                  {
-                    modifiers: ['required'],
-                    selector: 'property',
-                  },
-                  {
-                    modifiers: ['optional'],
-                    selector: 'method',
-                  },
-                ],
-                groupName: 'requiredPropertiesAndOptionalMethods',
-              },
-            ],
-            groups: [
-              ['requiredPropertiesAndOptionalMethods', 'index-signature'],
-              'unknown',
-            ],
-          },
-        ],
-        errors: [
-          {
-            data: {
-              rightGroup: 'requiredPropertiesAndOptionalMethods',
-              leftGroup: 'unknown',
-              right: 'd',
-              left: 'c',
-            },
-            messageId: 'unexpectedObjectTypesGroupOrder',
-          },
-          {
-            data: { right: '[key: string]', left: 'e' },
-            messageId: 'unexpectedObjectTypesOrder',
-          },
-        ],
-        output: dedent`
-          type Type = {
-            [key: string]: string
-            a: string
-            d?: () => void
-            e: string
-            b(): void
-            c?: string
-          }
-        `,
-        code: dedent`
-          type Type = {
-            a: string
-            b(): void
-            c?: string
-            d?: () => void
-            e: string
-            [key: string]: string
-          }
-        `,
-      })
-    })
-
-    it('allows to use regex for element names in custom groups', async () => {
-      await valid({
-        options: [
-          {
-            customGroups: [
-              {
-                elementNamePattern: '^(?!.*Foo).*$',
-                groupName: 'elementsWithoutFoo',
-              },
-            ],
-            groups: ['unknown', 'elementsWithoutFoo'],
-            type: 'alphabetical',
-          },
-        ],
-        code: dedent`
-          type Type = {
-            iHaveFooInMyName: string
-            meTooIHaveFoo: string
-            a: string
-            b: string
-          }
-        `,
-      })
-    })
-
-    it('allows to use newlinesInside: 1', async () => {
-      await invalid({
-        options: [
-          {
-            customGroups: [
-              {
-                selector: 'property',
-                groupName: 'group1',
-                newlinesInside: 1,
-              },
-            ],
-            groups: ['group1'],
-          },
-        ],
-        errors: [
-          {
-            messageId: 'missedSpacingBetweenObjectTypeMembers',
-            data: { right: 'b', left: 'a' },
-          },
-        ],
-        output: dedent`
-          type type = {
-            a
-
-            b
-          }
-        `,
-        code: dedent`
-          type type = {
-            a
-            b
-          }
-        `,
-      })
-    })
-
-    it('allows to use newlinesInside: 0', async () => {
-      await invalid({
-        options: [
-          {
-            customGroups: [
-              {
-                selector: 'property',
-                groupName: 'group1',
-                newlinesInside: 0,
-              },
-            ],
-            type: 'alphabetical',
-            groups: ['group1'],
-          },
-        ],
-        errors: [
-          {
-            messageId: 'extraSpacingBetweenObjectTypeMembers',
-            data: { right: 'b', left: 'a' },
-          },
-        ],
-        output: dedent`
-          type type = {
-            a
-            b
-          }
-        `,
-        code: dedent`
-          type type = {
-            a
-
-            b
-          }
-        `,
-      })
-    })
-
-    it('allows to use regex for custom groups', async () => {
-      await valid({
-        options: [
-          {
-            ...options,
-            customGroups: [
-              {
-                elementNamePattern: '^(?!.*Foo).*$',
-                groupName: 'elementsWithoutFoo',
-              },
-            ],
-            groups: ['unknown', 'elementsWithoutFoo'],
-          },
-        ],
-        code: dedent`
-          type T = {
-            iHaveFooInMyName: string
-            meTooIHaveFoo: string
-            a: string
-            b: string
-          }
-        `,
-      })
-    })
-
-    it('allows to use in class methods', async () => {
-      await invalid({
-        output: dedent`
-          class Class {
-            async method (data: {
-              a: 'aaa'
-              b: 'bb'
-              c: 'c'
-            }) {}
-          }
-        `,
-        code: dedent`
-          class Class {
-            async method (data: {
-              b: 'bb'
-              a: 'aaa'
-              c: 'c'
-            }) {}
-          }
-        `,
-        errors: [
-          {
-            messageId: 'unexpectedObjectTypesOrder',
-            data: { right: 'a', left: 'b' },
-          },
-        ],
-        options: [options],
-      })
-    })
-
-    it('allows to use new line as partition', async () => {
-      await valid({
-        code: dedent`
-          type Type = {
-            d: 'dd'
-            e: 'e'
-
-            c: 'ccc'
-
-            a: 'aaaaa'
-            b: 'bbbb'
-          }
-        `,
-        options: [
-          {
-            ...options,
-            partitionByNewLine: true,
-          },
-        ],
-      })
-
-      await invalid({
-        errors: [
-          {
-            messageId: 'unexpectedObjectTypesOrder',
-            data: { right: 'd', left: 'e' },
-          },
-          {
-            messageId: 'unexpectedObjectTypesOrder',
-            data: { right: 'a', left: 'b' },
-          },
-        ],
-        output: dedent`
-          type Type = {
-            d: 'dd'
-            e: 'e'
-
-            c: 'ccc'
-
-            a: 'aaaaa'
-            b: 'bbbb'
-          }
-        `,
-        code: dedent`
-          type Type = {
-            e: 'e'
-            d: 'dd'
-
-            c: 'ccc'
-
-            b: 'bbbb'
-            a: 'aaaaa'
-          }
-        `,
-        options: [
-          {
-            ...options,
-            partitionByNewLine: true,
-          },
-        ],
-      })
-    })
-
-    it('allows to use partition comments', async () => {
-      await invalid({
-        output: dedent`
-          type Type = {
-            // Part: A
-            // Not partition comment
-            bbb: string
-            cc: string
-            d: string
-            // Part: B
-            aaaa: string
-            e: string
-            // Part: C
-            'gg': string
-            // Not partition comment
-            fff: string
-          }
-        `,
-        code: dedent`
-          type Type = {
-            // Part: A
-            cc: string
-            d: string
-            // Not partition comment
-            bbb: string
-            // Part: B
-            aaaa: string
-            e: string
-            // Part: C
-            'gg': string
-            // Not partition comment
-            fff: string
-          }
-        `,
-        errors: [
-          {
-            messageId: 'unexpectedObjectTypesOrder',
-            data: { right: 'bbb', left: 'd' },
-          },
-        ],
-        options: [
-          {
-            ...options,
-            partitionByComment: '^Part',
-          },
-        ],
-      })
-    })
-
-    it('allows to use all comments as parts', async () => {
-      await valid({
-        code: dedent`
-          type Type = {
-            // Comment
-            bb: string
-            // Other comment
-            a: string
-          }
-        `,
-        options: [
-          {
-            ...options,
-            partitionByComment: true,
-          },
-        ],
-      })
-    })
-
-    it('allows to use multiple partition comments', async () => {
-      await invalid({
-        output: dedent`
-          type Type = {
-            /* Partition Comment */
-            // Part: A
-            d: string
-            // Part: B
-            aaa: string
-            bb: string
-            c: string
-            /* Other */
-            e: string
-          }
-        `,
-        code: dedent`
-          type Type = {
-            /* Partition Comment */
-            // Part: A
-            d: string
-            // Part: B
-            aaa: string
-            c: string
-            bb: string
-            /* Other */
-            e: string
-          }
-        `,
-        errors: [
-          {
-            messageId: 'unexpectedObjectTypesOrder',
-            data: { right: 'bb', left: 'c' },
-          },
-        ],
-        options: [
-          {
-            ...options,
-            partitionByComment: ['Partition Comment', 'Part:', 'Other'],
-          },
-        ],
-      })
-    })
-
-    it('allows to use regex for partition comments', async () => {
-      await valid({
-        code: dedent`
-          type Type = {
-            e: string
-            f: string
-            // I am a partition comment because I don't have f o o
-            a: string
-            b: string
-          }
-        `,
-        options: [
-          {
-            ...options,
-            partitionByComment: ['^(?!.*foo).*$'],
-          },
-        ],
-      })
-    })
-
-    it('ignores block comments', async () => {
-      await invalid({
-        options: [
-          {
-            ...options,
-            partitionByComment: {
-              line: true,
-            },
-          },
-        ],
-        errors: [
-          {
-            messageId: 'unexpectedObjectTypesOrder',
-            data: { right: 'aa', left: 'b' },
-          },
-        ],
-        output: dedent`
-          type Type = {
-            /* Comment */
-            aa: string
-            b: string
-          }
-        `,
-        code: dedent`
-          type Type = {
-            b: string
-            /* Comment */
-            aa: string
-          }
-        `,
-      })
-    })
-
-    it('allows to use all line comments as parts', async () => {
-      await valid({
-        options: [
-          {
-            ...options,
-            partitionByComment: {
-              line: true,
-            },
-          },
-        ],
-        code: dedent`
-          type Type = {
-            b: string
-            // Comment
-            a: string
-          }
-        `,
-      })
-    })
-
-    it('allows to use multiple partition line comments', async () => {
-      await valid({
-        code: dedent`
-          type Type = {
-            c: string
-            // b
-            b: string
-            // a
-            a: string
-          }
-        `,
-        options: [
-          {
-            ...options,
-            partitionByComment: {
-              line: ['a', 'b'],
-            },
-          },
-        ],
-      })
-    })
-
-    it('allows to use regex for partition line comments', async () => {
-      await valid({
-        code: dedent`
-          type Type = {
-            b: string
-            // I am a partition comment because I don't have f o o
-            a: string
-          }
-        `,
-        options: [
-          {
-            ...options,
-            partitionByComment: {
-              line: ['^(?!.*foo).*$'],
-            },
-          },
-        ],
-      })
-    })
-
-    it('ignores line comments', async () => {
-      await invalid({
-        options: [
-          {
-            ...options,
-            partitionByComment: {
-              block: true,
-            },
-          },
-        ],
-        errors: [
-          {
-            messageId: 'unexpectedObjectTypesOrder',
-            data: { right: 'aa', left: 'b' },
-          },
-        ],
-        output: dedent`
-          type Type = {
-            // Comment
-            aa: string
-            b: string
-          }
-        `,
-        code: dedent`
-          type Type = {
-            b: string
-            // Comment
-            aa: string
-          }
-        `,
-      })
-    })
-
-    it('allows to use all block comments as parts', async () => {
-      await valid({
-        options: [
-          {
-            ...options,
-            partitionByComment: {
-              block: true,
-            },
-          },
-        ],
-        code: dedent`
-          type Type = {
-            b: string
-            /* Comment */
-            a: string
-          }
-        `,
-      })
-    })
-
-    it('allows to use multiple partition block comments', async () => {
-      await valid({
-        code: dedent`
-          type Type = {
-            c: string
-            /* b */
-            b: string
-            /* a */
-            a: string
-          }
-        `,
-        options: [
-          {
-            ...options,
-            partitionByComment: {
-              block: ['a', 'b'],
-            },
-          },
-        ],
-      })
-    })
-
-    it('allows to use regex for partition block comments', async () => {
-      await valid({
-        code: dedent`
-          type Type = {
-            b: string
-            /* I am a partition comment because I don't have f o o */
-            a: string
-          }
-        `,
-        options: [
-          {
-            ...options,
-            partitionByComment: {
-              block: ['^(?!.*foo).*$'],
-            },
-          },
-        ],
-      })
-    })
-
-    it('allows to trim special characters', async () => {
-      await valid({
-        code: dedent`
-          type Type = {
-            _a: string
-            bb: string
-            _c: string
-          }
-        `,
-        options: [
-          {
-            ...options,
-            specialCharacters: 'trim',
-          },
-        ],
-      })
-    })
-
-    it('allows to remove special characters', async () => {
-      await valid({
-        options: [
-          {
-            ...options,
-            specialCharacters: 'remove',
-          },
-        ],
-        code: dedent`
-          type Type = {
-            abc: string
-            a_c: string
-          }
-        `,
-      })
-    })
-
-    it('allows to use locale', async () => {
-      await valid({
-        code: dedent`
-          type Type = {
-            你好: string
-            世界: string
-            a: string
-            A: string
-            b: string
-            B: string
-          }
-        `,
-        options: [{ ...options, locales: 'zh-CN' }],
-      })
-    })
-
-    it('allows to use method group', async () => {
-      await valid({
-        code: dedent`
-          type Type = {
-            c: (((v: false) => 'false') | ((v: true) => 'true')) & ((v: any) => any)
-            b(): void
-            a: string
-            d: string
-          }
-        `,
-        options: [
-          {
-            ...options,
-            groups: ['method', 'unknown'],
-          },
-        ],
-      })
-    })
-
-    it('removes newlines between groups when newlinesBetween is 0', async () => {
-      await invalid({
-        errors: [
-          {
-            data: {
-              left: 'aaaa',
-              right: 'yy',
-            },
-            messageId: 'extraSpacingBetweenObjectTypeMembers',
-          },
-          {
-            messageId: 'unexpectedObjectTypesOrder',
-            data: { right: 'bbb', left: 'z' },
-          },
-        ],
-        options: [
-          {
-            ...options,
-            groups: ['method', 'unknown'],
-            newlinesInside: 'ignore',
-            newlinesBetween: 0,
-          },
-        ],
-        code: dedent`
-          type Type = {
-            aaaa: () => null,
-
-
-           yy: "y",
-          z: "z",
-
-              bbb: "b",
-          }
-        `,
-        output: dedent`
-          type Type = {
-            aaaa: () => null,
-           bbb: "b",
-          yy: "y",
-
-              z: "z",
-          }
-        `,
-      })
-    })
-
-    it('handles newlinesBetween between consecutive groups', async () => {
-      await invalid({
-        options: [
-          {
-            ...options,
-            customGroups: [
-              { elementNamePattern: 'a', groupName: 'a' },
-              { elementNamePattern: 'b', groupName: 'b' },
-              { elementNamePattern: 'c', groupName: 'c' },
-              { elementNamePattern: 'd', groupName: 'd' },
-              { elementNamePattern: 'e', groupName: 'e' },
-            ],
-            groups: [
-              'a',
-              { newlinesBetween: 1 },
-              'b',
-              { newlinesBetween: 1 },
-              'c',
-              { newlinesBetween: 0 },
-              'd',
-              { newlinesBetween: 'ignore' },
-              'e',
-            ],
-            newlinesBetween: 1,
-          },
-        ],
-        errors: [
-          {
-            messageId: 'missedSpacingBetweenObjectTypeMembers',
-            data: { right: 'b', left: 'a' },
-          },
-          {
-            messageId: 'extraSpacingBetweenObjectTypeMembers',
-            data: { right: 'c', left: 'b' },
-          },
-          {
-            messageId: 'extraSpacingBetweenObjectTypeMembers',
-            data: { right: 'd', left: 'c' },
-          },
-        ],
-        output: dedent`
-          type Type = {
-            a: string
-
-            b: string
-
-            c: string
-            d: string
-
-
-            e: string
-          }
-        `,
-        code: dedent`
-          type Type = {
-            a: string
-            b: string
-
-
-            c: string
-
-            d: string
-
-
-            e: string
-          }
-        `,
-      })
-    })
-
-    it.each([
-      ['2 and 0', 2, 0],
-      ['2 and ignore', 2, 'ignore'],
-      ['0 and 2', 0, 2],
-      ['ignore and 2', 'ignore', 2],
-    ])(
-      'enforces newlines when global option is %s',
-      async (_description, globalNewlinesBetween, groupNewlinesBetween) => {
-        await invalid({
-          options: [
-            {
-              ...options,
-              customGroups: [
-                { elementNamePattern: 'a', groupName: 'a' },
-                { elementNamePattern: 'b', groupName: 'b' },
-                { groupName: 'unusedGroup', elementNamePattern: 'X' },
-              ],
-              groups: [
-                'a',
-                'unusedGroup',
-                { newlinesBetween: groupNewlinesBetween },
-                'b',
-              ],
-              newlinesBetween: globalNewlinesBetween,
-            },
-          ],
-          errors: [
-            {
-              messageId: 'missedSpacingBetweenObjectTypeMembers',
-              data: { right: 'b', left: 'a' },
-            },
-          ],
-          output: dedent`
-            type Type = {
-              a: string
-
-
-              b: string
-            }
-          `,
-          code: dedent`
-            type Type = {
-              a: string
-              b: string
-            }
-          `,
-        })
-      },
-    )
-
-    it.each([
-      ['1', 1],
-      ['2', 2],
-      ['ignore', 'ignore'],
-      ['0', 0],
-    ])(
-      'enforces no newline when global option is %s and newlinesBetween: 0 exists between all groups',
-      async (_description, globalNewlinesBetween) => {
-        await invalid({
-          options: [
-            {
-              ...options,
-              customGroups: [
-                { elementNamePattern: 'a', groupName: 'a' },
-                { elementNamePattern: 'b', groupName: 'b' },
-                { elementNamePattern: 'c', groupName: 'c' },
-                { groupName: 'unusedGroup', elementNamePattern: 'X' },
-              ],
-              groups: [
-                'a',
-                { newlinesBetween: 0 },
-                'unusedGroup',
-                { newlinesBetween: 0 },
-                'b',
-                { newlinesBetween: 1 },
-                'c',
-              ],
-              newlinesBetween: globalNewlinesBetween,
-            },
-          ],
-          errors: [
-            {
-              messageId: 'extraSpacingBetweenObjectTypeMembers',
-              data: { right: 'b', left: 'a' },
-            },
-          ],
-          output: dedent`
-            type T = {
-              a: string
-              b: string
-            }
-          `,
-          code: dedent`
-            type T = {
-              a: string
-
-              b: string
-            }
-          `,
-        })
-      },
-    )
-
-    it.each([
-      ['ignore and 0', 'ignore', 0],
-      ['0 and ignore', 0, 'ignore'],
-    ])(
-      'does not enforce a newline when global option is %s',
-      async (_description, globalNewlinesBetween, groupNewlinesBetween) => {
-        await valid({
-          options: [
-            {
-              ...options,
-              customGroups: [
-                { elementNamePattern: 'a', groupName: 'a' },
-                { elementNamePattern: 'b', groupName: 'b' },
-                { groupName: 'unusedGroup', elementNamePattern: 'X' },
-              ],
-              groups: [
-                'a',
-                'unusedGroup',
-                { newlinesBetween: groupNewlinesBetween },
-                'b',
-              ],
-              newlinesBetween: globalNewlinesBetween,
-            },
-          ],
-          code: dedent`
-            type Type = {
-              a: string
-
-              b: string
-            }
-          `,
-        })
-
-        await valid({
-          options: [
-            {
-              ...options,
-              customGroups: [
-                { elementNamePattern: 'a', groupName: 'a' },
-                { elementNamePattern: 'b', groupName: 'b' },
-                { groupName: 'unusedGroup', elementNamePattern: 'X' },
-              ],
-              groups: [
-                'a',
-                'unusedGroup',
-                { newlinesBetween: groupNewlinesBetween },
-                'b',
-              ],
-              newlinesBetween: globalNewlinesBetween,
-            },
-          ],
-          code: dedent`
-            type Type = {
-              a: string
-              b: string
-            }
-          `,
-        })
-      },
-    )
-
-    it('handles newlines and comment after fixes', async () => {
-      await invalid({
-        errors: [
-          {
-            data: {
-              rightGroup: 'property',
-              leftGroup: 'method',
-              right: 'a',
-              left: 'b',
-            },
-            messageId: 'unexpectedObjectTypesGroupOrder',
-          },
-        ],
-        output: dedent`
-          type Test = {
-            a: string // Comment after
-
-            b: () => void
-            c: () => void
-          };
-        `,
-        code: dedent`
-          type Test = {
-            b: () => void
-            a: string // Comment after
-
-            c: () => void
-          };
-        `,
-        options: [
-          {
-            groups: ['property', 'method'],
-            newlinesBetween: 1,
-            newlinesInside: 0,
-          },
-        ],
-      })
-    })
-
-    it('ignores newline fixes between different partitions with newlinesBetween: 0', async () => {
-      await invalid({
-        options: [
-          {
-            ...options,
-            customGroups: [
-              {
-                elementNamePattern: 'a',
-                groupName: 'a',
-              },
-            ],
-            groups: ['a', 'unknown'],
-            partitionByComment: true,
-            newlinesBetween: 0,
-          },
-        ],
-        output: dedent`
-          type Type = {
-            a: string
-
-            // Partition comment
-
-            bb: string
-            c: string
-          }
-        `,
-        code: dedent`
-          type Type = {
-            a: string
-
-            // Partition comment
-
-            c: string
-            bb: string
-          }
-        `,
-        errors: [
-          {
-            messageId: 'unexpectedObjectTypesOrder',
-            data: { right: 'bb', left: 'c' },
-          },
-        ],
-      })
-    })
-
-    it('sorts inline elements correctly', async () => {
-      await invalid({
-        errors: [
-          {
-            messageId: 'unexpectedObjectTypesOrder',
-            data: { right: 'aa', left: 'b' },
-          },
-        ],
-        output: dedent`
-          type Type = {
-            aa: string; b: string,
-          }
-        `,
-        code: dedent`
-          type Type = {
-            b: string, aa: string
-          }
-        `,
-        options: [options],
-      })
-
-      await invalid({
-        errors: [
-          {
-            messageId: 'unexpectedObjectTypesOrder',
-            data: { right: 'aa', left: 'b' },
-          },
-        ],
-        output: dedent`
-          type Type = {
-            aa: string; b: string,
-          }
-        `,
-        code: dedent`
-          type Type = {
-            b: string, aa: string;
-          }
-        `,
-        options: [options],
-      })
-
-      await invalid({
-        errors: [
-          {
-            messageId: 'unexpectedObjectTypesOrder',
-            data: { right: 'aa', left: 'b' },
-          },
-        ],
-        output: dedent`
-          type Type = {
-            aa: string, b: string,
-          }
-        `,
-        code: dedent`
-          type Type = {
-            b: string, aa: string,
-          }
-        `,
-        options: [options],
-      })
-    })
-
-    it('does not sort call signature declarations', async () => {
-      await valid({
-        code: dedent`
-          type Type = {
-            <Parameters extends Record<string, number | string>>(
-              input: AFunction<[Parameters], string>
-            ): Alternatives<Parameters>
-            <A extends CountA>(input: Input): AFunction<
-              [number],
-              A[keyof A]
-            >
-          }
-        `,
-        options: [options],
-      })
-    })
-
-    it('does not sort constructor declarations', async () => {
-      await valid({
-        code: dedent`
-          type Type = {
-            new (value: number | string): number;
-            new (value: number): unknown;
-          }
-        `,
-        options: [options],
-      })
-
-      await valid({
-        code: dedent`
-          type Type = {
-            new (value: number): unknown;
-            new (value: number | string): number;
-          }
-        `,
-        options: [options],
-      })
-    })
-
-    it.each([
-      ['string pattern', '^[rgb]$'],
-      ['array with string pattern', ['noMatch', '^[rgb]$']],
-      ['regex pattern', { pattern: '^[RGB]$', flags: 'i' }],
-      [
-        'array with regex pattern',
-        ['noMatch', { pattern: '^[RGB]$', flags: 'i' }],
-      ],
-    ])(
-      'allows to use allNamesMatchPattern with %s',
-      async (_description, rgbAllNamesMatchPattern) => {
-        await invalid({
-          options: [
-            {
-              ...options,
-              useConfigurationIf: {
-                allNamesMatchPattern: 'foo',
-              },
-            },
-            {
-              ...options,
-              customGroups: [
-                {
-                  elementNamePattern: 'r',
-                  groupName: 'r',
-                },
-                {
-                  elementNamePattern: 'g',
-                  groupName: 'g',
-                },
-                {
-                  elementNamePattern: 'b',
-                  groupName: 'b',
-                },
-              ],
-              useConfigurationIf: {
-                allNamesMatchPattern: rgbAllNamesMatchPattern,
-              },
-              groups: ['r', 'g', 'b'],
-            },
-          ],
-          errors: [
-            {
-              data: {
-                rightGroup: 'g',
-                leftGroup: 'b',
-                right: 'g',
-                left: 'b',
-              },
-              messageId: 'unexpectedObjectTypesGroupOrder',
-            },
-            {
-              data: {
-                rightGroup: 'r',
-                leftGroup: 'g',
-                right: 'r',
-                left: 'g',
-              },
-              messageId: 'unexpectedObjectTypesGroupOrder',
-            },
-          ],
-          output: dedent`
-            type Type = {
-              r: string
-              g: string
-              b: string
-            }
-          `,
-          code: dedent`
-            type Type = {
-              b: string
-              g: string
-              r: string
-            }
-          `,
-        })
-      },
-    )
-
-    it('detects declaration name by pattern', async () => {
-      await valid({
-        options: [
-          {
-            useConfigurationIf: {
-              declarationMatchesPattern: '^Type$',
-            },
-            type: 'unsorted',
-          },
-          options,
-        ],
-        code: dedent`
-          type Type = {
-            b: string
-            c: string
-            a: string
-          }
-        `,
-      })
-
-      await invalid({
-        options: [
-          {
-            useConfigurationIf: {
-              declarationMatchesPattern: '^Type$',
-            },
-            type: 'unsorted',
-          },
-          options,
-        ],
-        errors: [
-          {
-            messageId: 'unexpectedObjectTypesOrder',
-            data: { right: 'aa', left: 'b' },
-          },
-        ],
-        output: dedent`
-          type OtherType = {
-            aa: string
-            b: string
-          }
-        `,
-        code: dedent`
-          type OtherType = {
-            b: string
-            aa: string
-          }
-        `,
-      })
-    })
-
-    it('does not match configuration if no declaration name', async () => {
-      await invalid({
-        options: [
-          {
-            useConfigurationIf: {
-              declarationMatchesPattern: '^Type$',
-            },
-            type: 'unsorted',
-          },
-          options,
-        ],
-        errors: [
-          {
-            messageId: 'unexpectedObjectTypesOrder',
-            data: { right: 'bb', left: 'c' },
-          },
-        ],
-        output: dedent`
-          type Type = {
-            a: {
-              bb: string
-              c: string
-            }
-          }
-        `,
-        code: dedent`
-          type Type = {
-            a: {
-              c: string
-              bb: string
-            }
-          }
-        `,
-      })
-    })
-
-    it('sorts as usual by line-length when using sortBy: value', async () => {
-      await invalid({
-        errors: [
-          {
-            messageId: 'unexpectedObjectTypesOrder',
-            data: { right: 'b', left: 'c' },
-          },
-        ],
-        output: dedent`
-          type Type = {
-            b: 'aaaa'
-            aa: 'c'
-            c: 'b'
-          }
-        `,
-        code: dedent`
-          type Type = {
-            aa: 'c'
-            c: 'b'
-            b: 'aaaa'
-          }
-        `,
-        options: [
-          {
-            sortBy: 'value',
-            ...options,
-          },
-        ],
-      })
-    })
-
-    it('does not enforce sorting of non-properties in the same group', async () => {
-      await invalid({
-        errors: [
-          {
-            messageId: 'unexpectedObjectTypesOrder',
-            data: { right: 'aaa', left: 'z' },
-          },
-          {
-            messageId: 'unexpectedObjectTypesOrder',
-            data: { right: 'yy', left: 'aaa' },
-          },
-        ],
-        output: dedent`
-          type Type = {
-            yy: 'y'
-            aaa(): void
-            z: 'z'
-          }
-        `,
-        code: dedent`
-          type Type = {
-            z: 'z'
-            aaa(): void
-            yy: 'y'
-          }
-        `,
-        options: [
-          {
-            sortBy: 'value',
-            ...options,
-          },
-        ],
-      })
-    })
-
-    it('enforces grouping but does not enforce sorting of non-properties', async () => {
-      await invalid({
-        errors: [
-          {
-            data: {
-              leftGroup: 'unknown',
-              rightGroup: 'method',
-              right: 'a',
-              left: 'z',
-            },
-            messageId: 'unexpectedObjectTypesGroupOrder',
-          },
-        ],
-        options: [
-          {
-            sortBy: 'value',
-            ...options,
-            groups: ['method', 'unknown'],
-          },
-        ],
-        output: dedent`
-          type Type = {
-            b(): void
-            a(): void
-            z: 'z'
-          }
-        `,
-        code: dedent`
-          type Type = {
-            b(): void
-            z: 'z'
-            a(): void
-          }
-        `,
-      })
-    })
-
-    it('handles fallbackSort option', async () => {
-      await invalid({
-        options: [
-          {
-            ...options,
-            fallbackSort: {
-              type: 'alphabetical',
-            },
-          },
-        ],
-        errors: [
-          {
-            messageId: 'unexpectedObjectTypesOrder',
-            data: { right: 'bb', left: 'a' },
-          },
-        ],
-        output: dedent`
-          type Type = {
-            bb: string;
-            c: string;
-            a: string;
-          }
-        `,
-        code: dedent`
-          type Type = {
-            a: string;
-            bb: string;
-            c: string;
-          }
-        `,
-      })
-
-      await invalid({
-        options: [
-          {
-            ...options,
-            fallbackSort: {
-              type: 'alphabetical',
-              order: 'asc',
-            },
-          },
-        ],
-        errors: [
-          {
-            messageId: 'unexpectedObjectTypesOrder',
-            data: { right: 'bb', left: 'c' },
-          },
-        ],
-        output: dedent`
-          type Type = {
-            bb: string;
-            a: string;
-            c: string;
-          }
-        `,
-        code: dedent`
-          type Type = {
-            c: string;
-            bb: string;
-            a: string;
-          }
-        `,
-      })
-
-      await invalid({
-        options: [
-          {
-            ...options,
-            fallbackSort: {
-              type: 'alphabetical',
-              sortBy: 'value',
-            },
-          },
-        ],
-        errors: [
-          {
-            messageId: 'unexpectedObjectTypesOrder',
-            data: { right: 'bb', left: 'c' },
-          },
-        ],
-        output: dedent`
-          type Type = {
-            bb: string;
-            c: boolean;
-            a: number;
-          }
-        `,
-        code: dedent`
-          type Type = {
-            c: boolean;
-            bb: string;
-            a: number;
-          }
-        `,
-      })
-    })
-  })
-
-  describe('custom', () => {
     let alphabet = Alphabet.generateRecommendedAlphabet()
       .sortByLocaleCompare('en-US')
       .getCharacters()
-
     let options = {
       type: 'custom',
       order: 'asc',
       alphabet,
     } as const
 
-    it('sorts type members', async () => {
-      await valid({
-        code: dedent`
-          type Type = {
-            a: 'aaa'
-            b: 'bb'
-            c: 'c'
-          }
-        `,
-        options: [options],
-      })
-
-      await invalid({
-        errors: [
-          {
-            messageId: 'unexpectedObjectTypesOrder',
-            data: { right: 'b', left: 'c' },
-          },
-        ],
-        output: dedent`
-          type Type = {
-            a: 'aaa'
-            b: 'bb'
-            c: 'c'
-          }
-        `,
-        code: dedent`
-          type Type = {
-            a: 'aaa'
-            c: 'c'
-            b: 'bb'
-          }
-        `,
-        options: [options],
-      })
-    })
-
-    it('sorts type members by their value', async () => {
-      await valid({
-        code: dedent`
-          type Type = {
-            b: 'a'
-            a: 'b'
-            c: 'c'
-          }
-        `,
-        options: [
-          {
-            ...options,
-            sortBy: 'value',
-          },
-        ],
-      })
+    ruleTester.run(`${ruleName}(${type}): sorts type members`, rule, {
+      invalid: [
+        {
+          errors: [
+            {
+              data: {
+                right: 'b',
+                left: 'c',
+              },
+              messageId: 'unexpectedObjectTypesOrder',
+            },
+          ],
+          output: dedent`
+            type Type = {
+              a: 'aaa'
+              b: 'bb'
+              c: 'c'
+            }
+          `,
+          code: dedent`
+            type Type = {
+              a: 'aaa'
+              c: 'c'
+              b: 'bb'
+            }
+          `,
+          options: [options],
+        },
+      ],
+      valid: [
+        {
+          code: dedent`
+            type Type = {
+              a: 'aaa'
+              b: 'bb'
+              c: 'c'
+            }
+          `,
+          options: [options],
+        },
+      ],
     })
   })
 
-  describe('subgroup-order', () => {
+  describe(`${ruleName}: sorting by line length`, () => {
+    let type = 'line-length-order'
+
     let options = {
-      fallbackSort: {
-        type: 'subgroup-order',
-        order: 'asc',
-      },
       type: 'line-length',
       order: 'desc',
-    }
+    } as const
 
-    it('fallback sorts by subgroup order', async () => {
-      await invalid({
-        options: [
-          {
-            ...options,
-            customGroups: [
-              {
-                elementNamePattern: 'a',
-                groupName: 'a',
+    ruleTester.run(`${ruleName}(${type}): sorts type members`, rule, {
+      invalid: [
+        {
+          errors: [
+            {
+              data: {
+                right: 'b',
+                left: 'c',
               },
-              {
-                elementNamePattern: 'b',
-                groupName: 'b',
-              },
-            ],
-            groups: [['a', 'b'], 'unknown'],
-          },
-        ],
-        errors: [
-          {
-            messageId: 'unexpectedObjectTypesOrder',
-            data: { right: 'bb', left: 'b' },
-          },
-          {
-            messageId: 'unexpectedObjectTypesOrder',
-            data: { right: 'aa', left: 'a' },
-          },
-        ],
-        output: dedent`
-          type Type = {
-            aa: string;
-            bb: string;
-            a: string;
-            b: string;
-          }
-
-        `,
-        code: dedent`
-          type Type = {
-            b: string;
-            bb: string;
-            a: string;
-            aa: string;
-          }
-        `,
-      })
+              messageId: 'unexpectedObjectTypesOrder',
+            },
+          ],
+          output: dedent`
+            type Type = {
+              a: 'aaa'
+              b: 'bb'
+              c: 'c'
+            }
+          `,
+          code: dedent`
+            type Type = {
+              a: 'aaa'
+              c: 'c'
+              b: 'bb'
+            }
+          `,
+          options: [options],
+        },
+      ],
+      valid: [
+        {
+          code: dedent`
+            type Type = {
+              a: 'aaa'
+              b: 'bb'
+              c: 'c'
+            }
+          `,
+          options: [options],
+        },
+      ],
     })
 
-    it('fallback sorts by subgroup order through overriding groups option', async () => {
-      await invalid({
-        options: [
+    ruleTester.run(
+      `${ruleName}(${type}): sorts type members in function args`,
+      rule,
+      {
+        invalid: [
           {
-            ...options,
-            customGroups: [
+            errors: [
               {
-                elementNamePattern: 'a',
-                groupName: 'a',
-              },
-              {
-                elementNamePattern: 'b',
-                groupName: 'b',
+                data: {
+                  right: 'a',
+                  left: 'b',
+                },
+                messageId: 'unexpectedObjectTypesOrder',
               },
             ],
-            groups: [{ group: ['a', 'b'], newlinesInside: 0 }, 'unknown'],
+            output: dedent`
+              let Func = (arguments: {
+                a: 'aaa'
+                b: 'bb'
+                c: 'c'
+              }) => {
+                // ...
+              }
+            `,
+            code: dedent`
+              let Func = (arguments: {
+                b: 'bb'
+                a: 'aaa'
+                c: 'c'
+              }) => {
+                // ...
+              }
+            `,
+            options: [options],
           },
         ],
-        errors: [
+        valid: [
           {
-            messageId: 'unexpectedObjectTypesOrder',
-            data: { right: 'bb', left: 'b' },
-          },
-          {
-            messageId: 'unexpectedObjectTypesOrder',
-            data: { right: 'aa', left: 'a' },
+            code: dedent`
+              let Func = (arguments: {
+                a: 'aaa'
+                b: 'bb'
+                c: 'c'
+              }) => {
+                // ...
+              }
+            `,
+            options: [options],
           },
         ],
-        output: dedent`
-          type Type = {
-            aa: string;
-            bb: string;
-            a: string;
-            b: string;
-          }
+      },
+    )
 
-        `,
-        code: dedent`
-          type Type = {
-            b: string;
-            bb: string;
-            a: string;
-            aa: string;
-          }
-        `,
-      })
+    ruleTester.run(
+      `${ruleName}(${type}): sorts type members with computed keys`,
+      rule,
+      {
+        invalid: [
+          {
+            errors: [
+              {
+                data: {
+                  right: '[key: string]',
+                  left: 'a',
+                },
+                messageId: 'unexpectedObjectTypesOrder',
+              },
+              {
+                data: {
+                  right: 'value',
+                  left: 'b',
+                },
+                messageId: 'unexpectedObjectTypesOrder',
+              },
+            ],
+            output: dedent`
+              type Type = {
+                [key: string]: string
+                [value]: string
+                a?: 'aaa'
+                b: 'bb'
+                c: 'c'
+              }
+            `,
+            code: dedent`
+              type Type = {
+                a?: 'aaa'
+                [key: string]: string
+                b: 'bb'
+                [value]: string
+                c: 'c'
+              }
+            `,
+            options: [options],
+          },
+        ],
+        valid: [
+          {
+            code: dedent`
+              type Type = {
+                [key: string]: string
+                [value]: string
+                a?: 'aaa'
+                b: 'bb'
+                c: 'c'
+              }
+            `,
+            options: [options],
+          },
+        ],
+      },
+    )
+
+    ruleTester.run(
+      `${ruleName}(${type}): sorts type members with any key types`,
+      rule,
+      {
+        invalid: [
+          {
+            errors: [
+              {
+                data: {
+                  left: '[...values]',
+                  right: '[[data]]',
+                },
+                messageId: 'unexpectedObjectTypesOrder',
+              },
+              {
+                data: {
+                  right: 'func',
+                  left: '8',
+                },
+                messageId: 'unexpectedObjectTypesOrder',
+              },
+              {
+                data: {
+                  right: 'arrowFunc',
+                  left: 'func',
+                },
+                messageId: 'unexpectedObjectTypesOrder',
+              },
+            ],
+            output: dedent`
+              type Type = {
+                arrowFunc?: () => void
+                [[data]]: string
+                [name in v]?
+                func(): void
+                [...values]
+                [8]: Value
+              }
+            `,
+            code: dedent`
+              type Type = {
+                [...values]
+                [[data]]: string
+                [name in v]?
+                [8]: Value
+                func(): void
+                arrowFunc?: () => void
+              }
+            `,
+            options: [options],
+          },
+        ],
+        valid: [
+          {
+            code: dedent`
+              type Type = {
+                arrowFunc?: () => void
+                [[data]]: string
+                [name in v]?
+                func(): void
+                [...values]
+                [8]: Value
+              }
+            `,
+            options: [options],
+          },
+        ],
+      },
+    )
+
+    ruleTester.run(`${ruleName}(${type}): sorts inline type members`, rule, {
+      invalid: [
+        {
+          errors: [
+            {
+              data: {
+                right: 'a',
+                left: 'b',
+              },
+              messageId: 'unexpectedObjectTypesOrder',
+            },
+          ],
+          output: dedent`
+            func<{ a: 'aa'; b: 'b'; }>(/* ... */)
+          `,
+          code: dedent`
+            func<{ b: 'b'; a: 'aa' }>(/* ... */)
+          `,
+          options: [options],
+        },
+      ],
+      valid: [
+        {
+          code: dedent`
+            func<{ a: 'aa'; b: 'b' }>(/* ... */)
+          `,
+          options: [options],
+        },
+      ],
     })
+
+    ruleTester.run(
+      `${ruleName}(${type}): allows to set groups for sorting`,
+      rule,
+      {
+        invalid: [
+          {
+            errors: [
+              {
+                data: {
+                  leftGroup: 'unknown',
+                  rightGroup: 'b',
+                  right: 'b',
+                  left: 'a',
+                },
+                messageId: 'unexpectedObjectTypesGroupOrder',
+              },
+              {
+                data: {
+                  right: 'e',
+                  left: 'f',
+                },
+                messageId: 'unexpectedObjectTypesOrder',
+              },
+            ],
+            output: [
+              dedent`
+                type Type = {
+                  b: 'bb'
+                  a: 'aaa'
+                  c: 'c'
+                  d: {
+                    e: 'ee'
+                    f: 'f'
+                  }
+                }
+              `,
+            ],
+            code: dedent`
+              type Type = {
+                a: 'aaa'
+                b: 'bb'
+                c: 'c'
+                d: {
+                  f: 'f'
+                  e: 'ee'
+                }
+              }
+            `,
+            options: [
+              {
+                ...options,
+                customGroups: {
+                  b: 'b',
+                },
+                groups: ['b', 'unknown', 'multiline'],
+              },
+            ],
+          },
+        ],
+        valid: [
+          {
+            code: dedent`
+              type Type = {
+                b: 'bb'
+                a: 'aaa'
+                c: 'c'
+                d: {
+                  e: 'ee'
+                  f: 'f'
+                }
+              }
+            `,
+            options: [
+              {
+                ...options,
+                customGroups: {
+                  b: 'b',
+                },
+                groups: ['b', 'unknown', 'multiline'],
+              },
+            ],
+          },
+        ],
+      },
+    )
+
+    ruleTester.run(
+      `${ruleName}(${type}): allows to use new line as partition`,
+      rule,
+      {
+        invalid: [
+          {
+            errors: [
+              {
+                data: {
+                  right: 'd',
+                  left: 'e',
+                },
+                messageId: 'unexpectedObjectTypesOrder',
+              },
+              {
+                data: {
+                  right: 'a',
+                  left: 'b',
+                },
+                messageId: 'unexpectedObjectTypesOrder',
+              },
+            ],
+            output: dedent`
+              type Type = {
+                d: 'dd'
+                e: 'e'
+
+                c: 'ccc'
+
+                a: 'aaaaa'
+                b: 'bbbb'
+              }
+            `,
+            code: dedent`
+              type Type = {
+                e: 'e'
+                d: 'dd'
+
+                c: 'ccc'
+
+                b: 'bbbb'
+                a: 'aaaaa'
+              }
+            `,
+            options: [
+              {
+                ...options,
+                partitionByNewLine: true,
+              },
+            ],
+          },
+        ],
+        valid: [
+          {
+            code: dedent`
+              type Type = {
+                d: 'dd'
+                e: 'e'
+
+                c: 'ccc'
+
+                a: 'aaaaa'
+                b: 'bbbb'
+              }
+            `,
+            options: [
+              {
+                ...options,
+                partitionByNewLine: true,
+              },
+            ],
+          },
+        ],
+      },
+    )
+
+    ruleTester.run(
+      `${ruleName}(${type}): allows to sort required values first`,
+      rule,
+      {
+        invalid: [
+          {
+            errors: [
+              {
+                data: {
+                  left: 'bbbb',
+                  right: 'ccc',
+                },
+                messageId: 'unexpectedObjectTypesOrder',
+              },
+              {
+                data: {
+                  left: 'dd',
+                  right: 'e',
+                },
+                messageId: 'unexpectedObjectTypesOrder',
+              },
+            ],
+            output: dedent`
+              type Type = {
+                ccc: string
+                e: string
+                aaaaa?: string
+                bbbb?: string
+                dd?: string
+              }
+            `,
+            code: dedent`
+              type Type = {
+                aaaaa?: string
+                bbbb?: string
+                ccc: string
+                dd?: string
+                e: string
+              }
+            `,
+            options: [
+              {
+                ...options,
+                groupKind: 'required-first',
+              },
+            ],
+          },
+        ],
+        valid: [
+          {
+            code: dedent`
+              type Type = {
+                ccc: string
+                e: string
+                aaaaa?: string
+                bbbb?: string
+                dd?: string
+              }
+            `,
+            options: [
+              {
+                ...options,
+                groupKind: 'required-first',
+              },
+            ],
+          },
+        ],
+      },
+    )
+
+    ruleTester.run(
+      `${ruleName}(${type}): allows to sort optional values first`,
+      rule,
+      {
+        invalid: [
+          {
+            errors: [
+              {
+                data: {
+                  left: 'ccc',
+                  right: 'dd',
+                },
+                messageId: 'unexpectedObjectTypesOrder',
+              },
+            ],
+            output: dedent`
+              type Type = {
+                aaaaa?: string
+                bbbb?: string
+                dd?: string
+                ccc: string
+                e: string
+              }
+            `,
+            code: dedent`
+              type Type = {
+                aaaaa?: string
+                bbbb?: string
+                ccc: string
+                dd?: string
+                e: string
+              }
+            `,
+            options: [
+              {
+                ...options,
+                groupKind: 'optional-first',
+              },
+            ],
+          },
+        ],
+        valid: [
+          {
+            code: dedent`
+              type Type = {
+                aaaaa?: string
+                bbbb?: string
+                dd?: string
+                ccc: string
+                e: string
+              }
+            `,
+            options: [
+              {
+                ...options,
+                groupKind: 'optional-first',
+              },
+            ],
+          },
+        ],
+      },
+    )
+
+    ruleTester.run(`${ruleName}(${type}): allows to use method group`, rule, {
+      valid: [
+        {
+          code: dedent`
+            type Type = {
+              c: (((v: false) => 'false') | ((v: true) => 'true')) & ((v: any) => any)
+              b(): void
+              a: string
+              d: string
+            }
+          `,
+          options: [
+            {
+              ...options,
+              groups: ['method', 'unknown'],
+            },
+          ],
+        },
+      ],
+      invalid: [],
+    })
+
+    ruleTester.run(
+      `${ruleName}(${type}): handles "fallbackSort" option`,
+      rule,
+      {
+        invalid: [
+          {
+            errors: [
+              {
+                data: {
+                  right: 'bb',
+                  left: 'a',
+                },
+                messageId: 'unexpectedObjectTypesOrder',
+              },
+            ],
+            options: [
+              {
+                ...options,
+                fallbackSort: {
+                  type: 'alphabetical',
+                },
+              },
+            ],
+            output: dedent`
+              type Type = {
+                bb: string;
+                c: string;
+                a: string;
+              }
+            `,
+            code: dedent`
+              type Type = {
+                a: string;
+                bb: string;
+                c: string;
+              }
+            `,
+          },
+          {
+            errors: [
+              {
+                data: {
+                  right: 'bb',
+                  left: 'c',
+                },
+                messageId: 'unexpectedObjectTypesOrder',
+              },
+            ],
+            options: [
+              {
+                ...options,
+                fallbackSort: {
+                  type: 'alphabetical',
+                  order: 'asc',
+                },
+              },
+            ],
+            output: dedent`
+              type Type = {
+                bb: string;
+                a: string;
+                c: string;
+              }
+            `,
+            code: dedent`
+              type Type = {
+                c: string;
+                bb: string;
+                a: string;
+              }
+            `,
+          },
+        ],
+        valid: [],
+      },
+    )
   })
 
-  describe('unsorted', () => {
+  describe(`${ruleName}: unsorted type`, () => {
+    let type = 'unsorted'
+
     let options = {
       type: 'unsorted',
       order: 'asc',
     } as const
 
-    it('does not enforce sorting', async () => {
-      await valid({
-        code: dedent`
-          type Type = {
-            b: string;
-            c: string;
-            a: string;
-          }
-        `,
-        options: [options],
-      })
-
-      await valid({
-        code: dedent`
-          type Type = {
-            c: 'c';
-            b: 'a';
-            a: 'b';
-          }
-        `,
-        options: [
-          {
-            ...options,
-            sortBy: 'value',
-          },
-        ],
-      })
+    ruleTester.run(`${ruleName}(${type}): does not enforce sorting`, rule, {
+      valid: [
+        {
+          code: dedent`
+            type Type = {
+              b: string;
+              c: string;
+              a: string;
+            }
+          `,
+          options: [options],
+        },
+      ],
+      invalid: [],
     })
 
-    it('enforces grouping', async () => {
-      await invalid({
-        options: [
-          {
-            ...options,
-            customGroups: [
-              {
-                elementNamePattern: '^a',
-                groupName: 'a',
-              },
-              {
-                elementNamePattern: '^b',
-                groupName: 'b',
-              },
-            ],
-            groups: ['b', 'a'],
-          },
-        ],
-        errors: [
-          {
-            data: {
-              rightGroup: 'b',
-              leftGroup: 'a',
-              right: 'ba',
-              left: 'aa',
+    ruleTester.run(`${ruleName}(${type}): enforces grouping`, rule, {
+      invalid: [
+        {
+          options: [
+            {
+              ...options,
+              customGroups: [
+                {
+                  elementNamePattern: '^a',
+                  groupName: 'a',
+                },
+                {
+                  elementNamePattern: '^b',
+                  groupName: 'b',
+                },
+              ],
+              groups: ['b', 'a'],
             },
-            messageId: 'unexpectedObjectTypesGroupOrder',
-          },
-        ],
-        output: dedent`
-          type Type = {
-            ba: string
-            bb: string
-            ab: string
-            aa: string
-          }
-        `,
-        code: dedent`
-          type Type = {
-            ab: string
-            aa: string
-            ba: string
-            bb: string
-          }
-        `,
-      })
+          ],
+          errors: [
+            {
+              data: {
+                rightGroup: 'b',
+                leftGroup: 'a',
+                right: 'ba',
+                left: 'aa',
+              },
+              messageId: 'unexpectedObjectTypesGroupOrder',
+            },
+          ],
+          output: dedent`
+            type Type = {
+              ba: string
+              bb: string
+              ab: string
+              aa: string
+            }
+          `,
+          code: dedent`
+            type Type = {
+              ab: string
+              aa: string
+              ba: string
+              bb: string
+            }
+          `,
+        },
+      ],
+      valid: [],
     })
 
-    it('enforces newlines between', async () => {
-      await invalid({
-        options: [
-          {
-            ...options,
-            customGroups: [
-              {
-                elementNamePattern: 'a',
-                groupName: 'a',
+    ruleTester.run(`${ruleName}(${type}): enforces newlines between`, rule, {
+      invalid: [
+        {
+          options: [
+            {
+              ...options,
+              customGroups: [
+                {
+                  elementNamePattern: 'a',
+                  groupName: 'a',
+                },
+                {
+                  elementNamePattern: 'b',
+                  groupName: 'b',
+                },
+              ],
+              newlinesBetween: 'always',
+              groups: ['b', 'a'],
+            },
+          ],
+          errors: [
+            {
+              data: {
+                right: 'a',
+                left: 'b',
               },
-              {
-                elementNamePattern: 'b',
-                groupName: 'b',
-              },
-            ],
-            newlinesBetween: 1,
-            groups: ['b', 'a'],
-          },
-        ],
-        errors: [
-          {
-            messageId: 'missedSpacingBetweenObjectTypeMembers',
-            data: { right: 'a', left: 'b' },
-          },
-        ],
-        output: dedent`
-          type Type = {
-            b: string
+              messageId: 'missedSpacingBetweenObjectTypeMembers',
+            },
+          ],
+          output: dedent`
+            type Type = {
+              b: string
 
-            a: string
-          }
-        `,
-        code: dedent`
-          type Type = {
-            b: string
-            a: string
-          }
-        `,
-      })
+              a: string
+            }
+          `,
+          code: dedent`
+            type Type = {
+              b: string
+              a: string
+            }
+          `,
+        },
+      ],
+      valid: [],
     })
   })
 
-  describe('misc', () => {
-    it('validates the JSON schema', async () => {
-      await expect(
-        validateRuleJsonSchema(rule.meta.schema),
-      ).resolves.not.toThrow()
-    })
+  describe(`${ruleName}: validating group configuration`, () => {
+    ruleTester.run(
+      `${ruleName}: allows predefined groups and defined custom groups`,
+      rule,
+      {
+        valid: [
+          {
+            options: [
+              {
+                customGroups: {
+                  myCustomGroup: 'x',
+                },
+                groups: ['multiline', 'method', 'unknown', 'myCustomGroup'],
+              },
+            ],
+            code: dedent`
+              type Type = {
+                a: 'aaa'
+                b: 'bb'
+                c: 'c'
+              }
+            `,
+          },
+        ],
+        invalid: [],
+      },
+    )
+  })
 
-    it('ignores semi at the end of value', async () => {
-      await valid({
-        code: dedent`
+  describe('misc', () => {
+    ruleTester.run(`${ruleName}: ignores semi at the end of value`, rule, {
+      valid: [
+        dedent`
           type Type<T> = T extends {
             (...args: any[]): infer R;
             (...args: any[]): infer R;
@@ -9033,680 +4154,420 @@ describe('sort-object-types', () => {
             ? R
             : any;
         `,
-      })
+      ],
+      invalid: [],
     })
 
-    it('sets alphabetical asc sorting as default', async () => {
-      await valid({
-        code: dedent`
-          type Calculator = {
-            log: (x: number) => number,
-            log10: (x: number) => number,
-            log1p: (x: number) => number,
-            log2: (x: number) => number,
-          }
-        `,
-      })
-
-      await valid({
-        code: dedent`
-          type Calculator = {
-            log: (x: number) => number,
-            log10: (x: number) => number,
-            log1p: (x: number) => number,
-            log2: (x: number) => number,
-          }
-        `,
-        options: [{}],
-      })
-
-      await invalid({
-        output: dedent`
-          type Calculator = {
-            log: (x: number) => number,
-            log10: (x: number) => number,
-            log1p: (x: number) => number,
-            log2: (x: number) => number,
-          }
-        `,
-        code: dedent`
-          type Calculator = {
-            log: (x: number) => number,
-            log1p: (x: number) => number,
-            log2: (x: number) => number,
-            log10: (x: number) => number,
-          }
-        `,
-        errors: [
-          {
-            messageId: 'unexpectedObjectTypesOrder',
-            data: { right: 'log10', left: 'log2' },
-          },
-        ],
-      })
-    })
-
-    it('handles nested groups with custom groups', async () => {
-      await valid({
-        options: [
-          {
-            customGroups: [
-              {
-                elementValuePattern: 'string',
-                groupName: 'strings',
-              },
-              {
-                elementValuePattern: 'number',
-                groupName: 'numbers',
-              },
-            ],
-            groups: [['strings', 'numbers'], 'unknown'],
-          },
-        ],
-        code: dedent`
-          type Type = {
-            a: string
-            b: string
-            c: number
-            d: number
-          }
-        `,
-      })
-    })
-
-    it('sorts custom groups by overriding fallbackSort', async () => {
-      await invalid({
-        options: [
-          {
-            customGroups: [
-              {
-                fallbackSort: {
-                  type: 'alphabetical',
-                  order: 'asc',
-                },
-                elementNamePattern: '^foo',
-                type: 'line-length',
-                groupName: 'foo',
-                order: 'desc',
-              },
-            ],
-            type: 'alphabetical',
-            groups: ['foo'],
-            order: 'asc',
-          },
-        ],
-        errors: [
-          {
-            data: { right: 'fooBar', left: 'fooZar' },
-            messageId: 'unexpectedObjectTypesOrder',
-          },
-        ],
-        output: dedent`
-          type Type = {
-            fooBar: string
-            fooZar: string
-          }
-        `,
-        code: dedent`
-          type Type = {
-            fooZar: string
-            fooBar: string
-          }
-        `,
-      })
-
-      await invalid({
-        options: [
-          {
-            customGroups: [
-              {
-                fallbackSort: {
-                  type: 'alphabetical',
-                  sortBy: 'value',
-                },
-                elementValuePattern: '^foo',
-                type: 'line-length',
-                groupName: 'foo',
-              },
-            ],
-            type: 'alphabetical',
-            groups: ['foo'],
-            order: 'asc',
-          },
-        ],
-        errors: [
-          {
-            messageId: 'unexpectedObjectTypesOrder',
-            data: { right: 'b', left: 'a' },
-          },
-        ],
-        output: dedent`
-          type Type = {
-            b: fooBar
-            a: fooZar
-          }
-        `,
-        code: dedent`
-          type Type = {
-            a: fooZar
-            b: fooBar
-          }
-        `,
-      })
-    })
-
-    it('sorts type members with computed keys without type annotations', async () => {
-      await valid({
-        code: dedent`
-          type Type = {
-            [a]
-            [b]?
-            [c]
-          }
-        `,
-      })
-
-      await invalid({
-        errors: [
-          {
-            messageId: 'unexpectedObjectTypesOrder',
-            data: { right: 'b', left: 'c' },
-          },
-          {
-            messageId: 'unexpectedObjectTypesOrder',
-            data: { right: 'a', left: 'b' },
-          },
-        ],
-        output: dedent`
-          type Type = {
-            [a]
-            [b]?
-            [c]
-          }
-        `,
-        code: dedent`
-          type Type = {
-            [c]
-            [b]?
-            [a]
-          }
-        `,
-      })
-    })
-
-    it('respects the global settings configuration', async () => {
-      let settings = {
-        perfectionist: {
-          type: 'line-length',
-          order: 'desc',
-        },
-      }
-
-      await valid({
-        code: dedent`
-          type Type = {
-            ccc: string
-            bb: string
-            a: string
-          }
-        `,
-        options: [{}],
-        settings,
-      })
-
-      await valid({
-        code: dedent`
-          type Type = {
-            a: string
-            bb: string
-            ccc: string
-          }
-        `,
-        options: [{ type: 'alphabetical', order: 'asc' }],
-        settings,
-      })
-    })
-
-    it('respects eslint-disable comments', async () => {
-      await valid({
-        code: dedent`
-          type Type = {
-            b: string;
-            c: string;
-            // eslint-disable-next-line
-            a: string;
-          }
-        `,
-      })
-
-      await invalid({
-        output: dedent`
-          type Type = {
-            b: string
-            c: string
-            // eslint-disable-next-line
-            a: string
-          }
-        `,
-        code: dedent`
-          type Type = {
-            c: string
-            b: string
-            // eslint-disable-next-line
-            a: string
-          }
-        `,
-        errors: [
-          {
-            messageId: 'unexpectedObjectTypesOrder',
-            data: { right: 'b', left: 'c' },
-          },
-        ],
-        options: [{}],
-      })
-
-      await invalid({
-        errors: [
-          {
-            messageId: 'unexpectedObjectTypesOrder',
-            data: { right: 'c', left: 'd' },
-          },
-          {
-            messageId: 'unexpectedObjectTypesOrder',
-            data: { right: 'b', left: 'a' },
-          },
-        ],
-        output: dedent`
-          type Type = {
-            b: string
-            c: string
-            // eslint-disable-next-line
-            a: string
-            d: string
-          }
-        `,
-        code: dedent`
-          type Type = {
-            d: string
-            c: string
-            // eslint-disable-next-line
-            a: string
-            b: string
-          }
-        `,
-        options: [
-          {
-            partitionByComment: true,
-          },
-        ],
-      })
-
-      await invalid({
-        output: dedent`
-          type Type = {
-            b: string
-            c: string
-            a: string // eslint-disable-line
-          }
-        `,
-        code: dedent`
-          type Type = {
-            c: string
-            b: string
-            a: string // eslint-disable-line
-          }
-        `,
-        errors: [
-          {
-            messageId: 'unexpectedObjectTypesOrder',
-            data: { right: 'b', left: 'c' },
-          },
-        ],
-        options: [{}],
-      })
-
-      await invalid({
-        output: dedent`
-          type Type = {
-            b: string
-            c: string
-            /* eslint-disable-next-line */
-            a: string
-          }
-        `,
-        code: dedent`
-          type Type = {
-            c: string
-            b: string
-            /* eslint-disable-next-line */
-            a: string
-          }
-        `,
-        errors: [
-          {
-            messageId: 'unexpectedObjectTypesOrder',
-            data: { right: 'b', left: 'c' },
-          },
-        ],
-        options: [{}],
-      })
-
-      await invalid({
-        output: dedent`
-          type Type = {
-            b: string
-            c: string
-            a: string /* eslint-disable-line */
-          }
-        `,
-        code: dedent`
-          type Type = {
-            c: string
-            b: string
-            a: string /* eslint-disable-line */
-          }
-        `,
-        errors: [
-          {
-            messageId: 'unexpectedObjectTypesOrder',
-            data: { right: 'b', left: 'c' },
-          },
-        ],
-        options: [{}],
-      })
-
-      await invalid({
-        output: dedent`
-          type Type = {
-            a: string
-            d: string
-            /* eslint-disable */
-            c: string
-            b: string
-            // Shouldn't move
-            /* eslint-enable */
-            e: string
-          }
-        `,
-        code: dedent`
-          type Type = {
-            d: string
-            e: string
-            /* eslint-disable */
-            c: string
-            b: string
-            // Shouldn't move
-            /* eslint-enable */
-            a: string
-          }
-        `,
-        errors: [
-          {
-            messageId: 'unexpectedObjectTypesOrder',
-            data: { right: 'a', left: 'b' },
-          },
-        ],
-        options: [{}],
-      })
-
-      await invalid({
-        output: dedent`
-          type Type = {
-            b: string
-            c: string
-            // eslint-disable-next-line rule-to-test/sort-object-types
-            a: string
-          }
-        `,
-        code: dedent`
-          type Type = {
-            c: string
-            b: string
-            // eslint-disable-next-line rule-to-test/sort-object-types
-            a: string
-          }
-        `,
-        errors: [
-          {
-            messageId: 'unexpectedObjectTypesOrder',
-            data: { right: 'b', left: 'c' },
-          },
-        ],
-        options: [{}],
-      })
-
-      await invalid({
-        output: dedent`
-          type Type = {
-            b: string
-            c: string
-            a: string // eslint-disable-line rule-to-test/sort-object-types
-          }
-        `,
-        code: dedent`
-          type Type = {
-            c: string
-            b: string
-            a: string // eslint-disable-line rule-to-test/sort-object-types
-          }
-        `,
-        errors: [
-          {
-            messageId: 'unexpectedObjectTypesOrder',
-            data: { right: 'b', left: 'c' },
-          },
-        ],
-        options: [{}],
-      })
-
-      await invalid({
-        output: dedent`
-          type Type = {
-            b: string
-            c: string
-            /* eslint-disable-next-line rule-to-test/sort-object-types */
-            a: string
-          }
-        `,
-        code: dedent`
-          type Type = {
-            c: string
-            b: string
-            /* eslint-disable-next-line rule-to-test/sort-object-types */
-            a: string
-          }
-        `,
-        errors: [
-          {
-            messageId: 'unexpectedObjectTypesOrder',
-            data: { right: 'b', left: 'c' },
-          },
-        ],
-        options: [{}],
-      })
-
-      await invalid({
-        output: dedent`
-          type Type = {
-            b: string
-            c: string
-            a: string /* eslint-disable-line rule-to-test/sort-object-types */
-          }
-        `,
-        code: dedent`
-          type Type = {
-            c: string
-            b: string
-            a: string /* eslint-disable-line rule-to-test/sort-object-types */
-          }
-        `,
-        errors: [
-          {
-            messageId: 'unexpectedObjectTypesOrder',
-            data: { right: 'b', left: 'c' },
-          },
-        ],
-        options: [{}],
-      })
-
-      await invalid({
-        output: dedent`
-          type Type = {
-            a: string
-            d: string
-            /* eslint-disable rule-to-test/sort-object-types */
-            c: string
-            b: string
-            // Shouldn't move
-            /* eslint-enable */
-            e: string
-          }
-        `,
-        code: dedent`
-          type Type = {
-            d: string
-            e: string
-            /* eslint-disable rule-to-test/sort-object-types */
-            c: string
-            b: string
-            // Shouldn't move
-            /* eslint-enable */
-            a: string
-          }
-        `,
-        errors: [
-          {
-            messageId: 'unexpectedObjectTypesOrder',
-            data: { right: 'a', left: 'b' },
-          },
-        ],
-        options: [{}],
-      })
-    })
-
-    it('honors a disable directive that carries a description', async () => {
-      await invalid({
-        output: dedent`
-          type Type = {
-            b: string
-            c: string
-            // eslint-disable-next-line rule-to-test/sort-object-types -- Pinned.
-            a: string
-          }
-        `,
-        code: dedent`
-          type Type = {
-            c: string
-            b: string
-            // eslint-disable-next-line rule-to-test/sort-object-types -- Pinned.
-            a: string
-          }
-        `,
-        errors: [
-          {
-            messageId: 'unexpectedObjectTypesOrder',
-            data: { right: 'b', left: 'c' },
-          },
-        ],
-        options: [{}],
-      })
-
-      await invalid({
-        output: dedent`
-          type Type = {
-            b: string
-            c: string
-            a: string // eslint-disable-line -- Pinned.
-          }
-        `,
-        code: dedent`
-          type Type = {
-            c: string
-            b: string
-            a: string // eslint-disable-line -- Pinned.
-          }
-        `,
-        errors: [
-          {
-            messageId: 'unexpectedObjectTypesOrder',
-            data: { right: 'b', left: 'c' },
-          },
-        ],
-        options: [{}],
-      })
-
-      await invalid({
-        output: dedent`
-          type Type = {
-            a: string
-            d: string
-            /* eslint-disable rule-to-test/sort-object-types -- Pinned. */
-            c: string
-            b: string
-            // Shouldn't move
-            /* eslint-enable rule-to-test/sort-object-types -- Done. */
-            e: string
-          }
-        `,
-        code: dedent`
-          type Type = {
-            d: string
-            e: string
-            /* eslint-disable rule-to-test/sort-object-types -- Pinned. */
-            c: string
-            b: string
-            // Shouldn't move
-            /* eslint-enable rule-to-test/sort-object-types -- Done. */
-            a: string
-          }
-        `,
-        errors: [
-          {
-            messageId: 'unexpectedObjectTypesOrder',
-            data: { right: 'a', left: 'b' },
-          },
-        ],
-        options: [{}],
-      })
-    })
-
-    describe('oxlint', () => {
-      oxlintRuleTester.run('supports oxlint', {
+    ruleTester.run(
+      `${ruleName}: sets alphabetical asc sorting as default`,
+      rule,
+      {
         invalid: [
           {
-            errors: [
-              {
-                messageId: 'unexpectedObjectTypesOrder',
-                data: { right: 'a', left: 'b' },
-              },
-            ],
             output: dedent`
-              type Type = {
-                a: string
-                b: string
+              type Calculator = {
+                log: (x: number) => number,
+                log10: (x: number) => number,
+                log1p: (x: number) => number,
+                log2: (x: number) => number,
               }
             `,
             code: dedent`
-              type Type = {
-                b: string
-                a: string
+              type Calculator = {
+                log: (x: number) => number,
+                log1p: (x: number) => number,
+                log2: (x: number) => number,
+                log10: (x: number) => number,
               }
             `,
-            options: [{ type: 'alphabetical', order: 'asc' }],
+            errors: [
+              {
+                data: {
+                  right: 'log10',
+                  left: 'log2',
+                },
+                messageId: 'unexpectedObjectTypesOrder',
+              },
+            ],
           },
         ],
         valid: [
+          dedent`
+            type Calculator = {
+              log: (x: number) => number,
+              log10: (x: number) => number,
+              log1p: (x: number) => number,
+              log2: (x: number) => number,
+            }
+          `,
           {
             code: dedent`
-              type Type = {
-                a: string
-                b: string
+              type Calculator = {
+                log: (x: number) => number,
+                log10: (x: number) => number,
+                log1p: (x: number) => number,
+                log2: (x: number) => number,
               }
             `,
-            options: [{ type: 'alphabetical', order: 'asc' }],
+            options: [{}],
           },
         ],
-      })
+      },
+    )
+
+    ruleTester.run(`${ruleName}: allows to ignore object types`, rule, {
+      valid: [
+        {
+          code: dedent`
+            type IgnoreType = {
+              b: 'b'
+              a: 'a'
+            }
+          `,
+          options: [
+            {
+              ignorePattern: ['Ignore'],
+            },
+          ],
+        },
+      ],
+      invalid: [],
+    })
+
+    let eslintDisableRuleTesterName = `${ruleName}: supports 'eslint-disable' for individual nodes`
+    ruleTester.run(eslintDisableRuleTesterName, rule, {
+      invalid: [
+        {
+          errors: [
+            {
+              data: {
+                right: 'b',
+                left: 'c',
+              },
+              messageId: 'unexpectedObjectTypesOrder',
+            },
+          ],
+          output: dedent`
+            type Type = {
+              b: string
+              c: string
+              // eslint-disable-next-line
+              a: string
+            }
+          `,
+          code: dedent`
+            type Type = {
+              c: string
+              b: string
+              // eslint-disable-next-line
+              a: string
+            }
+          `,
+          options: [{}],
+        },
+        {
+          errors: [
+            {
+              data: {
+                right: 'c',
+                left: 'd',
+              },
+              messageId: 'unexpectedObjectTypesOrder',
+            },
+            {
+              data: {
+                right: 'b',
+                left: 'a',
+              },
+              messageId: 'unexpectedObjectTypesOrder',
+            },
+          ],
+          output: dedent`
+            type Type = {
+              b: string
+              c: string
+              // eslint-disable-next-line
+              a: string
+              d: string
+            }
+          `,
+          code: dedent`
+            type Type = {
+              d: string
+              c: string
+              // eslint-disable-next-line
+              a: string
+              b: string
+            }
+          `,
+          options: [
+            {
+              partitionByComment: true,
+            },
+          ],
+        },
+        {
+          errors: [
+            {
+              data: {
+                right: 'b',
+                left: 'c',
+              },
+              messageId: 'unexpectedObjectTypesOrder',
+            },
+          ],
+          output: dedent`
+            type Type = {
+              b: string
+              c: string
+              a: string // eslint-disable-line
+            }
+          `,
+          code: dedent`
+            type Type = {
+              c: string
+              b: string
+              a: string // eslint-disable-line
+            }
+          `,
+          options: [{}],
+        },
+        {
+          errors: [
+            {
+              data: {
+                right: 'b',
+                left: 'c',
+              },
+              messageId: 'unexpectedObjectTypesOrder',
+            },
+          ],
+          output: dedent`
+            type Type = {
+              b: string
+              c: string
+              /* eslint-disable-next-line */
+              a: string
+            }
+          `,
+          code: dedent`
+            type Type = {
+              c: string
+              b: string
+              /* eslint-disable-next-line */
+              a: string
+            }
+          `,
+          options: [{}],
+        },
+        {
+          errors: [
+            {
+              data: {
+                right: 'b',
+                left: 'c',
+              },
+              messageId: 'unexpectedObjectTypesOrder',
+            },
+          ],
+          output: dedent`
+            type Type = {
+              b: string
+              c: string
+              a: string /* eslint-disable-line */
+            }
+          `,
+          code: dedent`
+            type Type = {
+              c: string
+              b: string
+              a: string /* eslint-disable-line */
+            }
+          `,
+          options: [{}],
+        },
+        {
+          output: dedent`
+            type Type = {
+              a: string
+              d: string
+              /* eslint-disable */
+              c: string
+              b: string
+              // Shouldn't move
+              /* eslint-enable */
+              e: string
+            }
+          `,
+          code: dedent`
+            type Type = {
+              d: string
+              e: string
+              /* eslint-disable */
+              c: string
+              b: string
+              // Shouldn't move
+              /* eslint-enable */
+              a: string
+            }
+          `,
+          errors: [
+            {
+              data: {
+                right: 'a',
+                left: 'b',
+              },
+              messageId: 'unexpectedObjectTypesOrder',
+            },
+          ],
+          options: [{}],
+        },
+        {
+          output: dedent`
+            type Type = {
+              b: string
+              c: string
+              // eslint-disable-next-line @rule-tester/${eslintDisableRuleTesterName}
+              a: string
+            }
+          `,
+          code: dedent`
+            type Type = {
+              c: string
+              b: string
+              // eslint-disable-next-line @rule-tester/${eslintDisableRuleTesterName}
+              a: string
+            }
+          `,
+          errors: [
+            {
+              data: {
+                right: 'b',
+                left: 'c',
+              },
+              messageId: 'unexpectedObjectTypesOrder',
+            },
+          ],
+          options: [{}],
+        },
+        {
+          output: dedent`
+            type Type = {
+              b: string
+              c: string
+              a: string // eslint-disable-line @rule-tester/${eslintDisableRuleTesterName}
+            }
+          `,
+          code: dedent`
+            type Type = {
+              c: string
+              b: string
+              a: string // eslint-disable-line @rule-tester/${eslintDisableRuleTesterName}
+            }
+          `,
+          errors: [
+            {
+              data: {
+                right: 'b',
+                left: 'c',
+              },
+              messageId: 'unexpectedObjectTypesOrder',
+            },
+          ],
+          options: [{}],
+        },
+        {
+          output: dedent`
+            type Type = {
+              b: string
+              c: string
+              /* eslint-disable-next-line @rule-tester/${eslintDisableRuleTesterName} */
+              a: string
+            }
+          `,
+          code: dedent`
+            type Type = {
+              c: string
+              b: string
+              /* eslint-disable-next-line @rule-tester/${eslintDisableRuleTesterName} */
+              a: string
+            }
+          `,
+          errors: [
+            {
+              data: {
+                right: 'b',
+                left: 'c',
+              },
+              messageId: 'unexpectedObjectTypesOrder',
+            },
+          ],
+          options: [{}],
+        },
+        {
+          output: dedent`
+            type Type = {
+              b: string
+              c: string
+              a: string /* eslint-disable-line @rule-tester/${eslintDisableRuleTesterName} */
+            }
+          `,
+          code: dedent`
+            type Type = {
+              c: string
+              b: string
+              a: string /* eslint-disable-line @rule-tester/${eslintDisableRuleTesterName} */
+            }
+          `,
+          errors: [
+            {
+              data: {
+                right: 'b',
+                left: 'c',
+              },
+              messageId: 'unexpectedObjectTypesOrder',
+            },
+          ],
+          options: [{}],
+        },
+        {
+          output: dedent`
+            type Type = {
+              a: string
+              d: string
+              /* eslint-disable @rule-tester/${eslintDisableRuleTesterName} */
+              c: string
+              b: string
+              // Shouldn't move
+              /* eslint-enable */
+              e: string
+            }
+          `,
+          code: dedent`
+            type Type = {
+              d: string
+              e: string
+              /* eslint-disable @rule-tester/${eslintDisableRuleTesterName} */
+              c: string
+              b: string
+              // Shouldn't move
+              /* eslint-enable */
+              a: string
+            }
+          `,
+          errors: [
+            {
+              data: {
+                right: 'a',
+                left: 'b',
+              },
+              messageId: 'unexpectedObjectTypesOrder',
+            },
+          ],
+          options: [{}],
+        },
+      ],
+      valid: [],
     })
   })
 })

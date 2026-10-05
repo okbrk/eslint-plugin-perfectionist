@@ -3,17 +3,12 @@ interface Props {
   title?: string
   class?: string
   url: string
-  id?: string
 }
 
 let { class: className, title, url, ...props } = Astro.props
 ---
 
-<a
-  class:list={['link', className]}
-  href={url}
-  {...props}
->
+<a class:list={['link', className]} href={url} {...props}>
   <slot name="icon" />
   <div class="content">
     {title && <span class="title">{title}</span>}
@@ -25,7 +20,6 @@ let { class: className, title, url, ...props } = Astro.props
   <style>
     .link {
       display: inline-flex;
-      flex-wrap: nowrap;
       gap: var(--space-s);
       align-items: center;
       font: var(--font-xs);

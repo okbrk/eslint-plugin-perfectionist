@@ -1,216 +1,145 @@
 import type { JSONSchema4 } from '@typescript-eslint/utils/json-schema'
-import type { TSESTree } from '@typescript-eslint/types'
 
-import { AST_NODE_TYPES } from '@typescript-eslint/types'
-
-import type { SortingNodeWithDependencies } from '../../utils/sort-nodes-by-dependencies'
-import type { RegexOption, TypeOption } from '../../types/common-options'
-import type { ScopedRegexOption } from '../../types/scoped-regex-option'
-import type { AllCommonOptions } from '../../types/all-common-options'
-import type { NodeOfType } from '../../types/node-of-type'
+import type {
+  DeprecatedCustomGroupsOption,
+  PartitionByCommentOption,
+  NewlinesBetweenOption,
+  CustomGroupsOption,
+  CommonOptions,
+  GroupsOptions,
+  RegexOption,
+  TypeOption,
+} from '../../types/common-options'
+import type { JoinWithDash } from '../../types/join-with-dash'
 
 import {
   buildCustomGroupModifiersJsonSchema,
   buildCustomGroupSelectorJsonSchema,
-} from '../../utils/json-schemas/common-groups-json-schemas'
-import { buildRegexJsonSchema } from '../../utils/json-schemas/common-json-schemas'
+  regexJsonSchema,
+} from '../../utils/common-json-schemas'
 
-export type MessageId =
-  | typeof DEPENDENCY_ORDER_ERROR_ID
-  | typeof MISSED_SPACING_ERROR_ID
-  | typeof EXTRA_SPACING_ERROR_ID
-  | typeof GROUP_ORDER_ERROR_ID
-  | typeof ORDER_ERROR_ID
-
-export const ORDER_ERROR_ID = 'unexpectedObjectsOrder'
-export const GROUP_ORDER_ERROR_ID = 'unexpectedObjectsGroupOrder'
-export const EXTRA_SPACING_ERROR_ID = 'extraSpacingBetweenObjectMembers'
-export const MISSED_SPACING_ERROR_ID = 'missedSpacingBetweenObjectMembers'
-export const DEPENDENCY_ORDER_ERROR_ID = 'unexpectedObjectsDependencyOrder'
-
-/**
- * Configuration options for the sort-objects rule.
- *
- * Controls how object properties and methods are sorted within object literals
- * and object patterns in JavaScript/TypeScript.
- */
 export type Options = Partial<
   {
-    /**
-     * Conditional configuration based on pattern matching. Allows applying the
-     * rule only when specific conditions are met.
-     */
     useConfigurationIf: {
-      /**
-       * Regular expression pattern to match against the comment associated to
-       * the name of the object.
-       */
-      declarationCommentMatchesPattern?: ScopedRegexOption
-
-      /**
-       * Specifies whether to only match destructured objects or regular
-       * objects.
-       */
-      objectType?: 'non-destructured' | 'destructured'
-
-      /**
-       * Regular expression pattern to match against the name of the function
-       * that contains this object. Useful for applying different sorting rules
-       * to objects passed to specific functions.
-       */
-      callingFunctionNamePattern?: ScopedRegexOption
-
-      /**
-       * Regular expression pattern to match against the object's declaration
-       * name. The rule is only applied to declarations with matching names.
-       */
-      declarationMatchesPattern?: ScopedRegexOption
-
-      /**
-       * Regular expression pattern to match against all property names. The
-       * rule is only applied when all property names match this pattern.
-       */
+      callingFunctionNamePattern?: RegexOption
       allNamesMatchPattern?: RegexOption
-
-      /**
-       * Specifies whether to only match objects that have exclusively numeric
-       * keys.
-       */
-      hasNumericKeysOnly?: boolean
-
-      /**
-       * AST selector to match against ObjectExpression or ObjectPattern nodes.
-       */
-      matchesAstSelector?: string
     }
-
-    /**
-     * Regex patterns for function names whose callback argument dependencies
-     * should be ignored.
-     */
-    ignoreCallbackDependenciesPatterns: RegexOption
-
-    /**
-     * @deprecated Enables experimental dependency detection.
-     */
-    useExperimentalDependencyDetection: boolean
-
-    /**
-     * Whether to partition object members by computed keys.
-     */
-    partitionByComputedKey: boolean
-
-    /**
-     * Whether to sort styled-components CSS properties. When true, sorts CSS
-     * properties within styled-components template literals.
-     *
-     * @default true
-     */
+    customGroups:
+      | CustomGroupsOption<SingleCustomGroup>
+      | DeprecatedCustomGroupsOption
+    destructuredObjects: { groups: boolean } | boolean
+    partitionByComment: PartitionByCommentOption
+    newlinesBetween: NewlinesBetweenOption
+    groups: GroupsOptions<Group>
+    partitionByNewLine: boolean
+    objectDeclarations: boolean
+    ignorePattern: RegexOption
     styledComponents: boolean
-  } & AllCommonOptions<
-    TypeOption,
-    AdditionalSortOptions,
-    CustomGroupMatchOptions
-  >
+    /**
+     * @deprecated for {@link `destructuredObjects`} and {@link `objectDeclarations`}
+     */
+    destructureOnly: boolean
+    type: TypeOption
+  } & CommonOptions
 >[]
 
-export type SortObjectsSortingNode = {
-  /**
-   * The string representation of the property's value. Used when sorting by
-   * value instead of name.
-   */
-  value: string
-} & SortingNodeWithDependencies<SortObjectsNode>
-
-export type SortObjectsNode = TSESTree.Property
-
-interface AdditionalSortOptions {
-  sortBy: SortByOption
-}
-
-export let objectParentTypes = [
-  AST_NODE_TYPES.VariableDeclarator,
-  AST_NODE_TYPES.CallExpression,
-  AST_NODE_TYPES.Property,
-] as const
-export type ObjectParentType = (typeof objectParentTypes)[number]
-export type ObjectParent = NodeOfType<ObjectParentType>
-
-/**
- * Union type of all available modifiers for object members.
- *
- * Modifiers provide additional context about member characteristics, such as
- * whether they are optional, required, or span multiple lines.
- */
-export type Modifier = (typeof allModifiers)[number]
-
-/**
- * Union type of all available selectors for object members.
- *
- * Selectors identify the type of object member for grouping and sorting
- * purposes.
- */
-export type Selector = (typeof allSelectors)[number]
-
-/**
- * Match options for a custom group.
- */
-interface CustomGroupMatchOptions {
-  /**
-   * Regular expression pattern to match against the member's value. Only
-   * applicable to properties with literal values.
-   */
+export type SingleCustomGroup = (
+  | BaseSingleCustomGroup<MultilineSelector>
+  | BaseSingleCustomGroup<PropertySelector>
+  | BaseSingleCustomGroup<MethodSelector>
+  | BaseSingleCustomGroup<MemberSelector>
+) & {
   elementValuePattern?: RegexOption
-
-  /**
-   * Array of modifiers that members must have to match this group. Only
-   * modifiers allowed for the specified selector type are valid.
-   */
-  modifiers?: Modifier[]
-
-  /**
-   * The selector type this group matches. Determines what kind of object
-   * members belong to this group.
-   */
-  selector?: Selector
+  elementNamePattern?: RegexOption
 }
 
-/**
- * Array of all available selectors for object members.
- *
- * Used for validation and configuration in the ESLint rule.
- */
-export let allSelectors = ['member', 'method', 'property'] as const
+export type Selector =
+  | MultilineSelector
+  | PropertySelector
+  | MemberSelector
+  | MethodSelector
+
+export type Modifier = MultilineModifier | RequiredModifier | OptionalModifier
 
 /**
- * Array of all available modifiers for object members.
- *
- * Used for validation and configuration in the ESLint rule.
+ * Only used in code as well
  */
-export let allModifiers = ['multiline'] as const
-
-const SORT_BY_OPTION = ['name', 'value'] as const
-type SortByOption = (typeof SORT_BY_OPTION)[number]
-
-/**
- * Additional sort options JSON schema, Used by ESLint to validate rule options.
- */
-export let additionalSortOptionsJsonSchema: Record<string, JSONSchema4> = {
-  sortBy: {
-    enum: [...SORT_BY_OPTION],
-    type: 'string',
-  },
+interface AllowedModifiersPerSelector {
+  property: MultilineModifier | OptionalModifier | RequiredModifier
+  member: MultilineModifier | OptionalModifier | RequiredModifier
+  method: MultilineModifier | OptionalModifier | RequiredModifier
+  multiline: OptionalModifier | RequiredModifier
+  'index-signature': never
 }
 
+interface BaseSingleCustomGroup<T extends Selector> {
+  modifiers?: AllowedModifiersPerSelector[T][]
+  selector?: T
+}
+
+type PropertyGroup = JoinWithDash<
+  [OptionalModifier, RequiredModifier, MultilineModifier, PropertySelector]
+>
+
+type MemberGroup = JoinWithDash<
+  [OptionalModifier, RequiredModifier, MultilineModifier, MemberSelector]
+>
+
+type MethodGroup = JoinWithDash<
+  [OptionalModifier, RequiredModifier, MultilineModifier, MethodSelector]
+>
+
 /**
- * Additional custom group match options JSON schema. Used by ESLint to validate
- * rule options at configuration time.
+ * Only used in code, so I don't know if it's worth maintaining this.
  */
-export let additionalCustomGroupMatchOptionsJsonSchema: Record<
-  string,
-  JSONSchema4
-> = {
+type Group =
+  | MultilineGroup
+  | PropertyGroup
+  | MethodGroup
+  | MemberGroup
+  | 'unknown'
+  | string
+
+/**
+ * @deprecated For {@link `MultilineModifier`}
+ */
+type MultilineGroup = JoinWithDash<
+  [OptionalModifier, RequiredModifier, MultilineSelector]
+>
+
+/**
+ * @deprecated For {@link `MultilineModifier`}
+ */
+type MultilineSelector = 'multiline'
+
+type MultilineModifier = 'multiline'
+
+type RequiredModifier = 'required'
+
+type OptionalModifier = 'optional'
+
+type PropertySelector = 'property'
+
+type MemberSelector = 'member'
+
+type MethodSelector = 'method'
+
+export let allSelectors: Selector[] = [
+  'member',
+  'method',
+  'multiline',
+  'property',
+]
+
+export let allModifiers: Modifier[] = ['optional', 'required', 'multiline']
+
+/**
+ * Ideally, we should generate as many schemas as there are selectors, and ensure
+ * that users do not enter invalid modifiers for a given selector
+ */
+export let singleCustomGroupJsonSchema: Record<string, JSONSchema4> = {
   modifiers: buildCustomGroupModifiersJsonSchema(allModifiers),
   selector: buildCustomGroupSelectorJsonSchema(allSelectors),
-  elementValuePattern: buildRegexJsonSchema(),
+  elementValuePattern: regexJsonSchema,
+  elementNamePattern: regexJsonSchema,
 }

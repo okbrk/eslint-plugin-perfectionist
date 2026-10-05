@@ -12,14 +12,17 @@ interface Props {
   }
 }
 
-export async function getStaticPaths(): Promise<
+export let GET = async ({ props }: Props): Promise<ImageResponse> =>
+  await openGraph(props.id)
+
+export let getStaticPaths = async (): Promise<
   {
     params: {
       slug: string
     }
     props: CollectionEntry<'guide'>
   }[]
-> {
+> => {
   let rules = await getCollection('guide')
   return rules.map(currentRule => ({
     params: {
@@ -27,8 +30,4 @@ export async function getStaticPaths(): Promise<
     },
     props: currentRule,
   }))
-}
-
-export async function GET({ props }: Props): Promise<ImageResponse> {
-  return await openGraph(props.id)
 }

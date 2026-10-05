@@ -1,220 +1,41 @@
 import type { TSESLint } from '@typescript-eslint/utils'
 
 import type { SortingNodeWithDependencies } from './sort-nodes-by-dependencies'
-import type { NewlinesBetweenValueGetter } from './get-newlines-between-errors'
-import type { CommonPartitionOptions } from '../types/common-partition-options'
-import type { CommonGroupsOptions } from '../types/common-groups-options'
+import type { NewlinesBetweenValueGetter } from './get-newlines-errors'
+import type { GroupsOptions } from '../types/common-options'
 import type { SortingNode } from '../types/sorting-node'
+import type { MakeFixesParameters } from './make-fixes'
 
-import { computeNodesInCircularDependencies } from './compute-nodes-in-circular-dependencies'
-import { getCommentAboveThatShouldExist } from './get-comment-above-that-should-exist'
-import { isNodeDependentOnOtherNode } from './is-node-dependent-on-other-node'
-import { getNewlinesBetweenErrors } from './get-newlines-between-errors'
+import { getFirstUnorderedNodeDependentOn } from './sort-nodes-by-dependencies'
 import { createNodeIndexMap } from './create-node-index-map'
-import { createFixProvider } from './create-fix-provider'
-import { getGroupIndex } from './get-group-index'
+import { getNewlinesErrors } from './get-newlines-errors'
+import { getGroupNumber } from './get-group-number'
 import { reportErrors } from './report-errors'
 import { pairwise } from './pairwise'
 
-/**
- * Parameters for error reporting across all sorting rules.
- *
- * @template MessageIds - Union of available message IDs for the rule.
- * @template T - Type of sorting node extending the base SortingNode.
- */
 interface ReportAllErrorsParameters<
   MessageIds extends string,
   T extends SortingNode,
 > {
-  /**
-   * Available message IDs for different types of violations.
-   *
-   * Each rule can customize these messages to provide context-specific error
-   * descriptions. Not all message types are required - only provide those
-   * relevant to the specific rule.
-   *
-   * @example
-   *
-   * ```ts
-   * // Class members rule with all message types
-   * availableMessageIds: {
-   * unexpectedOrder: 'unexpectedClassesOrder',
-   * unexpectedGroupOrder: 'unexpectedClassesGroupOrder',
-   * unexpectedDependencyOrder: 'unexpectedClassesDependencyOrder',
-   * missedSpacingBetweenMembers: 'missedSpacingBetweenClassMembers',
-   * extraSpacingBetweenMembers: 'extraSpacingBetweenClassMembers',
-   * missedCommentAbove: 'missedCommentAboveClassMember'
-   * }
-   * ```
-   */
   availableMessageIds: {
-    /**
-     * Message when required spacing between members is missing.
-     */
     missedSpacingBetweenMembers?: MessageIds
-
-    /**
-     * Message when there's extra spacing where it shouldn't be.
-     */
     extraSpacingBetweenMembers?: MessageIds
-
-    /**
-     * Message when a dependency order is violated.
-     */
     unexpectedDependencyOrder?: MessageIds
-
-    /**
-     * Message when elements are in wrong groups.
-     */
-    unexpectedGroupOrder: MessageIds
-
-    /**
-     * Message when a required comment above a group is missing.
-     */
-    missedCommentAbove?: MessageIds
-
-    /**
-     * Message for general ordering violations within a group.
-     */
+    unexpectedGroupOrder?: MessageIds
     unexpectedOrder: MessageIds
   }
-
-  /**
-   * Configuration options for sorting and grouping.
-   *
-   * Extends MakeFixesParameters options with groups configuration. Includes all
-   * sorting preferences, partition settings, newlines configuration, and custom
-   * group definitions.
-   *
-   * @example
-   *
-   * ```ts
-   * options: {
-   * type: 'alphabetical',
-   * order: 'asc',
-   * groups: ['static-property', 'property', 'constructor', 'method'],
-   * newlinesBetween: 1,
-   * partitionByComment: true
-   * }
-   * ```
-   */
-  options: Pick<CommonPartitionOptions, 'partitionByComment'> &
-    CommonGroupsOptions<string, unknown, unknown>
-
-  /**
-   * Function to get sorted nodes with or without ESLint-disabled nodes.
-   *
-   * This function is called twice by reportAllErrors:
-   *
-   * 1. With `false` to get all nodes for position mapping
-   * 2. With `true` to get nodes excluding disabled ones for error checking.
-   *
-   * This dual-call pattern ensures that ESLint-disabled nodes maintain their
-   * positions while not being considered for ordering violations.
-   *
-   * @param ignoreEslintDisabledNodes - Whether to exclude ESLint-disabled
-   *   nodes.
-   * @returns Array of sorted nodes.
-   */
+  options: {
+    groups?: GroupsOptions<string>
+  } & MakeFixesParameters<T>['options']
   sortNodesExcludingEslintDisabled(ignoreEslintDisabledNodes: boolean): T[]
-
-  /**
-   * Optional function to determine newlines between specific node pairs.
-   *
-   * Allows rules to customize spacing logic for special cases, such as overload
-   * signatures in TypeScript or getter/setter pairs.
-   *
-   * @example
-   *
-   * ```ts
-   * // Classes: Keep overload signatures together
-   * newlinesBetweenValueGetter: ({
-   *   left,
-   *   right,
-   *   computedNewlinesBetween,
-   * }) => {
-   *   if (
-   *     left.overloadSignaturesGroupId === right.overloadSignaturesGroupId
-   *   ) {
-   *     return 0 // No newlines between overloads
-   *   }
-   *   return computedNewlinesBetween
-   * }
-   * ```
-   */
   newlinesBetweenValueGetter?: NewlinesBetweenValueGetter<T>
-
-  /**
-   * ESLint rule context for reporting errors.
-   *
-   * Used to access rule configuration, report violations, and provide fixes.
-   * The context includes the rule ID, options, settings, and methods for
-   * interacting with ESLint.
-   */
   context: TSESLint.RuleContext<MessageIds, unknown[]>
-
-  /**
-   * Whether to ignore the highest block comment above the first node.
-   *
-   * When true, preserves file-level documentation comments at the top of sorted
-   * blocks. This is useful for maintaining copyright headers, file
-   * descriptions, or other important documentation.
-   */
   ignoreFirstNodeHighestBlockComment?: boolean
-
-  /**
-   * Array of all nodes to check for ordering violations.
-   *
-   * These are the nodes in their current order in the source code. The function
-   * will compare this order against the sorted order to identify and report all
-   * violations.
-   */
+  sourceCode: TSESLint.SourceCode
   nodes: T[]
 }
 
-/**
- * Detects and reports all sorting violations.
- *
- * Performs a complete analysis of sorting errors including:
- *
- * - Order violations (elements in wrong positions)
- * - Group order violations (elements in wrong groups)
- * - Dependency violations (dependent elements before their dependencies)
- * - Spacing issues (missing or extra newlines between groups)
- * - Missing comment separators above groups.
- *
- * The function uses pairwise comparison to check each adjacent pair of nodes
- * and accumulates all applicable error messages for each violation.
- *
- * @example
- *
- * ```ts
- * // Import statements with violations
- * import { useState } from 'react' // Should be after React import
- * import React from 'react' // Group order violation
- * import type { User } from './types' // Missing newline between groups
- * ```
- *
- * @example
- *
- * ```ts
- * // Object properties with dependency violation
- * const config = {
- *   apiUrl: process.env.API_URL,
- *   baseUrl: this.apiUrl + '/v1', // Depends on apiUrl
- *   timeout: 5000,
- *   headers: {
- *     Authorization: this.token, // Should be after token definition
- *   },
- *   token: getAuthToken(),
- * }
- * ```
- *
- * @template MessageIds - Union of available message IDs.
- * @template T - Type of sorting node.
- * @param params - Parameters for error detection and reporting.
- */
-export function reportAllErrors<
+export let reportAllErrors = <
   MessageIds extends string,
   T extends SortingNode = SortingNode,
 >({
@@ -222,48 +43,21 @@ export function reportAllErrors<
   sortNodesExcludingEslintDisabled,
   newlinesBetweenValueGetter,
   availableMessageIds,
+  sourceCode,
   context,
   options,
   nodes,
-}: ReportAllErrorsParameters<MessageIds, T>): void {
-  let { sourceCode } = context
-
+}: ReportAllErrorsParameters<MessageIds, T>): void => {
   let sortedNodes = sortNodesExcludingEslintDisabled(false)
   let sortedNodesExcludingEslintDisabled =
     sortNodesExcludingEslintDisabled(true)
   let nodeIndexMap = createNodeIndexMap(sortedNodes)
 
-  /**
-   * Only rules that report dependency violations pass nodes carrying
-   * dependencies, so the dependency shape is used behind
-   * `unexpectedDependencyOrder` alone.
-   */
-  let nodesWithDependencies = nodes as (SortingNodeWithDependencies & T)[]
-
-  let nodesInCircularDependencies =
-    availableMessageIds.unexpectedDependencyOrder ?
-      computeNodesInCircularDependencies(nodesWithDependencies)
-    : new Set<SortingNodeWithDependencies & T>()
-
-  let getFix = createFixProvider({
-    sortedNodes: sortedNodesExcludingEslintDisabled,
-    ignoreFirstNodeHighestBlockComment,
-    newlinesBetweenValueGetter,
-    sourceCode,
-    options,
-    nodes,
-  })
-
   pairwise(nodes, (left, right) => {
-    let leftInfo =
-      left ?
-        {
-          groupIndex: getGroupIndex(options.groups, left),
-          index: nodeIndexMap.get(left)!,
-        }
-      : null
+    let leftNumber = options.groups ? getGroupNumber(options.groups, left) : 0
+    let rightNumber = options.groups ? getGroupNumber(options.groups, right) : 0
 
-    let rightGroupIndex = getGroupIndex(options.groups, right)
+    let leftIndex = nodeIndexMap.get(left)!
     let rightIndex = nodeIndexMap.get(right)!
 
     let indexOfRightExcludingEslintDisabled =
@@ -273,139 +67,67 @@ export function reportAllErrors<
 
     let firstUnorderedNodeDependentOnRight: undefined | T
     if (availableMessageIds.unexpectedDependencyOrder) {
-      firstUnorderedNodeDependentOnRight = getFirstUnorderedNodeDependentOn({
-        node: right as SortingNodeWithDependencies & T,
-        nodes: nodesWithDependencies,
-        nodesInCircularDependencies,
-      })
+      firstUnorderedNodeDependentOnRight = getFirstUnorderedNodeDependentOn(
+        right as unknown as SortingNodeWithDependencies,
+        nodes as unknown as SortingNodeWithDependencies[],
+      ) as unknown as T
     }
 
     if (
-      leftInfo &&
-      (firstUnorderedNodeDependentOnRight ||
-        leftInfo.index > rightIndex ||
-        (left?.isEslintDisabled &&
-          leftInfo.index >= indexOfRightExcludingEslintDisabled))
+      firstUnorderedNodeDependentOnRight ||
+      leftIndex > rightIndex ||
+      leftIndex >= indexOfRightExcludingEslintDisabled
     ) {
       if (firstUnorderedNodeDependentOnRight) {
         messageIds.push(availableMessageIds.unexpectedDependencyOrder!)
       } else {
         messageIds.push(
-          (
-            leftInfo.groupIndex === rightGroupIndex ||
-              !availableMessageIds.unexpectedGroupOrder
-          ) ?
-            availableMessageIds.unexpectedOrder
-          : availableMessageIds.unexpectedGroupOrder,
+          leftNumber === rightNumber ||
+            !availableMessageIds.unexpectedGroupOrder
+            ? availableMessageIds.unexpectedOrder
+            : availableMessageIds.unexpectedGroupOrder,
         )
       }
     }
 
     if (
-      left &&
+      options.newlinesBetween &&
+      options.groups &&
       availableMessageIds.missedSpacingBetweenMembers &&
       availableMessageIds.extraSpacingBetweenMembers
     ) {
-      messageIds.push(
-        ...getNewlinesBetweenErrors({
+      messageIds = [
+        ...messageIds,
+        ...getNewlinesErrors({
           options: {
             ...options,
             newlinesBetween: options.newlinesBetween,
+            groups: options.groups,
           },
           missedSpacingError: availableMessageIds.missedSpacingBetweenMembers,
           extraSpacingError: availableMessageIds.extraSpacingBetweenMembers,
-          leftGroupIndex: leftInfo!.groupIndex,
           newlinesBetweenValueGetter,
-          rightGroupIndex,
+          rightNum: rightNumber,
+          leftNum: leftNumber,
           sourceCode,
           right,
           left,
         }),
-      )
-    }
-
-    let commentAboveMissing: undefined | string
-    if (availableMessageIds.missedCommentAbove) {
-      let commentAboveThatShouldExist = getCommentAboveThatShouldExist({
-        leftGroupIndex: leftInfo?.groupIndex ?? null,
-        sortingNode: right,
-        rightGroupIndex,
-        sourceCode,
-        options,
-      })
-      if (commentAboveThatShouldExist && !commentAboveThatShouldExist.exists) {
-        commentAboveMissing = commentAboveThatShouldExist.comment
-        messageIds.push(availableMessageIds.missedCommentAbove)
-      }
+      ]
     }
 
     reportErrors({
+      sortedNodes: sortedNodesExcludingEslintDisabled,
+      ignoreFirstNodeHighestBlockComment,
       firstUnorderedNodeDependentOnRight,
-      commentAboveMissing,
+      newlinesBetweenValueGetter,
       messageIds,
+      sourceCode,
+      options,
       context,
-      getFix,
+      nodes,
       right,
       left,
     })
-  })
-}
-
-/**
- * Finds the first node that depends on the given node but appears before it.
- *
- * Detects dependency violations where a dependent element appears before its
- * dependency in the current order. This is important for maintaining logical
- * ordering in code where some elements reference others.
- *
- * Nodes in circular dependencies are excluded from this check as they cannot be
- * properly ordered.
- *
- * @example
- *
- * ```ts
- * // TypeScript interface extending another
- * interface AdminUser extends User {
- *   // This depends on User
- *   permissions: string[]
- * }
- * interface User {
- *   // But User appears after AdminUser
- *   id: string
- *   name: string
- * }
- * // Returns: AdminUser node (appears before its dependency).
- * ```
- *
- * @template T - Type of sorting node with dependencies.
- * @param params - Parameters for finding dependent nodes.
- * @param params.nodesInCircularDependencies - Set of nodes in circular
- *   dependencies.
- * @param params.nodes - All nodes in current order.
- * @param params.node - The node to check for dependents.
- * @returns First dependent node appearing before its dependency, or undefined.
- */
-function getFirstUnorderedNodeDependentOn<
-  T extends SortingNodeWithDependencies,
->({
-  nodesInCircularDependencies,
-  nodes,
-  node,
-}: {
-  nodesInCircularDependencies: Set<T>
-  nodes: T[]
-  node: T
-}): undefined | T {
-  let nodesDependentOnNode = nodes.filter(
-    currentlyOrderedNode =>
-      !nodesInCircularDependencies.has(currentlyOrderedNode) &&
-      isNodeDependentOnOtherNode(node, currentlyOrderedNode),
-  )
-  return nodesDependentOnNode.find(firstNodeDependentOnNode => {
-    let currentIndexOfNode = nodes.indexOf(node)
-    let currentIndexOfFirstNodeDependentOnNode = nodes.indexOf(
-      firstNodeDependentOnNode,
-    )
-    return currentIndexOfFirstNodeDependentOnNode < currentIndexOfNode
   })
 }

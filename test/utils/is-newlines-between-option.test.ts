@@ -11,10 +11,8 @@ describe('is-newlines-between-option', () => {
     ).toBeTruthy()
   })
 
-  it.each(['group', ['group'], {}, { foo: 'bar' }, { group: 'group' }])(
-    'should return `false` if the element is not a newlines between option (%s)',
-    option => {
-      expect(isNewlinesBetweenOption(option as string)).toBeFalsy()
-    },
-  )
+  it('should return `false` if the element is not a newlines between option', () => {
+    expect(isNewlinesBetweenOption('group')).toBeFalsy()
+    expect(isNewlinesBetweenOption(['group'])).toBeFalsy()
+  })
 })

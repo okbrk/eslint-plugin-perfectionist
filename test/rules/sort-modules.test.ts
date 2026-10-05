@@ -1,803 +1,748 @@
-import { createRuleTester } from 'eslint-vitest-rule-tester'
-import { beforeEach, describe, expect, it } from 'vitest'
-import typescriptParser from '@typescript-eslint/parser'
+import type { Rule } from 'eslint'
+
+import { RuleTester } from '@typescript-eslint/rule-tester'
+import { RuleTester as EslintRuleTester } from 'eslint'
+import { afterAll, describe, it } from 'vitest'
 import dedent from 'dedent'
 
-import { mockReadClosestTsConfigByPathWith } from './mock-read-closest-ts-config-by-path-with'
-import { validateRuleJsonSchema } from '../utils/validate-rule-json-schema'
-import { buildOxlintRuleTester } from './build-oxlint-rule-tester'
 import { Alphabet } from '../../utils/alphabet'
 import rule from '../../rules/sort-modules'
 
-type ParsedProgram = ReturnType<typeof typescriptParser.parseForESLint>['ast']
+let ruleName = 'sort-modules'
 
-const UNKNOWN_MODULE_BLOCK_TYPE = 'CustomModuleBlock'
-function replaceNodeType({
-  replacementNodeType,
-  nodeTypeToReplace,
-  ast,
-}: {
-  replacementNodeType: string
-  nodeTypeToReplace: string
-  ast: ParsedProgram
-}): void {
-  let matchingNodeIndex = ast.body.findIndex(
-    node => node.type === nodeTypeToReplace,
-  )
-  if (matchingNodeIndex < 0) {
-    throw new Error(`No top-level node found with type "${nodeTypeToReplace}".`)
-  }
+describe(ruleName, () => {
+  RuleTester.describeSkip = describe.skip
+  RuleTester.afterAll = afterAll
+  RuleTester.describe = describe
+  RuleTester.itOnly = it.only
+  RuleTester.itSkip = it.skip
+  RuleTester.it = it
 
-  ast.body[matchingNodeIndex] = {
-    ...ast.body[matchingNodeIndex],
-    type: replacementNodeType,
-  } as (typeof ast.body)[number]
-}
+  let ruleTester = new RuleTester()
+  let eslintRuleTester = new EslintRuleTester()
 
-let replacedNodeTypeParser = {
-  ...typescriptParser,
-  parseForESLint(
-    code: string,
-    parserOptions?: {
-      replacementNodeType: string
-      nodeTypeToReplace: string
-    } & Parameters<typeof typescriptParser.parseForESLint>[1],
-  ) {
-    if (!parserOptions?.nodeTypeToReplace) {
-      throw new Error('parserOptions.nodeTypeToReplace option is required')
-    }
-    if (!parserOptions.replacementNodeType) {
-      throw new Error('parserOptions.replacementNodeType option is required')
-    }
-    let result = typescriptParser.parseForESLint(code, parserOptions)
-    replaceNodeType({
-      replacementNodeType: parserOptions.replacementNodeType,
-      nodeTypeToReplace: parserOptions.nodeTypeToReplace,
-      ast: result.ast,
-    })
-    return result
-  },
-}
+  describe(`${ruleName}: sorting by alphabetical order`, () => {
+    let type = 'alphabetical-order'
 
-describe('sort-modules', () => {
-  let { valid: validEspree } = createRuleTester({
-    name: 'sort-modules (espree)',
-    rule,
-  })
-  let { invalid, valid } = createRuleTester({
-    parser: typescriptParser,
-    name: 'sort-modules',
-    rule,
-  })
-  let {
-    invalid: invalidWithReplacedNodeType,
-    valid: validWithReplacedNodeType,
-  } = createRuleTester({
-    name: 'sort-modules (unknown module block)',
-    parser: replacedNodeTypeParser,
-    rule,
-  })
-  let oxlintRuleTester = buildOxlintRuleTester(rule)
-
-  describe('alphabetical', () => {
     let options = {
       type: 'alphabetical',
+      ignoreCase: true,
       order: 'asc',
     } as const
 
-    it('ignores empty files', async () => {
-      await valid({
-        options: [options],
-        code: '',
-      })
-    })
-
-    it('ignores files with single statement', async () => {
-      await valid({
-        code: dedent`
-          const a = 1
-        `,
-        options: [options],
-      })
-    })
-
-    it('handles export without declaration', async () => {
-      await valid({
-        code: dedent`
-          const foo = 1
-          const bar = 2
-          export { foo, bar }
-        `,
-        options: [options],
-      })
-    })
-
-    it('handles module declaration without body', async () => {
-      await valid({
-        code: dedent`
-          namespace A {
-            const a = 1
-          }
-          declare module 'foo'
-        `,
-        options: [options],
-      })
-    })
-
-    it('sorts modules according to group hierarchy', async () => {
-      await invalid({
-        errors: [
-          {
-            data: {
-              leftGroup: 'export-interface',
-              left: 'FindUserInput',
-              right: 'CacheType',
-              rightGroup: 'enum',
-            },
-            messageId: 'unexpectedModulesGroupOrder',
-          },
-          {
-            data: {
-              rightGroup: 'export-function',
-              left: 'assertInputIsCorrect',
-              leftGroup: 'function',
-              right: 'findUser',
-            },
-            messageId: 'unexpectedModulesGroupOrder',
-          },
-          {
-            data: {
-              leftGroup: 'export-function',
-              right: 'FindAllUsersInput',
-              rightGroup: 'export-type',
-              left: 'findUser',
-            },
-            messageId: 'unexpectedModulesGroupOrder',
-          },
-          {
-            data: {
-              leftGroup: 'export-function',
-              left: 'findAllUsers',
-              rightGroup: 'class',
-              right: 'Cache',
-            },
-            messageId: 'unexpectedModulesGroupOrder',
-          },
-        ],
-        output: dedent`
-          enum CacheType {
-            ALWAYS = 'ALWAYS',
-            NEVER = 'NEVER',
-          }
-
-          export type FindAllUsersInput = {
-            ids: string[]
-            cache: CacheType
-          }
-
-          export type FindAllUsersOutput = FindUserOutput[]
-
-          export interface FindUserInput {
-            id: string
-            cache: CacheType
-          }
-
-          export type FindUserOutput = {
-            id: string
-            name: string
-            age: number
-          }
-
-          class Cache {
-            // Some logic
-          }
-
-          export function findAllUsers(input: FindAllUsersInput): FindAllUsersOutput {
-            assertInputIsCorrect(input)
-            return _findUserByIds(input.ids)
-          }
-
-          export function findUser(input: FindUserInput): FindUserOutput {
-            assertInputIsCorrect(input)
-            return _findUserByIds([input.id])[0]
-          }
-
-          function assertInputIsCorrect(input: FindUserInput | FindAllUsersInput): void {
-            // Some logic
-          }
-        `,
-        code: dedent`
-          export interface FindUserInput {
-            id: string
-            cache: CacheType
-          }
-
-          enum CacheType {
-            ALWAYS = 'ALWAYS',
-            NEVER = 'NEVER',
-          }
-
-          export type FindUserOutput = {
-            id: string
-            name: string
-            age: number
-          }
-
-          function assertInputIsCorrect(input: FindUserInput | FindAllUsersInput): void {
-            // Some logic
-          }
-
-          export function findUser(input: FindUserInput): FindUserOutput {
-            assertInputIsCorrect(input)
-            return _findUserByIds([input.id])[0]
-          }
-
-          export type FindAllUsersInput = {
-            ids: string[]
-            cache: CacheType
-          }
-
-          export type FindAllUsersOutput = FindUserOutput[]
-
-          export function findAllUsers(input: FindAllUsersInput): FindAllUsersOutput {
-            assertInputIsCorrect(input)
-            return _findUserByIds(input.ids)
-          }
-
-          class Cache {
-            // Some logic
-          }
-        `,
-        options: [options],
-      })
-    })
-
-    it('sorts modules within modules and namespaces', async () => {
-      await invalid({
-        errors: [
-          {
-            messageId: 'unexpectedModulesOrder',
-            data: { right: 'A', left: 'B' },
-          },
-          {
-            messageId: 'unexpectedModulesOrder',
-            data: { right: 'A', left: 'B' },
-          },
-        ],
-        output: dedent`
-          module ModuleB {
-            interface A {}
-            interface B {}
-          }
-          module ModuleA {
-            interface A {}
-            interface B {}
-          }
-        `,
-        code: dedent`
-          module ModuleB {
-            interface B {}
-            interface A {}
-          }
-          module ModuleA {
-            interface B {}
-            interface A {}
-          }
-        `,
-        options: [options],
-      })
-
-      await invalid({
-        errors: [
-          {
-            messageId: 'unexpectedModulesOrder',
-            data: { right: 'A', left: 'B' },
-          },
-          {
-            messageId: 'unexpectedModulesOrder',
-            data: { right: 'A', left: 'B' },
-          },
-        ],
-        output: dedent`
-          namespace NamespaceB {
-            interface A {}
-            interface B {}
-          }
-          namespace NamespaceA {
-            interface A {}
-            interface B {}
-          }
-        `,
-        code: dedent`
-          namespace NamespaceB {
-            interface B {}
-            interface A {}
-          }
-          namespace NamespaceA {
-            interface B {}
-            interface A {}
-          }
-        `,
-        options: [options],
-      })
-    })
-
-    it('creates partitions at variable declarations', async () => {
-      await valid({
-        code: dedent`
-          interface B {}
-          export let a;
-          interface A {}
-        `,
-        options: [options],
-      })
-    })
-
-    it('creates partitions at function call expressions', async () => {
-      await valid({
-        code: dedent`
-          interface B {}
-          iAmCallingAFunction();
-          interface A {}
-        `,
-        options: [options],
-      })
-    })
-
-    it('creates partitions at if statements', async () => {
-      await valid({
-        code: dedent`
-          enum B { b = 'b' }
-          if (B.b === 'b') {}
-          enum A { a = 'a' }
-        `,
-        options: [options],
-      })
-    })
-
-    it('creates partitions at while statements', async () => {
-      await valid({
-        code: dedent`
-          enum B { b = 'b' }
-          while (B.b === 'b') {}
-          enum A { a = 'a' }
-        `,
-        options: [options],
-      })
-    })
-
-    it('creates partitions at for-in loops', async () => {
-      await valid({
-        code: dedent`
-          enum B { b = 'b' }
-          for (const key in B) {}
-          enum A { a = 'a' }
-        `,
-        options: [options],
-      })
-    })
-
-    it('creates partitions at try/catch statements', async () => {
-      await valid({
-        code: dedent`
-          enum B { b = 'b' }
-          try { B.b } catch {}
-          enum A { a = 'a' }
-        `,
-        options: [options],
-      })
-    })
-
-    it('creates partitions at for loops', async () => {
-      await valid({
-        code: dedent`
-          enum B { b = 'b' }
-          for (let i = 0; i < Object.keys(B).length; i++) {}
-          enum A { a = 'a' }
-        `,
-        options: [options],
-      })
-    })
-
-    it('creates partitions at for-of loops', async () => {
-      await valid({
-        code: dedent`
-          enum B { b = 'b' }
-          for (const value of Object.values(B)) {}
-          enum A { a = 'a' }
-        `,
-        options: [options],
-      })
-    })
-
-    it('creates partitions at do-while loops', async () => {
-      await valid({
-        code: dedent`
-          enum B { b = 'b' }
-          do { void B.b } while (false)
-          enum A { a = 'a' }
-        `,
-        options: [options],
-      })
-    })
-
-    it('creates partitions at switch statements', async () => {
-      await valid({
-        code: dedent`
-          enum B { b = 'b' }
-          switch (B.b) { case 'b': break }
-          enum A { a = 'a' }
-        `,
-        options: [options],
-      })
-    })
-
-    it('creates partitions at throw statements', async () => {
-      await valid({
-        code: dedent`
-          enum B { b = 'b' }
-          throw new Error(B.b)
-          enum A { a = 'a' }
-        `,
-        options: [options],
-      })
-    })
-
-    it('creates partitions at block statements', async () => {
-      await valid({
-        code: dedent`
-          enum B { b = 'b' }
-          { const x = B.b }
-          enum A { a = 'a' }
-        `,
-        options: [options],
-      })
-    })
-
-    it('creates partitions at labeled statements', async () => {
-      await valid({
-        code: dedent`
-          enum B { b = 'b' }
-          label: { const x = B.b }
-          enum A { a = 'a' }
-        `,
-        options: [options],
-      })
-    })
-
-    it('creates partitions at TypeScript import-equals declarations', async () => {
-      await valid({
-        code: dedent`
-          enum B { b = 'b' }
-          import foo = B
-          enum A { a = 'a' }
-        `,
-        options: [options],
-      })
-    })
-
-    it('creates partitions at export assignments', async () => {
-      await valid({
-        code: dedent`
-          enum B { b = 'b' }
-          export = B
-          enum A { a = 'a' }
-        `,
-        options: [options],
-      })
-    })
-
-    it('sorts across empty statements', async () => {
-      await invalid({
-        errors: [
-          {
-            messageId: 'unexpectedModulesOrder',
-            data: { right: 'A', left: 'B' },
-          },
-        ],
-        output: dedent`
-          enum A { a = 'a' }
-          ;
-          enum B { b = 'b' }
-        `,
-        code: dedent`
-          enum B { b = 'b' }
-          ;
-          enum A { a = 'a' }
-        `,
-        options: [options],
-      })
-    })
-
-    it('sorts across debugger statements', async () => {
-      await invalid({
-        errors: [
-          {
-            messageId: 'unexpectedModulesOrder',
-            data: { right: 'A', left: 'B' },
-          },
-        ],
-        output: dedent`
-          enum A { a = 'a' }
-          debugger
-          enum B { b = 'b' }
-        `,
-        code: dedent`
-          enum B { b = 'b' }
-          debugger
-          enum A { a = 'a' }
-        `,
-        options: [options],
-      })
-    })
-
-    it('sorts across import declarations', async () => {
-      await invalid({
-        errors: [
-          {
-            messageId: 'unexpectedModulesOrder',
-            data: { right: 'A', left: 'B' },
-          },
-        ],
-        output: dedent`
-          enum A { a = 'a' }
-          import 'x'
-          enum B { b = 'b' }
-        `,
-        code: dedent`
-          enum B { b = 'b' }
-          import 'x'
-          enum A { a = 'a' }
-        `,
-        options: [options],
-      })
-    })
-
-    it('sorts across export-all declarations', async () => {
-      await invalid({
-        errors: [
-          {
-            messageId: 'unexpectedModulesOrder',
-            data: { right: 'A', left: 'B' },
-          },
-        ],
-        output: dedent`
-          enum A { a = 'a' }
-          export * from 'x'
-          enum B { b = 'b' }
-        `,
-        code: dedent`
-          enum B { b = 'b' }
-          export * from 'x'
-          enum A { a = 'a' }
-        `,
-        options: [options],
-      })
-    })
-
-    it('sorts across namespace export declarations', async () => {
-      await invalid({
-        errors: [
-          {
-            messageId: 'unexpectedModulesOrder',
-            data: { right: 'A', left: 'B' },
-          },
-        ],
-        output: dedent`
-          enum A { a = 'a' }
-          export as namespace Foo
-          enum B { b = 'b' }
-        `,
-        code: dedent`
-          enum B { b = 'b' }
-          export as namespace Foo
-          enum A { a = 'a' }
-        `,
-        options: [options],
-      })
-    })
-
-    it('accepts complex predefined group configurations', async () => {
-      await valid({
-        options: [
-          {
-            ...options,
-            groups: [
-              'export-declare-interface',
-              'export-default-interface',
-              'export-declare-function',
-              'export-default-async-function',
-              'export-decorated-class',
-              'export-default-decorated-class',
-              'export-declare-type',
-              'export-enum',
-              'export-declare-enum',
-              'unknown',
-            ],
-          },
-        ],
-        code: dedent`
-          export declare interface Interface {}
-
-          export default interface Interface2 {}
-
-          export declare function f2()
-
-          export default async function f1()
-
-          export @Decorator declare class Class1 {}
-
-          export @Decorator default class Class2 {}
-
-          export declare type Type = {}
-
-          export enum Enum1 {}
-
-          export declare enum Enum2 {}
-        `,
-      })
-    })
-
-    it('allows overriding options in groups', async () => {
-      await invalid({
-        options: [
-          {
-            groups: [
-              {
-                type: 'alphabetical',
-                newlinesInside: 1,
-                group: 'unknown',
-                order: 'desc',
-              },
-            ],
-            type: 'unsorted',
-          },
-        ],
-        errors: [
-          {
-            messageId: 'unexpectedModulesOrder',
-            data: { right: 'B', left: 'A' },
-          },
-          {
-            messageId: 'missedSpacingBetweenModulesMembers',
-            data: { right: 'B', left: 'A' },
-          },
-        ],
-        output: dedent`
-          interface B {}
-
-          interface A {}
-        `,
-        code: dedent`
-          interface A {}
-          interface B {}
-        `,
-      })
-    })
-
-    it('filters elements based on selector and modifiers', async () => {
-      await invalid({
-        options: [
-          {
-            customGroups: [
-              {
-                groupName: 'unusedCustomGroup',
-                modifiers: ['export'],
-                selector: 'type',
-              },
-              {
-                groupName: 'exportInterfaceGroup',
-                selector: 'interface',
-                modifiers: ['export'],
-              },
-              {
-                groupName: 'interfaceGroup',
-                selector: 'interface',
-              },
-            ],
-            groups: ['interfaceGroup', 'exportInterfaceGroup'],
-          },
-        ],
-        errors: [
-          {
-            data: {
-              leftGroup: 'exportInterfaceGroup',
-              rightGroup: 'interfaceGroup',
-              right: 'C',
-              left: 'B',
-            },
-            messageId: 'unexpectedModulesGroupOrder',
-          },
-        ],
-        output: dedent`
-          interface C {}
-          export interface A {}
-          export interface B {}
-        `,
-        code: dedent`
-          export interface A {}
-          export interface B {}
-          interface C {}
-        `,
-      })
-    })
-
-    it.each([
-      ['string pattern', 'hello'],
-      ['array with string pattern', ['noMatch', 'hello']],
-      ['case-insensitive regex object', { pattern: 'HELLO', flags: 'i' }],
-      [
-        'array with regex object',
-        ['noMatch', { pattern: 'HELLO', flags: 'i' }],
-      ],
-    ])(
-      'filters functions by element name pattern - %s',
-      async (_description, elementNamePattern) => {
-        await invalid({
-          options: [
-            {
-              customGroups: [
-                {
-                  groupName: 'functionsStartingWithHello',
-                  selector: 'function',
-                  elementNamePattern,
-                },
-              ],
-              groups: ['functionsStartingWithHello', 'unknown'],
-            },
-          ],
+    ruleTester.run(`${ruleName}(${type}): sorts modules`, rule, {
+      invalid: [
+        {
           errors: [
             {
               data: {
-                rightGroup: 'functionsStartingWithHello',
-                right: 'helloFunction',
-                leftGroup: 'unknown',
-                left: 'func',
+                leftGroup: 'export-interface',
+                left: 'FindUserInput',
+                right: 'CacheType',
+                rightGroup: 'enum',
+              },
+              messageId: 'unexpectedModulesGroupOrder',
+            },
+            {
+              data: {
+                rightGroup: 'export-function',
+                left: 'assertInputIsCorrect',
+                leftGroup: 'function',
+                right: 'findUser',
+              },
+              messageId: 'unexpectedModulesGroupOrder',
+            },
+            {
+              data: {
+                leftGroup: 'export-function',
+                right: 'FindAllUsersInput',
+                rightGroup: 'export-type',
+                left: 'findUser',
+              },
+              messageId: 'unexpectedModulesGroupOrder',
+            },
+            {
+              data: {
+                leftGroup: 'export-function',
+                left: 'findAllUsers',
+                rightGroup: 'class',
+                right: 'Cache',
               },
               messageId: 'unexpectedModulesGroupOrder',
             },
           ],
           output: dedent`
-            function helloFunction() {}
-            interface A {}
-            interface B {}
-            function func() {}
+            enum CacheType {
+              ALWAYS = 'ALWAYS',
+              NEVER = 'NEVER',
+            }
+
+            export type FindAllUsersInput = {
+              ids: string[]
+              cache: CacheType
+            }
+
+            export type FindAllUsersOutput = FindUserOutput[]
+
+            export interface FindUserInput {
+              id: string
+              cache: CacheType
+            }
+
+            export type FindUserOutput = {
+              id: string
+              name: string
+              age: number
+            }
+
+            class Cache {
+              // Some logic
+            }
+
+            export function findAllUsers(input: FindAllUsersInput): FindAllUsersOutput {
+              assertInputIsCorrect(input)
+              return _findUserByIds(input.ids)
+            }
+
+            export function findUser(input: FindUserInput): FindUserOutput {
+              assertInputIsCorrect(input)
+              return _findUserByIds([input.id])[0]
+            }
+
+            function assertInputIsCorrect(input: FindUserInput | FindAllUsersInput): void {
+              // Some logic
+            }
           `,
           code: dedent`
-            interface A {}
-            interface B {}
-            function func() {}
-            function helloFunction() {}
-          `,
-        })
-      },
-    )
+            export interface FindUserInput {
+              id: string
+              cache: CacheType
+            }
 
-    describe('decoratorNamePattern', () => {
-      it.each([
-        ['string pattern', 'Hello'],
-        ['array with string pattern', ['noMatch', 'Hello']],
-        ['case-insensitive regex object', { pattern: 'HELLO', flags: 'i' }],
-        [
-          'array with regex object',
-          ['noMatch', { pattern: 'HELLO', flags: 'i' }],
-        ],
-      ])(
-        'filters classes by decorator name pattern - %s',
-        async (_description, decoratorNamePattern) => {
-          await invalid({
+            enum CacheType {
+              ALWAYS = 'ALWAYS',
+              NEVER = 'NEVER',
+            }
+
+            export type FindUserOutput = {
+              id: string
+              name: string
+              age: number
+            }
+
+            function assertInputIsCorrect(input: FindUserInput | FindAllUsersInput): void {
+              // Some logic
+            }
+
+            export function findUser(input: FindUserInput): FindUserOutput {
+              assertInputIsCorrect(input)
+              return _findUserByIds([input.id])[0]
+            }
+
+            export type FindAllUsersInput = {
+              ids: string[]
+              cache: CacheType
+            }
+
+            export type FindAllUsersOutput = FindUserOutput[]
+
+            export function findAllUsers(input: FindAllUsersInput): FindAllUsersOutput {
+              assertInputIsCorrect(input)
+              return _findUserByIds(input.ids)
+            }
+
+            class Cache {
+              // Some logic
+            }
+          `,
+          options: [options],
+        },
+      ],
+      valid: [],
+    })
+
+    ruleTester.run(
+      `${ruleName}(${type}): sorts modules withing modules and namespaces`,
+      rule,
+      {
+        invalid: [
+          {
             errors: [
               {
                 data: {
-                  rightGroup: 'classesWithDecoratorStartingWithHello',
+                  right: 'A',
+                  left: 'B',
+                },
+                messageId: 'unexpectedModulesOrder',
+              },
+              {
+                data: {
+                  right: 'A',
+                  left: 'B',
+                },
+                messageId: 'unexpectedModulesOrder',
+              },
+            ],
+            output: dedent`
+              module ModuleB {
+                interface A {}
+                interface B {}
+              }
+              module ModuleA {
+                interface A {}
+                interface B {}
+              }
+            `,
+            code: dedent`
+              module ModuleB {
+                interface B {}
+                interface A {}
+              }
+              module ModuleA {
+                interface B {}
+                interface A {}
+              }
+            `,
+            options: [options],
+          },
+          {
+            errors: [
+              {
+                data: {
+                  right: 'A',
+                  left: 'B',
+                },
+                messageId: 'unexpectedModulesOrder',
+              },
+              {
+                data: {
+                  right: 'A',
+                  left: 'B',
+                },
+                messageId: 'unexpectedModulesOrder',
+              },
+            ],
+            output: dedent`
+              namespace NamespaceB {
+                interface A {}
+                interface B {}
+              }
+              namespace NamespaceA {
+                interface A {}
+                interface B {}
+              }
+            `,
+            code: dedent`
+              namespace NamespaceB {
+                interface B {}
+                interface A {}
+              }
+              namespace NamespaceA {
+                interface B {}
+                interface A {}
+              }
+            `,
+            options: [options],
+          },
+        ],
+        valid: [],
+      },
+    )
+
+    ruleTester.run(
+      `${ruleName}(${type}): partitions when encountering a variable declaration`,
+      rule,
+      {
+        valid: [
+          {
+            code: dedent`
+              interface B {}
+              let a;
+              interface A {}
+            `,
+            options: [options],
+          },
+        ],
+        invalid: [],
+      },
+    )
+
+    ruleTester.run(
+      `${ruleName}(${type}): partitions when encountering expressions`,
+      rule,
+      {
+        valid: [
+          {
+            code: dedent`
+              interface B {}
+              iAmCallingAFunction();
+              interface A {}
+            `,
+            options: [options],
+          },
+        ],
+        invalid: [],
+      },
+    )
+
+    ruleTester.run(
+      `${ruleName}(${type}): sorts complex predefined groups`,
+      rule,
+      {
+        valid: [
+          {
+            options: [
+              {
+                ...options,
+                groups: [
+                  'export-declare-interface',
+                  'export-default-interface',
+                  'export-declare-function',
+                  'export-default-async-function',
+                  'export-decorated-class',
+                  'export-default-decorated-class',
+                  'export-declare-type',
+                  'export-enum',
+                  'export-declare-enum',
+                  'unknown',
+                ],
+              },
+            ],
+            code: dedent`
+              export declare interface Interface {}
+
+              export default interface Interface2 {}
+
+              export declare function f2()
+
+              export default async function f1()
+
+              export @Decorator declare class Class1 {}
+
+              export @Decorator default class Class2 {}
+
+              export declare type Type = {}
+
+              export enum Enum1 {}
+
+              export declare enum Enum2 {}
+            `,
+          },
+        ],
+        invalid: [],
+      },
+    )
+
+    describe(`${ruleName}: custom groups`, () => {
+      ruleTester.run(`${ruleName}: filters on selector and modifiers`, rule, {
+        invalid: [
+          {
+            options: [
+              {
+                customGroups: [
+                  {
+                    groupName: 'unusedCustomGroup',
+                    modifiers: ['export'],
+                    selector: 'type',
+                  },
+                  {
+                    groupName: 'exportInterfaceGroup',
+                    selector: 'interface',
+                    modifiers: ['export'],
+                  },
+                  {
+                    groupName: 'interfaceGroup',
+                    selector: 'interface',
+                  },
+                ],
+                groups: ['interfaceGroup', 'exportInterfaceGroup'],
+              },
+            ],
+            errors: [
+              {
+                data: {
+                  leftGroup: 'exportInterfaceGroup',
+                  rightGroup: 'interfaceGroup',
+                  right: 'C',
+                  left: 'B',
+                },
+                messageId: 'unexpectedModulesGroupOrder',
+              },
+            ],
+            output: dedent`
+              interface C {}
+              export interface A {}
+              export interface B {}
+            `,
+            code: dedent`
+              export interface A {}
+              export interface B {}
+              interface C {}
+            `,
+          },
+        ],
+        valid: [],
+      })
+
+      for (let elementNamePattern of [
+        'hello',
+        ['noMatch', 'hello'],
+        { pattern: 'HELLO', flags: 'i' },
+        ['noMatch', { pattern: 'HELLO', flags: 'i' }],
+      ]) {
+        ruleTester.run(`${ruleName}: filters on elementNamePattern`, rule, {
+          invalid: [
+            {
+              options: [
+                {
+                  customGroups: [
+                    {
+                      groupName: 'functionsStartingWithHello',
+                      selector: 'function',
+                      elementNamePattern,
+                    },
+                  ],
+                  groups: ['functionsStartingWithHello', 'unknown'],
+                },
+              ],
+              errors: [
+                {
+                  data: {
+                    rightGroup: 'functionsStartingWithHello',
+                    right: 'helloFunction',
+                    leftGroup: 'unknown',
+                    left: 'func',
+                  },
+                  messageId: 'unexpectedModulesGroupOrder',
+                },
+              ],
+              output: dedent`
+                function helloFunction() {}
+                interface A {}
+                interface B {}
+                function func() {}
+              `,
+              code: dedent`
+                interface A {}
+                interface B {}
+                function func() {}
+                function helloFunction() {}
+              `,
+            },
+          ],
+          valid: [],
+        })
+      }
+
+      for (let decoratorNamePattern of [
+        'Hello',
+        ['noMatch', 'Hello'],
+        { pattern: 'HELLO', flags: 'i' },
+        ['noMatch', { pattern: 'HELLO', flags: 'i' }],
+      ]) {
+        ruleTester.run(`${ruleName}: filters on decoratorNamePattern`, rule, {
+          invalid: [
+            {
+              errors: [
+                {
+                  data: {
+                    rightGroup: 'classesWithDecoratorStartingWithHello',
+                    leftGroup: 'unknown',
+                    left: 'func',
+                    right: 'C',
+                  },
+                  messageId: 'unexpectedModulesGroupOrder',
+                },
+                {
+                  data: {
+                    right: 'AnotherClass',
+                    left: 'C',
+                  },
+                  messageId: 'unexpectedModulesOrder',
+                },
+              ],
+              options: [
+                {
+                  customGroups: [
+                    {
+                      groupName: 'classesWithDecoratorStartingWithHello',
+                      decoratorNamePattern,
+                      selector: 'class',
+                    },
+                  ],
+                  groups: ['classesWithDecoratorStartingWithHello', 'unknown'],
+                },
+              ],
+              output: dedent`
+                @HelloDecorator()
+                class AnotherClass {}
+
+                @HelloDecorator
+                class C {}
+
+                @Decorator
+                class A {}
+
+                class B {}
+
+                function func() {}
+              `,
+              code: dedent`
+                @Decorator
+                class A {}
+
+                class B {}
+
+                function func() {}
+
+                @HelloDecorator
+                class C {}
+
+                @HelloDecorator()
+                class AnotherClass {}
+              `,
+            },
+          ],
+          valid: [],
+        })
+      }
+
+      ruleTester.run(
+        `${ruleName}: filters on complex decoratorNamePattern`,
+        rule,
+        {
+          invalid: [
+            {
+              options: [
+                {
+                  customGroups: [
+                    {
+                      decoratorNamePattern: 'B',
+                      groupName: 'B',
+                    },
+                    {
+                      decoratorNamePattern: 'A',
+                      groupName: 'A',
+                    },
+                  ],
+                  type: 'alphabetical',
+                  groups: ['B', 'A'],
+                  order: 'asc',
+                },
+              ],
+              errors: [
+                {
+                  data: {
+                    rightGroup: 'B',
+                    leftGroup: 'A',
+                    right: 'B',
+                    left: 'A',
+                  },
+                  messageId: 'unexpectedModulesGroupOrder',
+                },
+              ],
+              output: dedent`
+                @B.B()
+                class B {}
+
+                @A.A.A(() => A)
+                class A {}
+              `,
+              code: dedent`
+                @A.A.A(() => A)
+                class A {}
+
+                @B.B()
+                class B {}
+              `,
+            },
+          ],
+          valid: [],
+        },
+      )
+
+      ruleTester.run(
+        `${ruleName}: sort custom groups by overriding 'type' and 'order'`,
+        rule,
+        {
+          invalid: [
+            {
+              errors: [
+                {
+                  data: {
+                    rightGroup: 'reversedFunctionsByLineLength',
+                    leftGroup: 'unknown',
+                    right: 'aFunction',
+                    left: 'DDDD',
+                  },
+                  messageId: 'unexpectedModulesGroupOrder',
+                },
+                {
+                  data: {
+                    rightGroup: 'reversedFunctionsByLineLength',
+                    right: 'anotherFunction',
+                    leftGroup: 'unknown',
+                    left: 'G',
+                  },
+                  messageId: 'unexpectedModulesGroupOrder',
+                },
+                {
+                  data: {
+                    right: 'yetAnotherFunction',
+                    left: 'anotherFunction',
+                  },
+                  messageId: 'unexpectedModulesOrder',
+                },
+              ],
+              options: [
+                {
+                  customGroups: [
+                    {
+                      groupName: 'reversedFunctionsByLineLength',
+                      selector: 'function',
+                      type: 'line-length',
+                      order: 'desc',
+                    },
+                  ],
+                  groups: ['reversedFunctionsByLineLength', 'unknown'],
+                  type: 'alphabetical',
+                  order: 'asc',
+                },
+              ],
+              output: dedent`
+                function yetAnotherFunction() {}
+
+                function anotherFunction() {}
+
+                function aFunction() {}
+
+                interface A {}
+
+                interface BB {}
+
+                interface CCC {}
+
+                interface DDDD {}
+
+                interface EEE {}
+
+                interface FF {}
+
+                interface G {}
+              `,
+              code: dedent`
+                interface A {}
+
+                interface BB {}
+
+                interface CCC {}
+
+                interface DDDD {}
+
+                function aFunction() {}
+
+                interface EEE {}
+
+                interface FF {}
+
+                interface G {}
+
+                function anotherFunction() {}
+
+                function yetAnotherFunction() {}
+              `,
+            },
+          ],
+          valid: [],
+        },
+      )
+
+      ruleTester.run(
+        `${ruleName}: does not sort custom groups with 'unsorted' type`,
+        rule,
+        {
+          invalid: [
+            {
+              options: [
+                {
+                  customGroups: [
+                    {
+                      groupName: 'unsortedFunctions',
+                      selector: 'function',
+                      type: 'unsorted',
+                    },
+                  ],
+                  groups: ['unsortedFunctions', 'unknown'],
+                },
+              ],
+              errors: [
+                {
+                  data: {
+                    rightGroup: 'unsortedFunctions',
+                    leftGroup: 'unknown',
+                    left: 'Interface',
+                    right: 'c',
+                  },
+                  messageId: 'unexpectedModulesGroupOrder',
+                },
+              ],
+              output: dedent`
+                function b() {}
+
+                function a() {}
+
+                function d() {}
+
+                function e() {}
+
+                function c() {}
+
+                interface Interface {}
+              `,
+              code: dedent`
+                function b() {}
+
+                function a() {}
+
+                function d() {}
+
+                function e() {}
+
+                interface Interface {}
+
+                function c() {}
+              `,
+            },
+          ],
+          valid: [],
+        },
+      )
+
+      ruleTester.run(`${ruleName}: sort custom group blocks`, rule, {
+        invalid: [
+          {
+            errors: [
+              {
+                data: {
                   leftGroup: 'unknown',
+                  rightGroup: 'class',
                   left: 'func',
                   right: 'C',
                 },
                 messageId: 'unexpectedModulesGroupOrder',
               },
               {
-                data: { right: 'AnotherClass', left: 'C' },
+                data: {
+                  right: 'aFunction',
+                  left: 'C',
+                },
+                messageId: 'unexpectedModulesOrder',
+              },
+              {
+                data: {
+                  right: 'anotherFunction',
+                  left: 'D',
+                },
                 messageId: 'unexpectedModulesOrder',
               },
             ],
@@ -805,1169 +750,919 @@ describe('sort-modules', () => {
               {
                 customGroups: [
                   {
-                    groupName: 'classesWithDecoratorStartingWithHello',
-                    decoratorNamePattern,
-                    selector: 'class',
+                    anyOf: [
+                      {
+                        selector: 'interface',
+                        modifiers: ['export'],
+                      },
+                      {
+                        selector: 'function',
+                        modifiers: ['async'],
+                      },
+                    ],
+                    groupName: 'exportInterfacesAndAsyncFunctions',
                   },
                 ],
-                groups: ['classesWithDecoratorStartingWithHello', 'unknown'],
+                groups: [
+                  ['exportInterfacesAndAsyncFunctions', 'class'],
+                  'unknown',
+                ],
               },
             ],
             output: dedent`
-              @HelloDecorator()
-              class AnotherClass {}
+              export interface A {}
 
-              @HelloDecorator
+              async function aFunction() {}
+
+              async function anotherFunction() {}
+
+              class b {}
+
               class C {}
 
-              @Decorator
-              class A {}
+              export interface D {}
 
-              class B {}
+              class E {}
 
               function func() {}
             `,
             code: dedent`
-              @Decorator
-              class A {}
+              export interface A {}
 
-              class B {}
+              class b {}
+
+              class E {}
 
               function func() {}
 
-              @HelloDecorator
               class C {}
 
-              @HelloDecorator()
-              class AnotherClass {}
+              async function aFunction() {}
+
+              export interface D {}
+
+              async function anotherFunction() {}
             `,
-          })
+          },
+        ],
+        valid: [],
+      })
+
+      ruleTester.run(
+        `${ruleName}: allows to use regex for element names in custom groups`,
+        rule,
+        {
+          valid: [
+            {
+              options: [
+                {
+                  customGroups: [
+                    {
+                      elementNamePattern: '^(?!.*Foo).*$',
+                      groupName: 'elementsWithoutFoo',
+                    },
+                  ],
+                  groups: ['unknown', 'elementsWithoutFoo'],
+                  type: 'alphabetical',
+                },
+              ],
+              code: dedent`
+                function iHaveFooInMyName() {}
+                function meTooIHaveFoo() {}
+                function a() {}
+                function b() {}
+              `,
+            },
+          ],
+          invalid: [],
         },
       )
 
-      it('filters elements using complex decorator name patterns', async () => {
-        await invalid({
-          options: [
+      ruleTester.run(
+        `${ruleName}: allows to use regex for decorator names in custom groups`,
+        rule,
+        {
+          valid: [
             {
-              customGroups: [
+              options: [
                 {
-                  decoratorNamePattern: 'B',
-                  groupName: 'B',
-                },
-                {
-                  decoratorNamePattern: 'A',
-                  groupName: 'A',
-                },
-              ],
-              type: 'alphabetical',
-              groups: ['B', 'A'],
-              order: 'asc',
-            },
-          ],
-          errors: [
-            {
-              data: {
-                rightGroup: 'B',
-                leftGroup: 'A',
-                right: 'B',
-                left: 'A',
-              },
-              messageId: 'unexpectedModulesGroupOrder',
-            },
-          ],
-          output: dedent`
-            @B.B()
-            class B {}
-
-            @A.A.A(() => A)
-            class A {}
-          `,
-          code: dedent`
-            @A.A.A(() => A)
-            class A {}
-
-            @B.B()
-            class B {}
-          `,
-        })
-      })
-
-      it('matches an exported decorated class by decoratorNamePattern', async () => {
-        await invalid({
-          options: [
-            {
-              ...options,
-              customGroups: [
-                {
-                  groupName: 'classesWithHelloDecorator',
-                  decoratorNamePattern: 'Hello',
-                  selector: 'class',
-                },
-              ],
-              groups: ['classesWithHelloDecorator', 'unknown'],
-            },
-          ],
-          errors: [
-            {
-              data: {
-                rightGroup: 'classesWithHelloDecorator',
-                leftGroup: 'unknown',
-                left: 'func',
-                right: 'C',
-              },
-              messageId: 'unexpectedModulesGroupOrder',
-            },
-          ],
-          output: dedent`
-            @HelloDecorator
-            export class C {}
-
-            function func() {}
-          `,
-          code: dedent`
-            function func() {}
-
-            @HelloDecorator
-            export class C {}
-          `,
-        })
-      })
-    })
-
-    it('overrides sort type and order for custom groups', async () => {
-      await invalid({
-        errors: [
-          {
-            data: {
-              rightGroup: 'reversedFunctionsByLineLength',
-              leftGroup: 'unknown',
-              right: 'aFunction',
-              left: 'DDDD',
-            },
-            messageId: 'unexpectedModulesGroupOrder',
-          },
-          {
-            data: {
-              rightGroup: 'reversedFunctionsByLineLength',
-              right: 'anotherFunction',
-              leftGroup: 'unknown',
-              left: 'G',
-            },
-            messageId: 'unexpectedModulesGroupOrder',
-          },
-          {
-            data: { right: 'yetAnotherFunction', left: 'anotherFunction' },
-            messageId: 'unexpectedModulesOrder',
-          },
-        ],
-        options: [
-          {
-            customGroups: [
-              {
-                groupName: 'reversedFunctionsByLineLength',
-                selector: 'function',
-                type: 'line-length',
-                order: 'desc',
-              },
-            ],
-            groups: ['reversedFunctionsByLineLength', 'unknown'],
-            type: 'alphabetical',
-            order: 'asc',
-          },
-        ],
-        output: dedent`
-          function yetAnotherFunction() {}
-
-          function anotherFunction() {}
-
-          function aFunction() {}
-
-          interface A {}
-
-          interface BB {}
-
-          interface CCC {}
-
-          interface DDDD {}
-
-          interface EEE {}
-
-          interface FF {}
-
-          interface G {}
-        `,
-        code: dedent`
-          interface A {}
-
-          interface BB {}
-
-          interface CCC {}
-
-          interface DDDD {}
-
-          function aFunction() {}
-
-          interface EEE {}
-
-          interface FF {}
-
-          interface G {}
-
-          function anotherFunction() {}
-
-          function yetAnotherFunction() {}
-        `,
-      })
-    })
-
-    it('applies fallback sort when primary sort results in ties', async () => {
-      await invalid({
-        options: [
-          {
-            customGroups: [
-              {
-                fallbackSort: {
+                  customGroups: [
+                    {
+                      decoratorNamePattern: '^.*Foo.*$',
+                      groupName: 'decoratorsWithFoo',
+                    },
+                  ],
+                  groups: ['decoratorsWithFoo', 'unknown'],
                   type: 'alphabetical',
-                  order: 'asc',
                 },
-                elementNamePattern: '^foo',
-                type: 'line-length',
-                groupName: 'foo',
-                order: 'desc',
-              },
-            ],
-            type: 'alphabetical',
-            groups: ['foo'],
-            order: 'asc',
-          },
-        ],
-        errors: [
-          {
-            data: { right: 'fooBar', left: 'fooZar' },
-            messageId: 'unexpectedModulesOrder',
-          },
-        ],
-        output: dedent`
-          function fooBar() {}
-          function fooZar() {}
-        `,
-        code: dedent`
-          function fooZar() {}
-          function fooBar() {}
-        `,
-      })
-    })
-
-    it('preserves original order for unsorted custom groups', async () => {
-      await invalid({
-        options: [
-          {
-            customGroups: [
-              {
-                groupName: 'unsortedFunctions',
-                selector: 'function',
-                type: 'unsorted',
-              },
-            ],
-            groups: ['unsortedFunctions', 'unknown'],
-          },
-        ],
-        errors: [
-          {
-            data: {
-              rightGroup: 'unsortedFunctions',
-              leftGroup: 'unknown',
-              left: 'Interface',
-              right: 'c',
+              ],
+              code: dedent`
+                @IHaveFooInMyName
+                class X {}
+                @MeTooIHaveFoo
+                class Y {}
+                class A {}
+                class B {}
+              `,
             },
-            messageId: 'unexpectedModulesGroupOrder',
-          },
-        ],
-        output: dedent`
-          function b() {}
+          ],
+          invalid: [],
+        },
+      )
 
-          function a() {}
-
-          function d() {}
-
-          function e() {}
-
-          function c() {}
-
-          interface Interface {}
-        `,
-        code: dedent`
-          function b() {}
-
-          function a() {}
-
-          function d() {}
-
-          function e() {}
-
-          interface Interface {}
-
-          function c() {}
-        `,
-      })
-    })
-
-    it('sorts elements within custom group blocks', async () => {
-      await invalid({
-        options: [
+      describe('newlinesInside', () => {
+        ruleTester.run(
+          `${ruleName}: allows to use newlinesInside: always`,
+          rule,
           {
-            customGroups: [
+            invalid: [
               {
-                anyOf: [
+                options: [
                   {
-                    selector: 'interface',
-                    modifiers: ['export'],
-                  },
-                  {
-                    selector: 'function',
-                    modifiers: ['async'],
+                    customGroups: [
+                      {
+                        newlinesInside: 'always',
+                        groupName: 'group1',
+                        selector: 'type',
+                      },
+                    ],
+                    groups: ['group1'],
                   },
                 ],
-                groupName: 'exportInterfacesAndAsyncFunctions',
+                errors: [
+                  {
+                    data: {
+                      right: 'B',
+                      left: 'A',
+                    },
+                    messageId: 'missedSpacingBetweenModulesMembers',
+                  },
+                ],
+                output: dedent`
+                  type A = {}
+
+                  type B = {}
+                `,
+                code: dedent`
+                  type A = {}
+                  type B = {}
+                `,
               },
             ],
-            groups: [['exportInterfacesAndAsyncFunctions', 'class'], 'unknown'],
+            valid: [],
           },
-        ],
-        errors: [
+        )
+
+        ruleTester.run(
+          `${ruleName}: allows to use newlinesInside: never`,
+          rule,
           {
-            data: {
-              leftGroup: 'unknown',
-              rightGroup: 'class',
-              left: 'func',
-              right: 'C',
-            },
-            messageId: 'unexpectedModulesGroupOrder',
-          },
-          {
-            data: { right: 'aFunction', left: 'C' },
-            messageId: 'unexpectedModulesOrder',
-          },
-          {
-            data: { right: 'anotherFunction', left: 'D' },
-            messageId: 'unexpectedModulesOrder',
-          },
-        ],
-        output: dedent`
-          export interface A {}
-
-          async function aFunction() {}
-
-          async function anotherFunction() {}
-
-          class b {}
-
-          class C {}
-
-          export interface D {}
-
-          class E {}
-
-          function func() {}
-        `,
-        code: dedent`
-          export interface A {}
-
-          class b {}
-
-          class E {}
-
-          function func() {}
-
-          class C {}
-
-          async function aFunction() {}
-
-          export interface D {}
-
-          async function anotherFunction() {}
-        `,
-      })
-    })
-
-    it('supports negative regex patterns for element names in custom groups', async () => {
-      await valid({
-        options: [
-          {
-            customGroups: [
+            invalid: [
               {
-                elementNamePattern: '^(?!.*Foo).*$',
-                groupName: 'elementsWithoutFoo',
+                options: [
+                  {
+                    customGroups: [
+                      {
+                        newlinesInside: 'never',
+                        groupName: 'group1',
+                        selector: 'type',
+                      },
+                    ],
+                    type: 'alphabetical',
+                    groups: ['group1'],
+                  },
+                ],
+                errors: [
+                  {
+                    data: {
+                      right: 'B',
+                      left: 'A',
+                    },
+                    messageId: 'extraSpacingBetweenModulesMembers',
+                  },
+                ],
+                output: dedent`
+                  type A = {}
+                  type B = {}
+                `,
+                code: dedent`
+                  type A = {}
+
+                  type B = {}
+                `,
               },
             ],
-            groups: ['unknown', 'elementsWithoutFoo'],
-            type: 'alphabetical',
+            valid: [],
           },
-        ],
-        code: dedent`
-          function iHaveFooInMyName() {}
-          function meTooIHaveFoo() {}
-          function a() {}
-          function b() {}
-        `,
+        )
       })
     })
 
-    it('supports regex patterns for decorator names in custom groups', async () => {
-      await valid({
-        options: [
-          {
-            customGroups: [
-              {
-                decoratorNamePattern: '^.*Foo.*$',
-                groupName: 'decoratorsWithFoo',
-              },
-            ],
-            groups: ['decoratorsWithFoo', 'unknown'],
-            type: 'alphabetical',
-          },
-        ],
-        code: dedent`
-          @IHaveFooInMyName
-          class X {}
-          @MeTooIHaveFoo
-          class Y {}
-          class A {}
-          class B {}
-        `,
-      })
-    })
-
-    it('enforces newlines between group members when newlinesInside is 1', async () => {
-      await invalid({
-        options: [
-          {
-            customGroups: [
-              {
-                groupName: 'group1',
-                newlinesInside: 1,
-                selector: 'type',
-              },
-            ],
-            groups: ['group1'],
-          },
-        ],
-        errors: [
-          {
-            messageId: 'missedSpacingBetweenModulesMembers',
-            data: { right: 'B', left: 'A' },
-          },
-        ],
-        output: dedent`
-          type A = {}
-
-          type B = {}
-        `,
-        code: dedent`
-          type A = {}
-          type B = {}
-        `,
-      })
-    })
-
-    it('removes newlines between group members when newlinesInside is 0', async () => {
-      await invalid({
-        options: [
-          {
-            customGroups: [
-              {
-                groupName: 'group1',
-                newlinesInside: 0,
-                selector: 'type',
-              },
-            ],
-            type: 'alphabetical',
-            groups: ['group1'],
-          },
-        ],
-        errors: [
-          {
-            messageId: 'extraSpacingBetweenModulesMembers',
-            data: { right: 'B', left: 'A' },
-          },
-        ],
-        output: dedent`
-          type A = {}
-          type B = {}
-        `,
-        code: dedent`
-          type A = {}
-
-          type B = {}
-        `,
-      })
-    })
-
-    describe('newlinesBetweenOverloadSignatures', () => {
-      it('removes newlines between when newlinesBetweenOverloadSignatures is 0', async () => {
-        await invalid({
-          errors: [
+    describe(`${ruleName}(${type}): interface modifiers priority`, () => {
+      ruleTester.run(
+        `${ruleName}(${type}): prioritize declare over export`,
+        rule,
+        {
+          invalid: [
             {
-              messageId: 'extraSpacingBetweenModulesMembers',
-              data: { right: 'a', left: 'a' },
-            },
-            {
-              messageId: 'extraSpacingBetweenModulesMembers',
-              data: { right: 'a', left: 'a' },
+              errors: [
+                {
+                  data: {
+                    rightGroup: 'declare-interface',
+                    leftGroup: 'function',
+                    right: 'Interface',
+                    left: 'f',
+                  },
+                  messageId: 'unexpectedModulesGroupOrder',
+                },
+              ],
+              options: [
+                {
+                  ...options,
+                  groups: ['declare-interface', 'function', 'export-interface'],
+                },
+              ],
+              output: dedent`
+                export declare interface Interface {}
+
+                function f() {}
+              `,
+              code: dedent`
+                function f() {}
+
+                export declare interface Interface {}
+              `,
             },
           ],
-          output: dedent`
-            function a(arg: string): void
-            function a(arg: number): void
-            export function a(arg: string | number): void {}
-          `,
-          code: dedent`
-            function a(arg: string): void
+          valid: [],
+        },
+      )
 
-            function a(arg: number): void
-
-            export function a(arg: string | number): void {}
-          `,
-          options: [
+      ruleTester.run(
+        `${ruleName}(${type}): prioritize default over export`,
+        rule,
+        {
+          invalid: [
             {
-              ...options,
-              newlinesBetweenOverloadSignatures: 0,
-              newlinesBetween: 1,
+              errors: [
+                {
+                  data: {
+                    rightGroup: 'default-interface',
+                    leftGroup: 'function',
+                    right: 'Interface',
+                    left: 'f',
+                  },
+                  messageId: 'unexpectedModulesGroupOrder',
+                },
+              ],
+              options: [
+                {
+                  ...options,
+                  groups: ['default-interface', 'function', 'export-interface'],
+                },
+              ],
+              output: dedent`
+                export default interface Interface {}
+
+                function f() {}
+              `,
+              code: dedent`
+                function f() {}
+
+                export default interface Interface {}
+              `,
             },
           ],
-        })
-      })
+          valid: [],
+        },
+      )
+    })
 
-      it('ignores newlines between when newlinesBetweenOverloadSignatures is "ignore"', async () => {
-        await valid({
-          code: dedent`
-            function a(arg: string): void
-
-
-            function a(arg: number): void
-
-            export function a(arg: string | number): void {}
-          `,
-          options: [
+    describe(`${ruleName}(${type}): type modifiers priority`, () => {
+      ruleTester.run(
+        `${ruleName}(${type}): prioritize declare over export`,
+        rule,
+        {
+          invalid: [
             {
-              ...options,
-              newlinesBetweenOverloadSignatures: 'ignore',
-              newlinesBetween: 1,
+              errors: [
+                {
+                  data: {
+                    rightGroup: 'declare-type',
+                    leftGroup: 'function',
+                    right: 'Type',
+                    left: 'f',
+                  },
+                  messageId: 'unexpectedModulesGroupOrder',
+                },
+              ],
+              options: [
+                {
+                  ...options,
+                  groups: ['declare-type', 'function', 'export-type'],
+                },
+              ],
+              output: dedent`
+                export declare type Type = {}
+
+                function f() {}
+              `,
+              code: dedent`
+                function f() {}
+
+                export declare type Type = {}
+              `,
             },
           ],
-        })
-      })
+          valid: [],
+        },
+      )
+    })
 
-      it('enforces newlines between when newlinesBetweenOverloadSignatures is > 0', async () => {
-        await invalid({
-          errors: [
+    describe(`${ruleName}(${type}): class modifiers priority`, () => {
+      ruleTester.run(
+        `${ruleName}(${type}): prioritize declare over export`,
+        rule,
+        {
+          invalid: [
             {
-              messageId: 'missedSpacingBetweenModulesMembers',
-              data: { right: 'a', left: 'a' },
-            },
-            {
-              messageId: 'missedSpacingBetweenModulesMembers',
-              data: { right: 'a', left: 'a' },
+              errors: [
+                {
+                  data: {
+                    rightGroup: 'declare-class',
+                    leftGroup: 'function',
+                    right: 'Class',
+                    left: 'f',
+                  },
+                  messageId: 'unexpectedModulesGroupOrder',
+                },
+              ],
+              options: [
+                {
+                  ...options,
+                  groups: ['declare-class', 'function', 'export-class'],
+                },
+              ],
+              output: dedent`
+                export declare class Class {}
+
+                function f() {}
+              `,
+              code: dedent`
+                function f() {}
+
+                export declare class Class {}
+              `,
             },
           ],
-          output: dedent`
-            function a(arg: string): void
+          valid: [],
+        },
+      )
 
-
-            function a(arg: number): void
-
-
-            export function a(arg: string | number): void {}
-          `,
-          code: dedent`
-            function a(arg: string): void
-            function a(arg: number): void
-
-            export function a(arg: string | number): void {}
-          `,
-          options: [
+      /* Currently not handled correctly
+      ruleTester.run(
+        `${ruleName}(${type}): prioritize default over decorated`,
+        rule,
+        {
+          invalid: [
             {
-              ...options,
-              newlinesBetweenOverloadSignatures: 2,
-              newlinesBetween: 1,
+              errors: [
+                {
+                  data: {
+                    rightGroup: 'default-class',
+                    leftGroup: 'function',
+                    right: 'Class',
+                    left: 'f',
+                  },
+                  messageId: 'unexpectedModulesGroupOrder',
+                },
+              ],
+              options: [
+                {
+                  ...options,
+                  groups: ['default-class', 'function', 'decorated-class'],
+                },
+              ],
+              output: dedent`
+                export default @Decorator class Class {}
+
+                function f() {}
+              `,
+              code: dedent`
+                function f() {}
+
+                export default @Decorator class Class {}
+              `,
             },
           ],
-        })
-      })
-    })
+          valid: [],
+        },
+      )
 
-    it.each([1, 'ignore', 0])(
-      'enforces 0 newline between overload signatures by default when newlinesBetween is %s',
-      async newlinesBetween => {
-        await invalid({
-          errors: [
+      ruleTester.run(
+        `${ruleName}(${type}): prioritize decorated over export`,
+        rule,
+        {
+          invalid: [
             {
-              messageId: 'extraSpacingBetweenModulesMembers',
-              data: { right: 'a', left: 'a' },
-            },
-            {
-              messageId: 'extraSpacingBetweenModulesMembers',
-              data: { right: 'a', left: 'a' },
+              errors: [
+                {
+                  data: {
+                    rightGroup: 'decorated-class',
+                    leftGroup: 'function',
+                    right: 'Class',
+                    left: 'f',
+                  },
+                  messageId: 'unexpectedModulesGroupOrder',
+                },
+              ],
+              options: [
+                {
+                  ...options,
+                  groups: ['decorated-class', 'function', 'export-class'],
+                },
+              ],
+              output: dedent`
+                export @Decorator class Class {}
+
+                function f() {}
+              `,
+              code: dedent`
+                function f() {}
+
+                export @Decorator class Class {}
+              `,
             },
           ],
-          output: dedent`
-            function a(arg: string): void
-            function a(arg: number): void
-            export function a(arg: string | number): void {}
-          `,
-          code: dedent`
-            function a(arg: string): void
+          valid: [],
+        },
+      )
+      */
+    })
 
-            function a(arg: number): void
-
-            export function a(arg: string | number): void {}
-          `,
-          options: [
+    describe(`${ruleName}(${type}): function modifiers priority`, () => {
+      ruleTester.run(
+        `${ruleName}(${type}): prioritize declare over export`,
+        rule,
+        {
+          invalid: [
             {
-              ...options,
-              newlinesBetween,
+              errors: [
+                {
+                  data: {
+                    rightGroup: 'declare-function',
+                    leftGroup: 'interface',
+                    left: 'Interface',
+                    right: 'f',
+                  },
+                  messageId: 'unexpectedModulesGroupOrder',
+                },
+              ],
+              options: [
+                {
+                  ...options,
+                  groups: ['declare-function', 'interface', 'export-function'],
+                },
+              ],
+              output: dedent`
+                export declare function f()
+
+                interface Interface {}
+              `,
+              code: dedent`
+                interface Interface {}
+
+                export declare function f()
+              `,
             },
           ],
-        })
-      },
-    )
+          valid: [],
+        },
+      )
 
-    it('prioritizes declare modifier over export modifier', async () => {
-      await invalid({
-        errors: [
-          {
-            data: {
-              rightGroup: 'declare-interface',
-              leftGroup: 'function',
-              right: 'Interface',
-              left: 'f',
+      ruleTester.run(
+        `${ruleName}(${type}): prioritize default over async`,
+        rule,
+        {
+          invalid: [
+            {
+              errors: [
+                {
+                  data: {
+                    rightGroup: 'default-function',
+                    leftGroup: 'interface',
+                    left: 'Interface',
+                    right: 'f',
+                  },
+                  messageId: 'unexpectedModulesGroupOrder',
+                },
+              ],
+              options: [
+                {
+                  ...options,
+                  groups: ['default-function', 'interface', 'async-function'],
+                },
+              ],
+              output: dedent`
+                export default async function f() {}
+
+                interface Interface {}
+              `,
+              code: dedent`
+                interface Interface {}
+
+                export default async function f() {}
+              `,
             },
-            messageId: 'unexpectedModulesGroupOrder',
-          },
-        ],
-        options: [
-          {
-            ...options,
-            groups: ['declare-interface', 'function', 'export-interface'],
-          },
-        ],
-        output: dedent`
-          export declare interface Interface {}
+          ],
+          valid: [],
+        },
+      )
 
-          function f() {}
-        `,
-        code: dedent`
-          function f() {}
+      ruleTester.run(
+        `${ruleName}(${type}): prioritize async over export`,
+        rule,
+        {
+          invalid: [
+            {
+              errors: [
+                {
+                  data: {
+                    rightGroup: 'async-function',
+                    leftGroup: 'interface',
+                    left: 'Interface',
+                    right: 'f',
+                  },
+                  messageId: 'unexpectedModulesGroupOrder',
+                },
+              ],
+              options: [
+                {
+                  ...options,
+                  groups: ['async-function', 'interface', 'export-function'],
+                },
+              ],
+              output: dedent`
+                export async function f() {}
 
-          export declare interface Interface {}
-        `,
-      })
+                interface Interface {}
+              `,
+              code: dedent`
+                interface Interface {}
+
+                export async function f() {}
+              `,
+            },
+          ],
+          valid: [],
+        },
+      )
     })
 
-    it('prioritizes default modifier over export modifier', async () => {
-      await invalid({
-        errors: [
-          {
-            data: {
-              rightGroup: 'default-interface',
-              leftGroup: 'function',
-              right: 'Interface',
-              left: 'f',
+    describe(`${ruleName}(${type}): enum modifiers priority`, () => {
+      ruleTester.run(
+        `${ruleName}(${type}): prioritize declare over export`,
+        rule,
+        {
+          invalid: [
+            {
+              errors: [
+                {
+                  data: {
+                    rightGroup: 'declare-enum',
+                    leftGroup: 'function',
+                    right: 'Enum',
+                    left: 'f',
+                  },
+                  messageId: 'unexpectedModulesGroupOrder',
+                },
+              ],
+              options: [
+                {
+                  ...options,
+                  groups: ['declare-enum', 'function', 'export-enum'],
+                },
+              ],
+              output: dedent`
+                export declare enum Enum {}
+
+                function f() {}
+              `,
+              code: dedent`
+                function f() {}
+
+                export declare enum Enum {}
+              `,
             },
-            messageId: 'unexpectedModulesGroupOrder',
-          },
-        ],
-        options: [
-          {
-            ...options,
-            groups: ['default-interface', 'function', 'export-interface'],
-          },
-        ],
-        output: dedent`
-          export default interface Interface {}
-
-          function f() {}
-        `,
-        code: dedent`
-          function f() {}
-
-          export default interface Interface {}
-        `,
-      })
+          ],
+          valid: [],
+        },
+      )
     })
 
-    it('prioritizes declare modifier over export modifier for type declarations', async () => {
-      await invalid({
-        errors: [
-          {
-            data: {
-              rightGroup: 'declare-type',
-              leftGroup: 'function',
-              right: 'Type',
-              left: 'f',
-            },
-            messageId: 'unexpectedModulesGroupOrder',
-          },
-        ],
-        options: [
-          {
-            ...options,
-            groups: ['declare-type', 'function', 'export-type'],
-          },
-        ],
-        output: dedent`
-          export declare type Type = {}
-
-          function f() {}
-        `,
-        code: dedent`
-          function f() {}
-
-          export declare type Type = {}
-        `,
-      })
-    })
-
-    it('prioritizes declare modifier over export modifier for class declarations', async () => {
-      await invalid({
-        errors: [
-          {
-            data: {
-              rightGroup: 'declare-class',
-              leftGroup: 'function',
-              right: 'Class',
-              left: 'f',
-            },
-            messageId: 'unexpectedModulesGroupOrder',
-          },
-        ],
-        options: [
-          {
-            ...options,
-            groups: ['declare-class', 'function', 'export-class'],
-          },
-        ],
-        output: dedent`
-          export declare class Class {}
-
-          function f() {}
-        `,
-        code: dedent`
-          function f() {}
-
-          export declare class Class {}
-        `,
-      })
-    })
-
-    it('prioritizes declare modifier over export modifier for function declarations', async () => {
-      await invalid({
-        errors: [
-          {
-            data: {
-              rightGroup: 'declare-function',
-              leftGroup: 'interface',
-              left: 'Interface',
-              right: 'f',
-            },
-            messageId: 'unexpectedModulesGroupOrder',
-          },
-        ],
-        options: [
-          {
-            ...options,
-            groups: ['declare-function', 'interface', 'export-function'],
-          },
-        ],
-        output: dedent`
-          export declare function f()
-
-          interface Interface {}
-        `,
-        code: dedent`
-          interface Interface {}
-
-          export declare function f()
-        `,
-      })
-    })
-
-    it('prioritizes default modifier over async modifier for functions', async () => {
-      await invalid({
-        errors: [
-          {
-            data: {
-              rightGroup: 'default-function',
-              leftGroup: 'interface',
-              left: 'Interface',
-              right: 'f',
-            },
-            messageId: 'unexpectedModulesGroupOrder',
-          },
-        ],
-        options: [
-          {
-            ...options,
-            groups: ['default-function', 'interface', 'async-function'],
-          },
-        ],
-        output: dedent`
-          export default async function f() {}
-
-          interface Interface {}
-        `,
-        code: dedent`
-          interface Interface {}
-
-          export default async function f() {}
-        `,
-      })
-    })
-
-    it('prioritizes async modifier over export modifier for functions', async () => {
-      await invalid({
-        errors: [
-          {
-            data: {
-              rightGroup: 'async-function',
-              leftGroup: 'interface',
-              left: 'Interface',
-              right: 'f',
-            },
-            messageId: 'unexpectedModulesGroupOrder',
-          },
-        ],
-        options: [
-          {
-            ...options,
-            groups: ['async-function', 'interface', 'export-function'],
-          },
-        ],
-        output: dedent`
-          export async function f() {}
-
-          interface Interface {}
-        `,
-        code: dedent`
-          interface Interface {}
-
-          export async function f() {}
-        `,
-      })
-    })
-
-    it('prioritizes declare modifier over export modifier for enum declarations', async () => {
-      await invalid({
-        errors: [
-          {
-            data: {
-              rightGroup: 'declare-enum',
-              leftGroup: 'function',
-              right: 'Enum',
-              left: 'f',
-            },
-            messageId: 'unexpectedModulesGroupOrder',
-          },
-        ],
-        options: [
-          {
-            ...options,
-            groups: ['declare-enum', 'function', 'export-enum'],
-          },
-        ],
-        output: dedent`
-          export declare enum Enum {}
-
-          function f() {}
-        `,
-        code: dedent`
-          function f() {}
-
-          export declare enum Enum {}
-        `,
-      })
-    })
-
-    function testDependencyDetection(
-      useExperimentalDependencyDetection: boolean,
-    ): void {
-      describe(`experimental dependency detection: ${useExperimentalDependencyDetection}`, () => {
-        it('ignores non-static class method dependencies', async () => {
-          await valid({
-            code: dedent`
-              class A {
-                f() {
-                  return Enum.V
-                }
-              }
-
-              enum Enum {
-                V = 'V'
-              }
-            `,
-            options: [
-              {
-                ...options,
-                useExperimentalDependencyDetection,
-                groups: ['unknown'],
-              },
-            ],
-          })
-        })
-
-        it('ignores static class method dependencies when no static block or properties exist', async () => {
-          await valid({
-            code: dedent`
-              class A {
-                static f() {
-                  return Enum.V
-                }
-              }
-
-              enum Enum {
-                V = 'V'
-              }
-            `,
-            options: [
-              {
-                ...options,
-                useExperimentalDependencyDetection,
-                groups: ['unknown'],
-              },
-            ],
-          })
-        })
-
-        it('detects static class method dependencies when static block is present', async () => {
-          await valid({
-            code: dedent`
-              enum Enum {
-                V = 'V'
-              }
-
-              class A {
-                static {
-                  console.log(Enum.V)
-                }
-              }
-            `,
-            options: [
-              {
-                ...options,
-                useExperimentalDependencyDetection,
-                groups: ['unknown'],
-              },
-            ],
-          })
-
-          await valid({
-            code: dedent`
-              enum Enum {
-                V = 'V'
-              }
-
-              class A {
-                static {
-                  console.log(A.f())
+    describe(`${ruleName}(${type}): detects dependencies`, () => {
+      ruleTester.run(
+        `${ruleName}(${type}) ignores non-static class method dependencies`,
+        rule,
+        {
+          valid: [
+            {
+              code: dedent`
+                class A {
+                  f() {
+                    return Enum.V
+                  }
                 }
 
-                static f = () => {
-                  return Enum.V
+                enum Enum {
+                  V = 'V'
                 }
-              }
-            `,
-            options: [
-              {
-                ...options,
-                useExperimentalDependencyDetection,
-                groups: ['unknown'],
-              },
-            ],
-          })
+              `,
+              options: [
+                {
+                  ...options,
+                  groups: ['unknown'],
+                },
+              ],
+            },
+          ],
+          invalid: [],
+        },
+      )
 
-          await valid({
-            code: dedent`
-              enum Enum {
-                V = 'V'
-              }
-
-              class Class {
-                static {
-                  const method = () => {
-                    return Enum.V || true;
-                  };
-                  method();
+      ruleTester.run(
+        `${ruleName}(${type}) ignores static class method dependencies if no static block or static properties are present`,
+        rule,
+        {
+          valid: [
+            {
+              code: dedent`
+                class A {
+                  static f() {
+                    return Enum.V
+                  }
                 }
-              }
-            `,
-            options: [
-              {
-                ...options,
-                useExperimentalDependencyDetection,
-                groups: ['unknown'],
-              },
-            ],
-          })
-        })
 
-        it('detects static class method dependencies when static property is present', async () => {
-          await valid({
-            options: [
-              {
-                ...options,
-                useExperimentalDependencyDetection,
-                groups: ['unknown'],
-              },
-            ],
-            code: dedent`
-              enum Enum {
-                V = 'V'
-              }
+                enum Enum {
+                  V = 'V'
+                }
+              `,
+              options: [
+                {
+                  ...options,
+                  groups: ['unknown'],
+                },
+              ],
+            },
+          ],
+          invalid: [],
+        },
+      )
 
-              class A {
-                static a = Enum.V
-              }
-            `,
-          })
-
-          await valid({
-            code: dedent`
-              enum Enum {
-                V = 'V'
-              }
-
-              class A {
-                static accessor a = Enum.V
-              }
-            `,
-            options: [
-              {
-                ...options,
-                useExperimentalDependencyDetection,
-                groups: ['unknown'],
-              },
-            ],
-          })
-
-          await valid({
-            code: dedent`
-              enum Enum {
-                V = 'V'
-              }
-
-              class A {
-                static a = Object.values(Enum)
-              }
-            `,
-            options: [
-              {
-                ...options,
-                useExperimentalDependencyDetection,
-                groups: ['unknown'],
-              },
-            ],
-          })
-
-          await valid({
-            code: dedent`
-              namespace Namespace {
-                export class B {
-                  static foo = 'foo'
+      ruleTester.run(
+        `${ruleName}(${type}) detects static class method dependencies if a static block is present`,
+        rule,
+        {
+          valid: [
+            {
+              code: dedent`
+                enum Enum {
+                  V = 'V'
                 }
 
                 class A {
-                  static a = Namespace.B.foo
+                  static {
+                    console.log(Enum.V)
+                  }
                 }
-              }
-            `,
-            options: [
-              {
-                ...options,
-                useExperimentalDependencyDetection,
-                groups: ['unknown'],
-              },
-            ],
-          })
-        })
-
-        it('ignores non-static arrow method dependencies', async () => {
-          await valid({
-            code: dedent`
-              class A {
-                f = () => {
-                  return Enum.V
+              `,
+              options: [
+                {
+                  ...options,
+                  groups: ['unknown'],
+                },
+              ],
+            },
+            {
+              code: dedent`
+                enum Enum {
+                  V = 'V'
                 }
-              }
 
-              enum Enum {
-                V = 'V'
-              }
-            `,
-            options: [
-              {
-                ...options,
-                useExperimentalDependencyDetection,
-                groups: ['unknown'],
-              },
-            ],
-          })
+                class A {
+                  static {
+                    console.log(A.f())
+                  }
 
-          await valid({
-            code: dedent`
-              class A {
-                accessor f = () => {
-                  return Enum.V
+                  static f = () => {
+                    return Enum.V
+                  }
                 }
-              }
-
-              enum Enum {
-                V = 'V'
-              }
-            `,
-            options: [
-              {
-                ...options,
-                useExperimentalDependencyDetection,
-                groups: ['unknown'],
-              },
-            ],
-          })
-        })
-
-        it('ignores static arrow method dependencies when no static block or properties exist', async () => {
-          await valid({
-            code: dedent`
-              class A {
-                static f = () => {
-                  return Enum.V
+              `,
+              options: [
+                {
+                  ...options,
+                  groups: ['unknown'],
+                },
+              ],
+            },
+            {
+              code: dedent`
+                enum Enum {
+                  V = 'V'
                 }
-              }
 
-              enum Enum {
-                V = 'V'
-              }
-            `,
-            options: [
-              {
-                ...options,
-                useExperimentalDependencyDetection,
-                groups: ['unknown'],
-              },
-            ],
-          })
-        })
+                class Class {
+                  static {
+                    const method = () => {
+                      return Enum.V || true;
+                    };
+                    method();
+                  }
+                }
+              `,
+              options: [
+                {
+                  ...options,
+                  groups: ['unknown'],
+                },
+              ],
+            },
+          ],
+          invalid: [],
+        },
+      )
 
-        it('ignores interface type dependencies', async () => {
-          await valid({
-            options: [
-              {
-                ...options,
-                useExperimentalDependencyDetection,
-                groups: ['unknown'],
-              },
-            ],
+      ruleTester.run(
+        `${ruleName}(${type}) detects static class method dependencies if a static property is present`,
+        rule,
+        {
+          valid: [
+            {
+              code: dedent`
+                enum Enum {
+                  V = 'V'
+                }
+
+                class A {
+                  static a = Enum.V
+                }
+              `,
+              options: [
+                {
+                  ...options,
+                  groups: ['unknown'],
+                },
+              ],
+            },
+            {
+              code: dedent`
+                enum Enum {
+                  V = 'V'
+                }
+
+                class A {
+                  static accessor a = Enum.V
+                }
+              `,
+              options: [
+                {
+                  ...options,
+                  groups: ['unknown'],
+                },
+              ],
+            },
+            {
+              code: dedent`
+                enum Enum {
+                  V = 'V'
+                }
+
+                class A {
+                  static a = Object.values(Enum)
+                }
+              `,
+              options: [
+                {
+                  ...options,
+                  groups: ['unknown'],
+                },
+              ],
+            },
+          ],
+          invalid: [],
+        },
+      )
+
+      ruleTester.run(
+        `${ruleName}(${type}) ignores non-static arrow-method dependencies`,
+        rule,
+        {
+          valid: [
+            {
+              code: dedent`
+                class A {
+                  f = () => {
+                    return Enum.V
+                  }
+                }
+
+                enum Enum {
+                  V = 'V'
+                }
+              `,
+              options: [
+                {
+                  ...options,
+                  groups: ['unknown'],
+                },
+              ],
+            },
+            {
+              code: dedent`
+                class A {
+                  accessor f = () => {
+                    return Enum.V
+                  }
+                }
+
+                enum Enum {
+                  V = 'V'
+                }
+              `,
+              options: [
+                {
+                  ...options,
+                  groups: ['unknown'],
+                },
+              ],
+            },
+          ],
+          invalid: [],
+        },
+      )
+
+      ruleTester.run(
+        `${ruleName}(${type}) ignores static arrow-method dependencies if no static block or static properties are present`,
+        rule,
+        {
+          valid: [
+            {
+              code: dedent`
+                class A {
+                  static f = () => {
+                    return Enum.V
+                  }
+                }
+
+                enum Enum {
+                  V = 'V'
+                }
+              `,
+              options: [
+                {
+                  ...options,
+                  groups: ['unknown'],
+                },
+              ],
+            },
+          ],
+          invalid: [],
+        },
+      )
+
+      ruleTester.run(
+        `${ruleName}(${type}) ignores interface dependencies`,
+        rule,
+        {
+          valid: [
+            {
+              code: dedent`
+                interface A {
+                  a: Enum.V
+                }
+
+                enum Enum {
+                  V = 'V'
+                }
+              `,
+              options: [
+                {
+                  ...options,
+                  groups: ['unknown'],
+                },
+              ],
+            },
+          ],
+          invalid: [],
+        },
+      )
+
+      ruleTester.run(`${ruleName}(${type}) ignores type dependencies`, rule, {
+        valid: [
+          {
             code: dedent`
-              interface A {
+              type A = {
                 a: Enum.V
               }
 
@@ -1975,449 +1670,20 @@ describe('sort-modules', () => {
                 V = 'V'
               }
             `,
-          })
-        })
-
-        it('ignores type alias dependencies', async () => {
-          await valid({
             options: [
               {
                 ...options,
-                useExperimentalDependencyDetection,
                 groups: ['unknown'],
               },
             ],
-            code: dedent`
-              type A = {
-                a: Enum.V
-              }
+          },
+        ],
+        invalid: [],
+      })
 
-              enum Enum {
-                V = 'V'
-              }
-            `,
-          })
-        })
-
-        it('ignores usages in interface values', async () => {
-          await valid({
-            code: dedent`
-              export default interface A {
-                field?: Record<string, [B | null] & C>;
-              }
-
-              type B = Something;
-            `,
-            options: [
-              {
-                ...options,
-                useExperimentalDependencyDetection,
-                groups: ['unknown'],
-              },
-            ],
-          })
-        })
-
-        it('ignores usages in type keys', async () => {
-          await valid({
-            options: [
-              {
-                ...options,
-                useExperimentalDependencyDetection,
-                groups: ['unknown'],
-              },
-            ],
-            code: dedent`
-              type A = {
-                [B]: string;
-              }
-
-              type B = 'b';
-            `,
-          })
-        })
-
-        it('ignores usages in type values', async () => {
-          await valid({
-            options: [
-              {
-                ...options,
-                useExperimentalDependencyDetection,
-                groups: ['unknown'],
-              },
-            ],
-            code: dedent`
-              type A = {
-                field: typeof B
-              }
-
-              type B = Something;
-            `,
-          })
-
-          await valid({
-            options: [
-              {
-                ...options,
-                useExperimentalDependencyDetection,
-                groups: ['unknown'],
-              },
-            ],
-            code: dedent`
-              type A = {
-                (...args: B): void;
-              }
-
-              type B = 'b';
-            `,
-          })
-        })
-
-        it('ignores usages in type generics', async () => {
-          await valid({
-            options: [
-              {
-                ...options,
-                useExperimentalDependencyDetection,
-                groups: ['unknown'],
-              },
-            ],
-            code: dedent`
-              type A<T extends B> = {}
-
-              type B = 'b';
-            `,
-          })
-        })
-
-        it('ignores usages in type indexes', async () => {
-          await valid({
-            options: [
-              {
-                ...options,
-                useExperimentalDependencyDetection,
-                groups: ['unknown'],
-              },
-            ],
-            code: dedent`
-              type A = Foo[B]
-
-              type B = 'b';
-            `,
-          })
-
-          await valid({
-            options: [
-              {
-                ...options,
-                useExperimentalDependencyDetection,
-                groups: ['unknown'],
-              },
-            ],
-            code: dedent`
-              type A = B['foo']
-
-              type B = 'b';
-            `,
-          })
-        })
-
-        it('ignores usages in conditional types', async () => {
-          await valid({
-            options: [
-              {
-                ...options,
-                useExperimentalDependencyDetection,
-                groups: ['unknown'],
-              },
-            ],
-            code: dedent`
-              type A = Foo extends B ? true : false;
-
-              type B = 'b';
-            `,
-          })
-
-          await valid({
-            options: [
-              {
-                ...options,
-                useExperimentalDependencyDetection,
-                groups: ['unknown'],
-              },
-            ],
-            code: dedent`
-              type A = B extends Foo ? true : false;
-
-              type B = 'b';
-            `,
-          })
-
-          await valid({
-            options: [
-              {
-                ...options,
-                useExperimentalDependencyDetection,
-                groups: ['unknown'],
-              },
-            ],
-            code: dedent`
-              type A = Foo extends Bar ? B : false;
-
-              type B = 'b';
-            `,
-          })
-
-          await valid({
-            options: [
-              {
-                ...options,
-                useExperimentalDependencyDetection,
-                groups: ['unknown'],
-              },
-            ],
-            code: dedent`
-              type A = Foo extends Bar ? true : B;
-
-              type B = 'b';
-            `,
-          })
-
-          await valid({
-            options: [
-              {
-                ...options,
-                useExperimentalDependencyDetection,
-                groups: ['unknown'],
-              },
-            ],
-            code: dedent`
-              type A<T> = T extends {
-                (...args: any[]): infer B;
-              } ? Foo : Bar
-
-              type B = 'b';
-            `,
-          })
-        })
-
-        it('ignores usages in interface extends', async () => {
-          await valid({
-            options: [
-              {
-                ...options,
-                useExperimentalDependencyDetection,
-                groups: ['unknown'],
-              },
-            ],
-            code: dedent`
-              interface A extends B {}
-
-              interface B {}
-            `,
-          })
-        })
-
-        it('ignores usages in classes implements', async () => {
-          await valid({
-            options: [
-              {
-                ...options,
-                useExperimentalDependencyDetection,
-                groups: ['unknown'],
-              },
-            ],
-            code: dedent`
-              class A implements B {}
-
-              interface B {}
-            `,
-          })
-        })
-
-        it('ignores usages in functions', async () => {
-          await valid({
-            options: [
-              {
-                ...options,
-                useExperimentalDependencyDetection,
-                groups: ['unknown'],
-              },
-            ],
-            code: dedent`
-              function a() {
-                let foo: B;
-              }
-
-              type B = 'b';
-            `,
-          })
-        })
-
-        it('ignores parameter binding usages that shadow module-level names', async () => {
-          await valid({
-            options: [
-              {
-                ...options,
-                useExperimentalDependencyDetection,
-                groups: ['unknown'],
-              },
-            ],
-            code: dedent`
-              function a(B: number) {}
-
-              type B = 'b'
-            `,
-          })
-
-          await valid({
-            options: [
-              {
-                ...options,
-                useExperimentalDependencyDetection,
-                groups: ['unknown'],
-              },
-            ],
-            code: dedent`
-              const a = (...B) => {}
-
-              type B = 'b'
-            `,
-          })
-
-          await valid({
-            options: [
-              {
-                ...options,
-                useExperimentalDependencyDetection,
-                groups: ['unknown'],
-              },
-            ],
-            code: dedent`
-              class A {
-                a = (...B) => {}
-              }
-
-              type B = 'b'
-            `,
-          })
-
-          await valid({
-            options: [
-              {
-                ...options,
-                useExperimentalDependencyDetection,
-                groups: ['unknown'],
-              },
-            ],
-            code: dedent`
-              class A {
-                a(...B) {}
-              }
-
-              type B = 'b'
-            `,
-          })
-
-          await valid({
-            options: [
-              {
-                ...options,
-                useExperimentalDependencyDetection,
-                groups: ['unknown'],
-              },
-            ],
-            code: dedent`
-              function a(...B) {}
-
-              type B = 'b'
-            `,
-          })
-        })
-
-        it('ignores usages in simple object keys', async () => {
-          await valid({
-            options: [
-              {
-                ...options,
-                useExperimentalDependencyDetection,
-                groups: ['unknown'],
-              },
-            ],
-            code: dedent`
-              const a = {
-                B: 'b'
-              }
-
-              type B = 'b'
-            `,
-          })
-        })
-
-        it('ignores usages in simple object type keys', async () => {
-          await valid({
-            options: [
-              {
-                ...options,
-                useExperimentalDependencyDetection,
-                groups: ['unknown'],
-              },
-            ],
-            code: dedent`
-              type A = {
-                B: 'b'
-              }
-
-              type B = 'b'
-            `,
-          })
-        })
-
-        it('ignores usages in simple arguments', async () => {
-          await valid({
-            options: [
-              {
-                ...options,
-                useExperimentalDependencyDetection,
-                groups: ['unknown'],
-              },
-            ],
-            code: dedent`
-              type A = (B: 'b') => void
-
-              type B = 'b'
-            `,
-          })
-        })
-
-        it('ignores usages in simple interface keys', async () => {
-          await valid({
-            options: [
-              {
-                ...options,
-                useExperimentalDependencyDetection,
-                groups: ['unknown'],
-              },
-            ],
-            code: dedent`
-              interface A {
-                B: 'b'
-              }
-
-              type B = 'b'
-            `,
-          })
-        })
-
-        it('detects enum value dependencies', async () => {
-          await valid({
-            options: [
-              {
-                ...options,
-                useExperimentalDependencyDetection,
-                groups: ['unknown'],
-              },
-            ],
+      ruleTester.run(`${ruleName}(${type}) detects enum dependencies`, rule, {
+        valid: [
+          {
             code: dedent`
               enum B {
                 V = 'V'
@@ -2427,11 +1693,29 @@ describe('sort-modules', () => {
                 V = B.V
               }
             `,
-          })
-        })
+            options: [
+              {
+                ...options,
+                groups: ['unknown'],
+              },
+            ],
+          },
+        ],
+        invalid: [],
+      })
 
-        it('detects deeply nested dependencies', async () => {
-          await invalid({
+      ruleTester.run(`${ruleName}(${type}) detects nested dependencies`, rule, {
+        invalid: [
+          {
+            errors: [
+              {
+                data: {
+                  nodeDependentOnRight: 'A',
+                  right: 'B',
+                },
+                messageId: 'unexpectedModulesDependencyOrder',
+              },
+            ],
             output: dedent`
               class B {
                 static b = 1
@@ -2450,9657 +1734,2593 @@ describe('sort-modules', () => {
                 static b = 1
               }
             `,
+            options: [
+              {
+                ...options,
+              },
+            ],
+          },
+        ],
+        valid: [],
+      })
+
+      ruleTester.run(
+        `${ruleName}(${type}) detects dependencies in template literal expressions`,
+        rule,
+        {
+          valid: [
+            {
+              code: dedent`
+                class B {
+                  static b = 1
+                }
+
+                class A {
+                  static a = \`\${B.b}\`
+                }
+              `,
+              options: [
+                {
+                  ...options,
+                  groups: [],
+                },
+              ],
+            },
+          ],
+          invalid: [],
+        },
+      )
+
+      ruleTester.run(
+        `${ruleName}(${type}) detects dependencies in classes extend`,
+        rule,
+        {
+          valid: [
+            {
+              options: [
+                {
+                  ...options,
+                  groups: [],
+                },
+              ],
+              code: dedent`
+                class B {}
+
+                class A extends B {}
+              `,
+            },
+          ],
+          invalid: [],
+        },
+      )
+
+      ruleTester.run(
+        `${ruleName}(${type}) detects circular dependencies`,
+        rule,
+        {
+          invalid: [
+            {
+              errors: [
+                {
+                  data: {
+                    nodeDependentOnRight: 'A',
+                    right: 'B',
+                  },
+                  messageId: 'unexpectedModulesDependencyOrder',
+                },
+                {
+                  data: {
+                    nodeDependentOnRight: 'B',
+                    right: 'C',
+                  },
+                  messageId: 'unexpectedModulesDependencyOrder',
+                },
+              ],
+              output: dedent`
+                class C {
+                  static c = A.a
+                }
+
+                class B {
+                  static b = C.c
+                }
+
+                class A {
+                  static a = B.b
+                }
+              `,
+              code: dedent`
+                class A {
+                  static a = B.b
+                }
+
+                class B {
+                  static b = C.c
+                }
+
+                class C {
+                  static c = A.a
+                }
+              `,
+              options: [
+                {
+                  ...options,
+                },
+              ],
+            },
+          ],
+          valid: [],
+        },
+      )
+
+      ruleTester.run(
+        `${ruleName}(${type}): prioritizes dependencies over group configuration`,
+        rule,
+        {
+          valid: [
+            {
+              options: [
+                {
+                  ...options,
+                  groups: ['export-class', 'class'],
+                },
+              ],
+              code: dedent`
+                class B { static b }
+                export class A { static a = B.b }
+              `,
+            },
+          ],
+          invalid: [],
+        },
+      )
+
+      ruleTester.run(
+        `${ruleName}(${type}): prioritizes dependencies over partitionByComment`,
+        rule,
+        {
+          invalid: [
+            {
+              errors: [
+                {
+                  data: {
+                    nodeDependentOnRight: 'B',
+                    right: 'A',
+                  },
+                  messageId: 'unexpectedModulesDependencyOrder',
+                },
+              ],
+              options: [
+                {
+                  ...options,
+                  partitionByComment: 'Part',
+                },
+              ],
+              output: dedent`
+                class A { static a }
+                // Part1
+                class B { static b = A.a }
+              `,
+              code: dedent`
+                class B { static b = A.a }
+                // Part1
+                class A { static a }
+              `,
+            },
+          ],
+          valid: [],
+        },
+      )
+
+      ruleTester.run(
+        `${ruleName}(${type}): prioritizes dependencies over partitionByNewLine`,
+        rule,
+        {
+          invalid: [
+            {
+              errors: [
+                {
+                  data: {
+                    nodeDependentOnRight: 'B',
+                    right: 'A',
+                  },
+                  messageId: 'unexpectedModulesDependencyOrder',
+                },
+              ],
+              options: [
+                {
+                  ...options,
+                  partitionByNewLine: true,
+                },
+              ],
+              output: dedent`
+                class A { static a }
+
+                class B { static = A.a }
+              `,
+              code: dedent`
+                class B { static = A.a }
+
+                class A { static a }
+              `,
+            },
+          ],
+          valid: [],
+        },
+      )
+    })
+
+    ruleTester.run(`${ruleName}(${type}): should ignore unknown group`, rule, {
+      invalid: [
+        {
+          errors: [
+            {
+              data: {
+                leftGroup: 'function',
+                rightGroup: 'unknown',
+                right: 'SomeClass',
+                left: 'b',
+              },
+              messageId: 'unexpectedModulesGroupOrder',
+            },
+            {
+              data: {
+                rightGroup: 'function',
+                leftGroup: 'unknown',
+                left: 'SomeClass',
+                right: 'a',
+              },
+              messageId: 'unexpectedModulesGroupOrder',
+            },
+          ],
+          output: dedent`
+            function a() {}
+            class SomeClass {}
+            function b() {}
+          `,
+          options: [
+            {
+              ...options,
+              groups: ['function'],
+            },
+          ],
+          code: dedent`
+            function b() {}
+            class SomeClass {}
+            function a() {}
+          `,
+        },
+      ],
+      valid: [],
+    })
+
+    ruleTester.run(
+      `${ruleName}(${type}): allows to trim special characters`,
+      rule,
+      {
+        valid: [
+          {
+            options: [
+              {
+                ...options,
+                specialCharacters: 'trim',
+              },
+            ],
+            code: dedent`
+              function _a() {}
+              function b() {}
+              function _c() {}
+            `,
+          },
+        ],
+        invalid: [],
+      },
+    )
+
+    ruleTester.run(
+      `${ruleName}(${type}): allows to remove special characters`,
+      rule,
+      {
+        valid: [
+          {
+            options: [
+              {
+                ...options,
+                specialCharacters: 'remove',
+              },
+            ],
+            code: dedent`
+              function ab() {}
+              function a_c() {}
+            `,
+          },
+        ],
+        invalid: [],
+      },
+    )
+
+    ruleTester.run(`${ruleName}(${type}): allows to use locale`, rule, {
+      valid: [
+        {
+          code: dedent`
+            function 你好() {}
+            function 世界() {}
+            function a() {}
+            function A() {}
+            function b() {}
+            function B() {}
+          `,
+          options: [{ ...options, locales: 'zh-CN' }],
+        },
+      ],
+      invalid: [],
+    })
+
+    describe(`${ruleName}: newlinesBetween`, () => {
+      ruleTester.run(
+        `${ruleName}(${type}): removes newlines when never`,
+        rule,
+        {
+          invalid: [
+            {
+              errors: [
+                {
+                  data: {
+                    leftGroup: 'interface',
+                    rightGroup: 'unknown',
+                    right: 'y',
+                    left: 'A',
+                  },
+                  messageId: 'unexpectedModulesGroupOrder',
+                },
+                {
+                  data: {
+                    right: 'b',
+                    left: 'z',
+                  },
+                  messageId: 'unexpectedModulesOrder',
+                },
+                {
+                  data: {
+                    right: 'b',
+                    left: 'z',
+                  },
+                  messageId: 'extraSpacingBetweenModulesMembers',
+                },
+              ],
+              options: [
+                {
+                  ...options,
+                  groups: ['unknown', 'interface'],
+                  newlinesBetween: 'never',
+                },
+              ],
+              code: dedent`
+                  interface A {}
+
+
+                 function y() {}
+                function z() {}
+
+                    function b() {}
+              `,
+              output: dedent`
+                  function b() {}
+                 function y() {}
+                function z() {}
+                    interface A {}
+              `,
+            },
+          ],
+          valid: [],
+        },
+      )
+
+      ruleTester.run(
+        `${ruleName}(${type}): keeps one newline when always`,
+        rule,
+        {
+          invalid: [
+            {
+              errors: [
+                {
+                  data: {
+                    right: 'z',
+                    left: 'A',
+                  },
+                  messageId: 'extraSpacingBetweenModulesMembers',
+                },
+                {
+                  data: {
+                    right: 'y',
+                    left: 'z',
+                  },
+                  messageId: 'unexpectedModulesOrder',
+                },
+                {
+                  data: {
+                    right: 'B',
+                    left: 'y',
+                  },
+                  messageId: 'missedSpacingBetweenModulesMembers',
+                },
+              ],
+              options: [
+                {
+                  ...options,
+                  groups: ['interface', 'unknown', 'class'],
+                  newlinesBetween: 'always',
+                },
+              ],
+              output: dedent`
+                  interface A {}
+
+                 function y() {}
+                function z() {}
+
+                    class B {}
+              `,
+              code: dedent`
+                  interface A {}
+
+
+                 function z() {}
+                function y() {}
+                    class B {}
+              `,
+            },
+          ],
+          valid: [],
+        },
+      )
+
+      describe(`${ruleName}(${type}): "newlinesBetween" inside groups`, () => {
+        ruleTester.run(
+          `${ruleName}(${type}): handles "newlinesBetween" between consecutive groups`,
+          rule,
+          {
+            invalid: [
+              {
+                options: [
+                  {
+                    ...options,
+                    groups: [
+                      'a',
+                      { newlinesBetween: 'always' },
+                      'b',
+                      { newlinesBetween: 'always' },
+                      'c',
+                      { newlinesBetween: 'never' },
+                      'd',
+                      { newlinesBetween: 'ignore' },
+                      'e',
+                    ],
+                    customGroups: [
+                      { elementNamePattern: 'a', groupName: 'a' },
+                      { elementNamePattern: 'b', groupName: 'b' },
+                      { elementNamePattern: 'c', groupName: 'c' },
+                      { elementNamePattern: 'd', groupName: 'd' },
+                      { elementNamePattern: 'e', groupName: 'e' },
+                    ],
+                    newlinesBetween: 'always',
+                  },
+                ],
+                errors: [
+                  {
+                    data: {
+                      right: 'b',
+                      left: 'a',
+                    },
+                    messageId: 'missedSpacingBetweenModulesMembers',
+                  },
+                  {
+                    data: {
+                      right: 'c',
+                      left: 'b',
+                    },
+                    messageId: 'extraSpacingBetweenModulesMembers',
+                  },
+                  {
+                    data: {
+                      right: 'd',
+                      left: 'c',
+                    },
+                    messageId: 'extraSpacingBetweenModulesMembers',
+                  },
+                ],
+                output: dedent`
+                  function a() {}
+
+                  function b() {}
+
+                  function c() {}
+                  function d() {}
+
+
+                  function e() {}
+                `,
+                code: dedent`
+                  function a() {}
+                  function b() {}
+
+
+                  function c() {}
+
+                  function d() {}
+
+
+                  function e() {}
+                `,
+              },
+            ],
+            valid: [],
+          },
+        )
+
+        describe(`${ruleName}(${type}): "newlinesBetween" between non-consecutive groups`, () => {
+          for (let [globalNewlinesBetween, groupNewlinesBetween] of [
+            ['always', 'never'] as const,
+            ['always', 'ignore'] as const,
+            ['never', 'always'] as const,
+            ['ignore', 'always'] as const,
+          ]) {
+            ruleTester.run(
+              `${ruleName}(${type}): enforces a newline if the global option is "${globalNewlinesBetween}" and the group option is "${groupNewlinesBetween}"`,
+              rule,
+              {
+                invalid: [
+                  {
+                    options: [
+                      {
+                        ...options,
+                        customGroups: [
+                          { elementNamePattern: 'a', groupName: 'a' },
+                          { elementNamePattern: 'b', groupName: 'b' },
+                          { groupName: 'unusedGroup', elementNamePattern: 'X' },
+                        ],
+                        groups: [
+                          'a',
+                          'unusedGroup',
+                          { newlinesBetween: groupNewlinesBetween },
+                          'b',
+                        ],
+                        newlinesBetween: globalNewlinesBetween,
+                      },
+                    ],
+                    errors: [
+                      {
+                        data: {
+                          right: 'b',
+                          left: 'a',
+                        },
+                        messageId: 'missedSpacingBetweenModulesMembers',
+                      },
+                    ],
+                    output: dedent`
+                      function a() {}
+
+                      function b() {}
+                    `,
+                    code: dedent`
+                      function a() {}
+                      function b() {}
+                    `,
+                  },
+                ],
+                valid: [],
+              },
+            )
+          }
+
+          for (let [globalNewlinesBetween, groupNewlinesBetween] of [
+            ['ignore', 'never'] as const,
+            ['never', 'ignore'] as const,
+          ]) {
+            ruleTester.run(
+              `${ruleName}(${type}): does not enforce a newline if the global option is "${globalNewlinesBetween}" and the group option is "${groupNewlinesBetween}"`,
+              rule,
+              {
+                valid: [
+                  {
+                    options: [
+                      {
+                        ...options,
+                        customGroups: [
+                          { elementNamePattern: 'a', groupName: 'a' },
+                          { elementNamePattern: 'b', groupName: 'b' },
+                          { groupName: 'unusedGroup', elementNamePattern: 'X' },
+                        ],
+                        groups: [
+                          'a',
+                          'unusedGroup',
+                          { newlinesBetween: groupNewlinesBetween },
+                          'b',
+                        ],
+                        newlinesBetween: globalNewlinesBetween,
+                      },
+                    ],
+                    code: dedent`
+                      function a() {}
+
+                      function b() {}
+                    `,
+                  },
+                  {
+                    options: [
+                      {
+                        ...options,
+                        customGroups: [
+                          { elementNamePattern: 'a', groupName: 'a' },
+                          { elementNamePattern: 'b', groupName: 'b' },
+                          { groupName: 'unusedGroup', elementNamePattern: 'X' },
+                        ],
+                        groups: [
+                          'a',
+                          'unusedGroup',
+                          { newlinesBetween: groupNewlinesBetween },
+                          'b',
+                        ],
+                        newlinesBetween: globalNewlinesBetween,
+                      },
+                    ],
+                    code: dedent`
+                      function a() {}
+                      function b() {}
+                    `,
+                  },
+                ],
+                invalid: [],
+              },
+            )
+          }
+        })
+      })
+
+      ruleTester.run(
+        `${ruleName}(${type}): handles newlines and comment after fixes`,
+        rule,
+        {
+          invalid: [
+            {
+              output: [
+                dedent`
+                  function a() {} // Comment after
+                  type B = string
+
+                  type C = string
+                `,
+                dedent`
+                  function a() {} // Comment after
+
+                  type B = string
+                  type C = string
+                `,
+              ],
+              errors: [
+                {
+                  data: {
+                    rightGroup: 'function',
+                    leftGroup: 'type',
+                    right: 'a',
+                    left: 'B',
+                  },
+                  messageId: 'unexpectedModulesGroupOrder',
+                },
+              ],
+              options: [
+                {
+                  groups: ['function', 'type'],
+                  newlinesBetween: 'always',
+                },
+              ],
+              code: dedent`
+                type B = string
+                function a() {} // Comment after
+
+                type C = string
+              `,
+            },
+          ],
+          valid: [],
+        },
+      )
+    })
+
+    describe(`${ruleName}(${type}): sorts inline elements correctly`, () => {
+      describe(`${ruleName}(${type}): functions`, () => {
+        describe(`${ruleName}(${type}): non-declare functions`, () => {
+          ruleTester.run(
+            `${ruleName}(${type}): sorts inline non-declare functions correctly`,
+            rule,
+            {
+              invalid: [
+                {
+                  errors: [
+                    {
+                      data: {
+                        right: 'a',
+                        left: 'b',
+                      },
+                      messageId: 'unexpectedModulesOrder',
+                    },
+                  ],
+                  output: dedent`
+                    function a() {} function b() {}
+                  `,
+                  code: dedent`
+                    function b() {} function a() {}
+                  `,
+                  options: [options],
+                },
+                {
+                  errors: [
+                    {
+                      data: {
+                        right: 'a',
+                        left: 'b',
+                      },
+                      messageId: 'unexpectedModulesOrder',
+                    },
+                  ],
+                  output: dedent`
+                    function a() {} function b() {};
+                  `,
+                  code: dedent`
+                    function b() {} function a() {};
+                  `,
+                  options: [options],
+                },
+                {
+                  errors: [
+                    {
+                      data: {
+                        right: 'a',
+                        left: 'b',
+                      },
+                      messageId: 'unexpectedModulesOrder',
+                    },
+                  ],
+                  output: dedent`
+                    function a() {}; function b() {}
+                  `,
+                  code: dedent`
+                    function b() {}; function a() {}
+                  `,
+                  options: [options],
+                },
+              ],
+              valid: [],
+            },
+          )
+        })
+
+        describe(`${ruleName}(${type}): declare functions`, () => {
+          ruleTester.run(
+            `${ruleName}(${type}): sorts inline declare functions correctly`,
+            rule,
+            {
+              invalid: [
+                {
+                  errors: [
+                    {
+                      data: {
+                        right: 'a',
+                        left: 'b',
+                      },
+                      messageId: 'unexpectedModulesOrder',
+                    },
+                  ],
+                  output: dedent`
+                    declare function a(); declare function b();
+                  `,
+                  code: dedent`
+                    declare function b(); declare function a()
+                  `,
+                  options: [options],
+                },
+                {
+                  errors: [
+                    {
+                      data: {
+                        right: 'a',
+                        left: 'b',
+                      },
+                      messageId: 'unexpectedModulesOrder',
+                    },
+                  ],
+                  output: dedent`
+                    declare function a(); declare function b();
+                  `,
+                  code: dedent`
+                    declare function b(); declare function a();
+                  `,
+                  options: [options],
+                },
+              ],
+              valid: [],
+            },
+          )
+        })
+      })
+
+      ruleTester.run(
+        `${ruleName}(${type}): sorts inline interfaces correctly`,
+        rule,
+        {
+          invalid: [
+            {
+              errors: [
+                {
+                  data: {
+                    right: 'A',
+                    left: 'B',
+                  },
+                  messageId: 'unexpectedModulesOrder',
+                },
+              ],
+              output: dedent`
+                interface A {} interface B {}
+              `,
+              code: dedent`
+                interface B {} interface A {}
+              `,
+              options: [options],
+            },
+            {
+              errors: [
+                {
+                  data: {
+                    right: 'A',
+                    left: 'B',
+                  },
+                  messageId: 'unexpectedModulesOrder',
+                },
+              ],
+              output: dedent`
+                interface A {} interface B {};
+              `,
+              code: dedent`
+                interface B {} interface A {};
+              `,
+              options: [options],
+            },
+            {
+              errors: [
+                {
+                  data: {
+                    right: 'A',
+                    left: 'B',
+                  },
+                  messageId: 'unexpectedModulesOrder',
+                },
+              ],
+              output: dedent`
+                interface A {}; interface B {}
+              `,
+              code: dedent`
+                interface B {}; interface A {}
+              `,
+              options: [options],
+            },
+          ],
+          valid: [],
+        },
+      )
+
+      ruleTester.run(
+        `${ruleName}(${type}): sorts inline types correctly`,
+        rule,
+        {
+          invalid: [
+            {
+              errors: [
+                {
+                  data: {
+                    right: 'a',
+                    left: 'b',
+                  },
+                  messageId: 'unexpectedModulesOrder',
+                },
+              ],
+              output: dedent`
+                type a = {}; type b = {};
+              `,
+              code: dedent`
+                type b = {}; type a = {}
+              `,
+              options: [options],
+            },
+            {
+              errors: [
+                {
+                  data: {
+                    right: 'a',
+                    left: 'b',
+                  },
+                  messageId: 'unexpectedModulesOrder',
+                },
+              ],
+              output: dedent`
+                type a = {}; type b = {};
+              `,
+              code: dedent`
+                type b = {}; type a = {};
+              `,
+              options: [options],
+            },
+          ],
+          valid: [],
+        },
+      )
+
+      ruleTester.run(
+        `${ruleName}(${type}): sorts inline classes correctly`,
+        rule,
+        {
+          invalid: [
+            {
+              errors: [
+                {
+                  data: {
+                    right: 'A',
+                    left: 'B',
+                  },
+                  messageId: 'unexpectedModulesOrder',
+                },
+              ],
+              output: dedent`
+                class A {} class B {}
+              `,
+              code: dedent`
+                class B {} class A {}
+              `,
+              options: [options],
+            },
+            {
+              errors: [
+                {
+                  data: {
+                    right: 'A',
+                    left: 'B',
+                  },
+                  messageId: 'unexpectedModulesOrder',
+                },
+              ],
+              output: dedent`
+                class A {} class B {};
+              `,
+              code: dedent`
+                class B {} class A {};
+              `,
+              options: [options],
+            },
+            {
+              errors: [
+                {
+                  data: {
+                    right: 'A',
+                    left: 'B',
+                  },
+                  messageId: 'unexpectedModulesOrder',
+                },
+              ],
+              output: dedent`
+                class A {}; class B {}
+              `,
+              code: dedent`
+                class B {}; class A {}
+              `,
+              options: [options],
+            },
+          ],
+          valid: [],
+        },
+      )
+
+      ruleTester.run(
+        `${ruleName}(${type}): sorts inline enums correctly`,
+        rule,
+        {
+          invalid: [
+            {
+              errors: [
+                {
+                  data: {
+                    right: 'A',
+                    left: 'B',
+                  },
+                  messageId: 'unexpectedModulesOrder',
+                },
+              ],
+              output: dedent`
+                enum A {} enum B {}
+              `,
+              code: dedent`
+                enum B {} enum A {}
+              `,
+              options: [options],
+            },
+            {
+              errors: [
+                {
+                  data: {
+                    right: 'A',
+                    left: 'B',
+                  },
+                  messageId: 'unexpectedModulesOrder',
+                },
+              ],
+              output: dedent`
+                enum A {} enum B {};
+              `,
+              code: dedent`
+                enum B {} enum A {};
+              `,
+              options: [options],
+            },
+            {
+              errors: [
+                {
+                  data: {
+                    right: 'A',
+                    left: 'B',
+                  },
+                  messageId: 'unexpectedModulesOrder',
+                },
+              ],
+              output: dedent`
+                enum A {}; enum B {}
+              `,
+              code: dedent`
+                enum B {}; enum A {}
+              `,
+              options: [options],
+            },
+          ],
+          valid: [],
+        },
+      )
+    })
+
+    ruleTester.run(
+      `${ruleName}(${type}): ignores exported decorated classes`,
+      rule,
+      {
+        invalid: [
+          {
             errors: [
               {
-                data: { nodeDependentOnRight: 'A', right: 'B' },
-                messageId: 'unexpectedModulesDependencyOrder',
-              },
-            ],
-            options: [
-              {
-                ...options,
-                useExperimentalDependencyDetection,
-              },
-            ],
-          })
-        })
-
-        it('detects dependencies in template literal expressions', async () => {
-          await valid({
-            code: dedent`
-              class B {
-                static b = 1
-              }
-
-              class A {
-                static a = \`\${B.b}\`
-              }
-            `,
-            options: [
-              {
-                ...options,
-                useExperimentalDependencyDetection,
-                groups: ['unknown'],
-              },
-            ],
-          })
-        })
-
-        it('detects dependencies in class inheritance', async () => {
-          await valid({
-            options: [
-              {
-                ...options,
-                useExperimentalDependencyDetection,
-                groups: ['unknown'],
-              },
-            ],
-            code: dedent`
-              class B {}
-
-              class A extends B {}
-            `,
-          })
-        })
-
-        it('detects dependencies in decorator expressions', async () => {
-          await invalid({
-            output: dedent`
-              enum B {}
-
-              class A {
-                @SomeDecorator({
-                  a: {
-                    b: c.concat([B])
-                  }
-                })
-                property
-              }
-            `,
-            code: dedent`
-              class A {
-                @SomeDecorator({
-                  a: {
-                    b: c.concat([B])
-                  }
-                })
-                property
-              }
-
-              enum B {}
-            `,
-            errors: [
-              {
-                data: { nodeDependentOnRight: 'A', right: 'B' },
-                messageId: 'unexpectedModulesDependencyOrder',
-              },
-            ],
-            options: [
-              {
-                ...options,
-                useExperimentalDependencyDetection,
-                groups: ['unknown'],
-              },
-            ],
-          })
-        })
-
-        it('detects and handles circular dependencies', async () => {
-          await invalid({
-            output: dedent`
-              class A {
-                static a = B.b
-              }
-
-              class B {
-                static b = C.c
-              }
-
-              class C {
-                static c = A.a
-              }
-            `,
-            code: dedent`
-              class B {
-                static b = C.c
-              }
-
-              class A {
-                static a = B.b
-              }
-
-              class C {
-                static c = A.a
-              }
-            `,
-            errors: [
-              {
+                data: {
+                  right: 'B',
+                  left: 'C',
+                },
                 messageId: 'unexpectedModulesOrder',
-                data: { right: 'A', left: 'B' },
               },
             ],
+            output: dedent`
+              @B
+              class B {}
+
+              @A
+              export class A {}
+
+              @C
+              class C {}
+            `,
+            code: dedent`
+              @C
+              class C {}
+
+              @A
+              export class A {}
+
+              @B
+              class B {}
+            `,
             options: [
               {
                 ...options,
-                useExperimentalDependencyDetection,
+                groups: ['unknown'],
               },
             ],
-          })
-        })
-
-        it('prioritizes dependencies over group configuration', async () => {
-          await valid({
-            options: [
-              {
-                ...options,
-                useExperimentalDependencyDetection,
-                groups: ['export-class', 'class'],
-              },
-            ],
-            code: dedent`
-              class B { static b }
-              export class A { static a = B.b }
-            `,
-          })
-        })
-
-        it('prioritizes dependencies over partition by comment', async () => {
-          await invalid({
-            errors: [
-              {
-                data: { nodeDependentOnRight: 'B', right: 'A' },
-                messageId: 'unexpectedModulesDependencyOrder',
-              },
-            ],
-            options: [
-              {
-                ...options,
-                useExperimentalDependencyDetection,
-                partitionByComment: 'Part',
-              },
-            ],
-            output: dedent`
-              class A { static a }
-              // Part1
-              class B { static b = A.a }
-            `,
-            code: dedent`
-              class B { static b = A.a }
-              // Part1
-              class A { static a }
-            `,
-          })
-        })
-
-        it('prioritizes dependencies over partition by new line', async () => {
-          await invalid({
-            errors: [
-              {
-                data: { nodeDependentOnRight: 'B', right: 'A' },
-                messageId: 'unexpectedModulesDependencyOrder',
-              },
-            ],
-            options: [
-              {
-                ...options,
-                useExperimentalDependencyDetection,
-                partitionByNewLine: true,
-              },
-            ],
-            output: dedent`
-              class A { static a }
-
-              class B { static = A.a }
-            `,
-            code: dedent`
-              class B { static = A.a }
-
-              class A { static a }
-            `,
-          })
-        })
-      })
-    }
-    testDependencyDetection(true)
-    testDependencyDetection(false)
-
-    describe('decorator metadata dependency detection', () => {
-      let metadataOptions = {
-        ...options,
-        useExperimentalDependencyDetection: true,
-        tsconfig: { rootDir: '.' },
-        groups: ['unknown'],
-      } as const
-
-      beforeEach(() => {
-        mockReadClosestTsConfigByPathWith({ emitDecoratorMetadata: true })
-      })
-
-      describe('constructor parameters', () => {
-        it('detects a constructor parameter type of a decorated class', async () => {
-          await invalid({
-            errors: [
-              {
-                data: { nodeDependentOnRight: 'A', right: 'B' },
-                messageId: 'unexpectedModulesDependencyOrder',
-              },
-            ],
-            output: dedent`
-              class B {}
-
-              @Decorator()
-              class A {
-                constructor(b: B) {}
-              }
-            `,
-            code: dedent`
-              @Decorator()
-              class A {
-                constructor(b: B) {}
-              }
-
-              class B {}
-            `,
-            options: [metadataOptions],
-          })
-        })
-
-        it('detects a parameter-property type of a decorated class', async () => {
-          await invalid({
-            errors: [
-              {
-                data: { nodeDependentOnRight: 'A', right: 'B' },
-                messageId: 'unexpectedModulesDependencyOrder',
-              },
-            ],
-            output: dedent`
-              class B {}
-
-              @Decorator()
-              class A {
-                constructor(private b: B) {}
-              }
-            `,
-            code: dedent`
-              @Decorator()
-              class A {
-                constructor(private b: B) {}
-              }
-
-              class B {}
-            `,
-            options: [metadataOptions],
-          })
-        })
-
-        it('detects a non-decorated sibling of a decorated constructor parameter', async () => {
-          await invalid({
-            errors: [
-              {
-                data: { nodeDependentOnRight: 'A', right: 'B' },
-                messageId: 'unexpectedModulesDependencyOrder',
-              },
-              {
-                data: { nodeDependentOnRight: 'A', right: 'C' },
-                messageId: 'unexpectedModulesDependencyOrder',
-              },
-            ],
-            output: dedent`
-              class B {}
-
-              class C {}
-
-              class A {
-                constructor(@Inject() b: B, c: C) {}
-              }
-            `,
-            code: dedent`
-              class A {
-                constructor(@Inject() b: B, c: C) {}
-              }
-
-              class B {}
-
-              class C {}
-            `,
-            options: [metadataOptions],
-          })
-        })
-
-        it('detects a constructor parameter type when the parameter is decorated', async () => {
-          await invalid({
-            errors: [
-              {
-                data: { nodeDependentOnRight: 'A', right: 'B' },
-                messageId: 'unexpectedModulesDependencyOrder',
-              },
-            ],
-            output: dedent`
-              class B {}
-
-              class A {
-                constructor(@Decorator() b: B) {}
-              }
-            `,
-            code: dedent`
-              class A {
-                constructor(@Decorator() b: B) {}
-              }
-
-              class B {}
-            `,
-            options: [metadataOptions],
-          })
-        })
-
-        it('detects a constructor parameter type of an exported decorated class', async () => {
-          await invalid({
-            errors: [
-              {
-                data: { nodeDependentOnRight: 'A', right: 'B' },
-                messageId: 'unexpectedModulesDependencyOrder',
-              },
-            ],
-            output: dedent`
-              class B {}
-
-              @Decorator()
-              export abstract class A {
-                constructor(b: B) {}
-              }
-            `,
-            code: dedent`
-              @Decorator()
-              export abstract class A {
-                constructor(b: B) {}
-              }
-
-              class B {}
-            `,
-            options: [metadataOptions],
-          })
-        })
-
-        it('detects a rest constructor parameter element type of a decorated class', async () => {
-          await invalid({
-            errors: [
-              {
-                data: { nodeDependentOnRight: 'A', right: 'B' },
-                messageId: 'unexpectedModulesDependencyOrder',
-              },
-            ],
-            output: dedent`
-              class B {}
-
-              @Decorator()
-              class A {
-                constructor(...b: B[]) {}
-              }
-            `,
-            code: dedent`
-              @Decorator()
-              class A {
-                constructor(...b: B[]) {}
-              }
-
-              class B {}
-            `,
-            options: [metadataOptions],
-          })
-        })
-
-        it('ignores a constructor parameter type on an undecorated class', async () => {
-          await valid({
-            code: dedent`
-              class A {
-                constructor(b: B) {}
-              }
-
-              class B {}
-            `,
-            options: [metadataOptions],
-          })
-        })
-      })
-
-      describe('properties and accessors', () => {
-        it('detects a decorated property type', async () => {
-          await invalid({
-            errors: [
-              {
-                data: { nodeDependentOnRight: 'A', right: 'B' },
-                messageId: 'unexpectedModulesDependencyOrder',
-              },
-            ],
-            output: dedent`
-              class B {}
-
-              class A {
-                @Decorator()
-                b: B
-              }
-            `,
-            code: dedent`
-              class A {
-                @Decorator()
-                b: B
-              }
-
-              class B {}
-            `,
-            options: [metadataOptions],
-          })
-        })
-
-        it('detects a decorated accessor property type', async () => {
-          await invalid({
-            errors: [
-              {
-                data: { nodeDependentOnRight: 'A', right: 'B' },
-                messageId: 'unexpectedModulesDependencyOrder',
-              },
-            ],
-            output: dedent`
-              class B {}
-
-              class A {
-                @Decorator()
-                accessor b: B
-              }
-            `,
-            code: dedent`
-              class A {
-                @Decorator()
-                accessor b: B
-              }
-
-              class B {}
-            `,
-            options: [metadataOptions],
-          })
-        })
-
-        it('detects a decorated static property type', async () => {
-          await invalid({
-            errors: [
-              {
-                data: { nodeDependentOnRight: 'A', right: 'B' },
-                messageId: 'unexpectedModulesDependencyOrder',
-              },
-            ],
-            output: dedent`
-              class B {}
-
-              class A {
-                @Decorator()
-                static b: B
-              }
-            `,
-            code: dedent`
-              class A {
-                @Decorator()
-                static b: B
-              }
-
-              class B {}
-            `,
-            options: [metadataOptions],
-          })
-        })
-
-        it('detects a decorated abstract property type', async () => {
-          await invalid({
-            errors: [
-              {
-                data: { nodeDependentOnRight: 'A', right: 'B' },
-                messageId: 'unexpectedModulesDependencyOrder',
-              },
-            ],
-            output: dedent`
-              class B {}
-
-              abstract class A {
-                @Decorator()
-                abstract b: B
-              }
-            `,
-            code: dedent`
-              abstract class A {
-                @Decorator()
-                abstract b: B
-              }
-
-              class B {}
-            `,
-            options: [metadataOptions],
-          })
-        })
-
-        it('ignores an undecorated property type on a decorated class', async () => {
-          await valid({
-            code: dedent`
-              @Decorator()
-              class A {
-                b: B
-              }
-
-              class B {}
-            `,
-            options: [metadataOptions],
-          })
-        })
-
-        it('ignores an arrow parameter annotation inside a decorated property', async () => {
-          await valid({
-            code: dedent`
-              class A {
-                @Decorator()
-                fn = (b: B) => {}
-              }
-
-              class B {}
-            `,
-            options: [metadataOptions],
-          })
-        })
-
-        it('ignores a parameter type of a function expression assigned to a property', async () => {
-          await valid({
-            code: dedent`
-              class A {
-                @Decorator()
-                prop = function(b: B) {}
-              }
-
-              class B {}
-            `,
-            options: [metadataOptions],
-          })
-        })
-      })
-
-      describe('methods, getters, and setters', () => {
-        it('detects a decorated method parameter type', async () => {
-          await invalid({
-            errors: [
-              {
-                data: { nodeDependentOnRight: 'A', right: 'B' },
-                messageId: 'unexpectedModulesDependencyOrder',
-              },
-            ],
-            output: dedent`
-              class B {}
-
-              class A {
-                @Decorator()
-                method(b: B): void {}
-              }
-            `,
-            code: dedent`
-              class A {
-                @Decorator()
-                method(b: B): void {}
-              }
-
-              class B {}
-            `,
-            options: [metadataOptions],
-          })
-        })
-
-        it('detects sibling parameter types of a decorated method', async () => {
-          await invalid({
-            errors: [
-              {
-                data: { nodeDependentOnRight: 'A', right: 'B' },
-                messageId: 'unexpectedModulesDependencyOrder',
-              },
-              {
-                data: { nodeDependentOnRight: 'A', right: 'C' },
-                messageId: 'unexpectedModulesDependencyOrder',
-              },
-            ],
-            output: dedent`
-              class B {}
-
-              class C {}
-
-              class A {
-                @Decorator()
-                method(b: B, c: C): void {}
-              }
-            `,
-            code: dedent`
-              class A {
-                @Decorator()
-                method(b: B, c: C): void {}
-              }
-
-              class B {}
-
-              class C {}
-            `,
-            options: [metadataOptions],
-          })
-        })
-
-        it('detects a decorated method return type', async () => {
-          await invalid({
-            errors: [
-              {
-                data: { nodeDependentOnRight: 'A', right: 'B' },
-                messageId: 'unexpectedModulesDependencyOrder',
-              },
-            ],
-            output: dedent`
-              class B {}
-
-              class A {
-                @Decorator()
-                method(): B {}
-              }
-            `,
-            code: dedent`
-              class A {
-                @Decorator()
-                method(): B {}
-              }
-
-              class B {}
-            `,
-            options: [metadataOptions],
-          })
-        })
-
-        it('detects a decorated getter return type', async () => {
-          await invalid({
-            errors: [
-              {
-                data: { nodeDependentOnRight: 'A', right: 'B' },
-                messageId: 'unexpectedModulesDependencyOrder',
-              },
-            ],
-            output: dedent`
-              class B {}
-
-              class A {
-                @Decorator()
-                get property(): B {}
-              }
-            `,
-            code: dedent`
-              class A {
-                @Decorator()
-                get property(): B {}
-              }
-
-              class B {}
-            `,
-            options: [metadataOptions],
-          })
-        })
-
-        it('detects a decorated setter parameter type', async () => {
-          await invalid({
-            errors: [
-              {
-                data: { nodeDependentOnRight: 'A', right: 'B' },
-                messageId: 'unexpectedModulesDependencyOrder',
-              },
-            ],
-            output: dedent`
-              class B {}
-
-              class A {
-                @Decorator()
-                set property(b: B) {}
-              }
-            `,
-            code: dedent`
-              class A {
-                @Decorator()
-                set property(b: B) {}
-              }
-
-              class B {}
-            `,
-            options: [metadataOptions],
-          })
-        })
-
-        it('detects sibling parameter types of a method with a decorated parameter', async () => {
-          await invalid({
-            errors: [
-              {
-                data: { nodeDependentOnRight: 'A', right: 'B' },
-                messageId: 'unexpectedModulesDependencyOrder',
-              },
-              {
-                data: { nodeDependentOnRight: 'A', right: 'C' },
-                messageId: 'unexpectedModulesDependencyOrder',
-              },
-            ],
-            output: dedent`
-              class B {}
-
-              class C {}
-
-              class A {
-                method(b: B, @Inject() c: C): void {}
-              }
-            `,
-            code: dedent`
-              class A {
-                method(b: B, @Inject() c: C): void {}
-              }
-
-              class B {}
-
-              class C {}
-            `,
-            options: [metadataOptions],
-          })
-        })
-
-        it('detects a rest parameter element type of a decorated method', async () => {
-          await invalid({
-            errors: [
-              {
-                data: { nodeDependentOnRight: 'A', right: 'B' },
-                messageId: 'unexpectedModulesDependencyOrder',
-              },
-            ],
-            output: dedent`
-              class B {}
-
-              class A {
-                @Decorator()
-                method(...b: B[]) {}
-              }
-            `,
-            code: dedent`
-              class A {
-                @Decorator()
-                method(...b: B[]) {}
-              }
-
-              class B {}
-            `,
-            options: [metadataOptions],
-          })
-        })
-
-        it('detects a rest parameter element type of a decorated getter', async () => {
-          await invalid({
-            errors: [
-              {
-                data: { nodeDependentOnRight: 'A', right: 'B' },
-                messageId: 'unexpectedModulesDependencyOrder',
-              },
-            ],
-            output: dedent`
-              class B {}
-
-              class A {
-                @Decorator()
-                get property(...b: B[]) {}
-              }
-            `,
-            code: dedent`
-              class A {
-                @Decorator()
-                get property(...b: B[]) {}
-              }
-
-              class B {}
-            `,
-            options: [metadataOptions],
-          })
-        })
-
-        it('detects a rest parameter element type of a decorated setter', async () => {
-          await invalid({
-            errors: [
-              {
-                data: { nodeDependentOnRight: 'A', right: 'B' },
-                messageId: 'unexpectedModulesDependencyOrder',
-              },
-            ],
-            output: dedent`
-              class B {}
-
-              class A {
-                @Decorator()
-                set property(...b: B[]) {}
-              }
-            `,
-            code: dedent`
-              class A {
-                @Decorator()
-                set property(...b: B[]) {}
-              }
-
-              class B {}
-            `,
-            options: [metadataOptions],
-          })
-        })
-
-        it('detects a default parameter type of a decorated method', async () => {
-          await invalid({
-            errors: [
-              {
-                data: { nodeDependentOnRight: 'A', right: 'B' },
-                messageId: 'unexpectedModulesDependencyOrder',
-              },
-            ],
-            output: dedent`
-              class B {}
-
-              class A {
-                @Decorator()
-                method(b: B = foo) {}
-              }
-            `,
-            code: dedent`
-              class A {
-                @Decorator()
-                method(b: B = foo) {}
-              }
-
-              class B {}
-            `,
-            options: [metadataOptions],
-          })
-        })
-
-        it('detects an object destructured parameter type of a decorated method', async () => {
-          await invalid({
-            errors: [
-              {
-                data: { nodeDependentOnRight: 'A', right: 'B' },
-                messageId: 'unexpectedModulesDependencyOrder',
-              },
-            ],
-            output: dedent`
-              class B {}
-
-              class A {
-                @Decorator()
-                method({}: B) {}
-              }
-            `,
-            code: dedent`
-              class A {
-                @Decorator()
-                method({}: B) {}
-              }
-
-              class B {}
-            `,
-            options: [metadataOptions],
-          })
-        })
-
-        it('detects an array destructured parameter type of a decorated method', async () => {
-          await invalid({
-            errors: [
-              {
-                data: { nodeDependentOnRight: 'A', right: 'B' },
-                messageId: 'unexpectedModulesDependencyOrder',
-              },
-            ],
-            output: dedent`
-              class B {}
-
-              class A {
-                @Decorator()
-                method([]: B) {}
-              }
-            `,
-            code: dedent`
-              class A {
-                @Decorator()
-                method([]: B) {}
-              }
-
-              class B {}
-            `,
-            options: [metadataOptions],
-          })
-        })
-
-        it('ignores an undecorated method parameter type', async () => {
-          await valid({
-            code: dedent`
-              @Decorator()
-              class A {
-                method(b: B): void {}
-              }
-
-              class B {}
-            `,
-            options: [metadataOptions],
-          })
-        })
-
-        it('ignores a local variable annotation inside a decorated method body', async () => {
-          await valid({
-            code: dedent`
-              class A {
-                @Decorator()
-                method() {
-                  let localVar: B
-                }
-              }
-
-              class B {}
-            `,
-            options: [metadataOptions],
-          })
-        })
-
-        it('ignores a function-type parameter annotation of a decorated method', async () => {
-          await valid({
-            code: dedent`
-              class A {
-                @Decorator()
-                method(callback: (b: B) => void): void {}
-              }
-
-              class B {}
-            `,
-            options: [metadataOptions],
-          })
-        })
-
-        it('ignores a setter parameter type when only the parameter is decorated', async () => {
-          await valid({
-            code: dedent`
-              class A {
-                set property(@Inject() b: B) {}
-              }
-
-              class B {}
-            `,
-            options: [metadataOptions],
-          })
-        })
-      })
-
-      describe('non-class targets', () => {
-        it('ignores an enum target in a decorated constructor parameter', async () => {
-          await valid({
-            code: dedent`
-              @Decorator()
-              class A {
-                constructor(b: B) {}
-              }
-
-              enum B {}
-            `,
-            options: [metadataOptions],
-          })
-        })
-
-        it('ignores an exported enum target in a decorated constructor parameter', async () => {
-          await valid({
-            code: dedent`
-              @Decorator()
-              class A {
-                constructor(b: B) {}
-              }
-
-              export enum B {}
-            `,
-            options: [metadataOptions],
-          })
-        })
-
-        it('ignores an interface target in a decorated position', async () => {
-          await valid({
-            code: dedent`
-              @Decorator()
-              class A {
-                constructor(b: B) {}
-              }
-
-              interface B {}
-            `,
-            options: [metadataOptions],
-          })
-        })
-
-        it('ignores a type alias target in a decorated position', async () => {
-          await valid({
-            code: dedent`
-              @Decorator()
-              class A {
-                constructor(b: B) {}
-              }
-
-              type B = { a: number }
-            `,
-            options: [metadataOptions],
-          })
-        })
-      })
-
-      describe('non-top-level types', () => {
-        it('ignores an array type in a decorated position', async () => {
-          await valid({
-            code: dedent`
-              @Decorator()
-              class A {
-                constructor(b: B[]) {}
-              }
-
-              class B {}
-            `,
-            options: [metadataOptions],
-          })
-        })
-
-        it('ignores a generic-wrapped type in a decorated position', async () => {
-          await valid({
-            code: dedent`
-              @Decorator()
-              class A {
-                constructor(dependency: Array<B>) {}
-              }
-
-              class B {}
-            `,
-            options: [metadataOptions],
-          })
-        })
-
-        it('ignores a union type in a decorated position', async () => {
-          await valid({
-            code: dedent`
-              @Decorator()
-              class A {
-                constructor(b: B | C) {}
-              }
-
-              class B {}
-
-              class C {}
-            `,
-            options: [metadataOptions],
-          })
-        })
-
-        it('ignores an intersection type in a decorated position', async () => {
-          await valid({
-            code: dedent`
-              @Decorator()
-              class A {
-                constructor(b: B & C) {}
-              }
-
-              class B {}
-
-              class C {}
-            `,
-            options: [metadataOptions],
-          })
-        })
-
-        it('ignores a tuple type in a decorated position', async () => {
-          await valid({
-            code: dedent`
-              @Decorator()
-              class A {
-                constructor(b: [B, C]) {}
-              }
-
-              class B {}
-
-              class C {}
-            `,
-            options: [metadataOptions],
-          })
-        })
-
-        it('under-detects a nullable type despite its emitted metadata', async () => {
-          await valid({
-            code: dedent`
-              @Decorator()
-              class A {
-                constructor(b: B | null) {}
-              }
-
-              class B {}
-            `,
-            options: [metadataOptions],
-          })
-        })
-      })
-
-      describe('non-type-annotation positions', () => {
-        it('ignores a type reference inside a decorated method body', async () => {
-          await valid({
-            code: dedent`
-              class A {
-                @Decorator()
-                method() {
-                  return value as B
-                }
-              }
-
-              class B {}
-            `,
-            options: [metadataOptions],
-          })
-        })
-
-        it('ignores a type annotation in a static block', async () => {
-          await valid({
-            code: dedent`
-              class A {
-                static {
-                  let b: B
-                }
-              }
-
-              class B {}
-            `,
-            options: [metadataOptions],
-          })
-        })
-      })
-
-      describe('option gating', () => {
-        it('ignores metadata references when emitDecoratorMetadata is disabled in tsconfig', async () => {
-          mockReadClosestTsConfigByPathWith({ emitDecoratorMetadata: false })
-          await valid({
-            code: dedent`
-              @Decorator()
-              class A {
-                constructor(b: B) {}
-              }
-
-              class B {}
-            `,
-            options: [metadataOptions],
-          })
-        })
-
-        it('ignores metadata references without experimental dependency detection', async () => {
-          await valid({
-            code: dedent`
-              @Decorator()
-              class A {
-                constructor(b: B) {}
-              }
-
-              class B {}
-            `,
-            options: [
-              { ...metadataOptions, useExperimentalDependencyDetection: false },
-            ],
-          })
-        })
-      })
-    })
-
-    describe('decorator metadata dependency detection without tsconfig', () => {
-      let noTsconfigOptions = {
-        ...options,
-        useExperimentalDependencyDetection: true,
-        groups: ['unknown'],
-      } as const
-
-      it('assumes emitDecoratorMetadata when no tsconfig option is given', async () => {
-        await invalid({
-          errors: [
-            {
-              data: { nodeDependentOnRight: 'A', right: 'B' },
-              messageId: 'unexpectedModulesDependencyOrder',
-            },
-          ],
-          output: dedent`
-            class B {}
-
-            class A {
-              @Decorator()
-              b: B
-            }
-          `,
-          code: dedent`
-            class A {
-              @Decorator()
-              b: B
-            }
-
-            class B {}
-          `,
-          options: [noTsconfigOptions],
-        })
-      })
-
-      it('ignores an undecorated type reference when no tsconfig option is given', async () => {
-        await valid({
-          code: dedent`
-            class A {
-              b: B
-            }
-
-            class B {}
-          `,
-          options: [noTsconfigOptions],
-        })
-      })
-
-      it('ignores metadata references when emitDecoratorMetadata is disabled', async () => {
-        mockReadClosestTsConfigByPathWith({})
-
-        await valid({
-          code: dedent`
-            class A {
-              @Decorator()
-              b: B
-            }
-
-            class B {}
-          `,
-          options: [{ ...noTsconfigOptions, tsconfig: { rootDir: '.' } }],
-        })
-      })
-    })
-
-    it('supports function overload names', async () => {
-      await valid({
-        code: dedent`
-          function a(input: string): void;
-          function a(input: number): void;
-          export function a(input: number | string): void {}
-        `,
-        options: [],
-      })
-    })
-
-    it('handles unknown groups correctly', async () => {
-      await invalid({
-        errors: [
-          {
-            data: {
-              leftGroup: 'function',
-              rightGroup: 'unknown',
-              right: 'SomeClass',
-              left: 'b',
-            },
-            messageId: 'unexpectedModulesGroupOrder',
-          },
-          {
-            data: {
-              rightGroup: 'function',
-              leftGroup: 'unknown',
-              left: 'SomeClass',
-              right: 'a',
-            },
-            messageId: 'unexpectedModulesGroupOrder',
           },
         ],
-        output: dedent`
-          function a() {}
-          class SomeClass {}
-          function b() {}
-        `,
-        code: dedent`
-          function b() {}
-          class SomeClass {}
-          function a() {}
-        `,
-        options: [
-          {
-            ...options,
-            groups: ['function'],
-          },
-        ],
-      })
-    })
-
-    it('trims special characters when configured', async () => {
-      await valid({
-        options: [
-          {
-            ...options,
-            specialCharacters: 'trim',
-          },
-        ],
-        code: dedent`
-          function _a() {}
-          function b() {}
-          function _c() {}
-        `,
-      })
-    })
-
-    it('removes special characters when configured', async () => {
-      await valid({
-        options: [
-          {
-            ...options,
-            specialCharacters: 'remove',
-          },
-        ],
-        code: dedent`
-          function ab() {}
-          function a_c() {}
-        `,
-      })
-    })
-
-    it('sorts using locale-specific rules', async () => {
-      await valid({
-        code: dedent`
-          function 你好() {}
-          function 世界() {}
-          function a() {}
-          function A() {}
-          function b() {}
-          function B() {}
-        `,
-        options: [{ ...options, locales: 'zh-CN' }],
-      })
-    })
-
-    it('removes newlines between and inside groups by default when "newlinesBetween" is 0', async () => {
-      await invalid({
-        errors: [
-          {
-            data: {
-              leftGroup: 'interface',
-              rightGroup: 'unknown',
-              right: 'y',
-              left: 'A',
-            },
-            messageId: 'unexpectedModulesGroupOrder',
-          },
-          {
-            messageId: 'unexpectedModulesOrder',
-            data: { right: 'b', left: 'z' },
-          },
-          {
-            messageId: 'extraSpacingBetweenModulesMembers',
-            data: { right: 'b', left: 'z' },
-          },
-        ],
-        options: [
-          {
-            ...options,
-            groups: ['unknown', 'interface'],
-            newlinesBetween: 0,
-          },
-        ],
-        code: dedent`
-            interface A {}
-
-
-           function y() {}
-          function z() {}
-
-              function b() {}
-        `,
-        output: dedent`
-            function b() {}
-           function y() {}
-          function z() {}
-              interface A {}
-        `,
-      })
-    })
-
-    it('removes newlines inside groups when newlinesInside is 0', async () => {
-      await invalid({
-        errors: [
-          {
-            data: {
-              leftGroup: 'interface',
-              rightGroup: 'unknown',
-              right: 'y',
-              left: 'A',
-            },
-            messageId: 'unexpectedModulesGroupOrder',
-          },
-          {
-            messageId: 'unexpectedModulesOrder',
-            data: { right: 'b', left: 'z' },
-          },
-          {
-            messageId: 'extraSpacingBetweenModulesMembers',
-            data: { right: 'b', left: 'z' },
-          },
-        ],
-        options: [
-          {
-            ...options,
-            groups: ['unknown', 'interface'],
-            newlinesInside: 0,
-          },
-        ],
-        code: dedent`
-            interface A {}
-
-
-           function y() {}
-          function z() {}
-
-              function b() {}
-        `,
-        output: dedent`
-          function b() {}
-           function y() {}
-          function z() {}
-
-              interface A {}
-        `,
-      })
-    })
-
-    it('removes newlines between groups when newlinesBetween is 0', async () => {
-      await invalid({
-        errors: [
-          {
-            data: {
-              leftGroup: 'interface',
-              rightGroup: 'unknown',
-              right: 'y',
-              left: 'A',
-            },
-            messageId: 'unexpectedModulesGroupOrder',
-          },
-          {
-            messageId: 'unexpectedModulesOrder',
-            data: { right: 'b', left: 'z' },
-          },
-        ],
-        options: [
-          {
-            ...options,
-            groups: ['unknown', 'interface'],
-            newlinesInside: 'ignore',
-            newlinesBetween: 0,
-          },
-        ],
-        code: dedent`
-            interface A {}
-
-
-           function y() {}
-          function z() {}
-
-              function b() {}
-        `,
-        output: dedent`
-          function b() {}
-
-
-           function y() {}
-          function z() {}
-              interface A {}
-        `,
-      })
-    })
-
-    it('maintains single newline between groups when newlinesBetween is 1', async () => {
-      await invalid({
-        options: [
-          {
-            ...options,
-            customGroups: [
-              {
-                elementNamePattern: 'a',
-                groupName: 'a',
-              },
-              {
-                elementNamePattern: 'b',
-                groupName: 'b',
-              },
-            ],
-            groups: ['a', 'b'],
-            newlinesBetween: 1,
-          },
-        ],
-        errors: [
-          {
-            messageId: 'missedSpacingBetweenModulesMembers',
-            data: { right: 'b', left: 'a' },
-          },
-        ],
-        output: dedent`
-          function a() {};
-
-          function b() {}
-        `,
-        code: dedent`
-          function a() {};function b() {}
-        `,
-      })
-
-      await invalid({
-        errors: [
-          {
-            messageId: 'extraSpacingBetweenModulesMembers',
-            data: { right: 'z', left: 'A' },
-          },
-          {
-            messageId: 'unexpectedModulesOrder',
-            data: { right: 'y', left: 'z' },
-          },
-          {
-            messageId: 'missedSpacingBetweenModulesMembers',
-            data: { right: 'B', left: 'y' },
-          },
-        ],
-        options: [
-          {
-            ...options,
-            groups: ['interface', 'unknown', 'class'],
-            newlinesBetween: 1,
-          },
-        ],
-        output: dedent`
-            interface A {}
-
-           function y() {}
-          function z() {}
-
-              class B {}
-        `,
-        code: dedent`
-            interface A {}
-
-
-           function z() {}
-          function y() {}
-              class B {}
-        `,
-      })
-    })
-
-    it('handles newlinesBetween settings between consecutive groups', async () => {
-      await invalid({
-        options: [
-          {
-            ...options,
-            customGroups: [
-              { elementNamePattern: 'a', groupName: 'a' },
-              { elementNamePattern: 'b', groupName: 'b' },
-              { elementNamePattern: 'c', groupName: 'c' },
-              { elementNamePattern: 'd', groupName: 'd' },
-              { elementNamePattern: 'e', groupName: 'e' },
-            ],
-            groups: [
-              'a',
-              { newlinesBetween: 1 },
-              'b',
-              { newlinesBetween: 1 },
-              'c',
-              { newlinesBetween: 0 },
-              'd',
-              { newlinesBetween: 'ignore' },
-              'e',
-            ],
-            newlinesBetween: 1,
-          },
-        ],
-        errors: [
-          {
-            messageId: 'missedSpacingBetweenModulesMembers',
-            data: { right: 'b', left: 'a' },
-          },
-          {
-            messageId: 'extraSpacingBetweenModulesMembers',
-            data: { right: 'c', left: 'b' },
-          },
-          {
-            messageId: 'extraSpacingBetweenModulesMembers',
-            data: { right: 'd', left: 'c' },
-          },
-        ],
-        output: dedent`
-          function a() {}
-
-          function b() {}
-
-          function c() {}
-          function d() {}
-
-
-          function e() {}
-        `,
-        code: dedent`
-          function a() {}
-          function b() {}
-
-
-          function c() {}
-
-          function d() {}
-
-
-          function e() {}
-        `,
-      })
-    })
-
-    it.each([
-      [2, 0],
-      [2, 'ignore'],
-      [0, 2],
-      ['ignore', 2],
-    ])(
-      'enforces 2 newlines when global is %s and group is %s',
-      async (globalNewlinesBetween, groupNewlinesBetween) => {
-        await invalid({
-          options: [
-            {
-              ...options,
-              customGroups: [
-                { elementNamePattern: 'a', groupName: 'a' },
-                { elementNamePattern: 'b', groupName: 'b' },
-                { groupName: 'unusedGroup', elementNamePattern: 'X' },
-              ],
-              groups: [
-                'a',
-                'unusedGroup',
-                { newlinesBetween: groupNewlinesBetween },
-                'b',
-              ],
-              newlinesBetween: globalNewlinesBetween,
-            },
-          ],
-          errors: [
-            {
-              messageId: 'missedSpacingBetweenModulesMembers',
-              data: { right: 'b', left: 'a' },
-            },
-          ],
-          output: dedent`
-            function a() {}
-
-
-            function b() {}
-          `,
-          code: dedent`
-            function a() {}
-            function b() {}
-          `,
-        })
+        valid: [],
       },
     )
-
-    it.each([1, 2, 'ignore', 0])(
-      'removes newlines when 0 overrides global %s between specific groups',
-      async globalNewlinesBetween => {
-        await invalid({
-          options: [
-            {
-              ...options,
-              customGroups: [
-                { elementNamePattern: 'a', groupName: 'a' },
-                { elementNamePattern: 'b', groupName: 'b' },
-                { elementNamePattern: 'c', groupName: 'c' },
-                { groupName: 'unusedGroup', elementNamePattern: 'X' },
-              ],
-              groups: [
-                'a',
-                { newlinesBetween: 0 },
-                'unusedGroup',
-                { newlinesBetween: 0 },
-                'b',
-                { newlinesBetween: 1 },
-                'c',
-              ],
-              newlinesBetween: globalNewlinesBetween,
-            },
-          ],
-          errors: [
-            {
-              messageId: 'extraSpacingBetweenModulesMembers',
-              data: { right: 'b', left: 'a' },
-            },
-          ],
-          output: dedent`
-            function a() {}
-            function b() {}
-          `,
-          code: dedent`
-            function a() {}
-
-            function b() {}
-          `,
-        })
-      },
-    )
-
-    it.each([
-      ['ignore', 0],
-      [0, 'ignore'],
-    ])(
-      'accepts any spacing when global is %s and group is %s',
-      async (globalNewlinesBetween, groupNewlinesBetween) => {
-        await valid({
-          options: [
-            {
-              ...options,
-              customGroups: [
-                { elementNamePattern: 'a', groupName: 'a' },
-                { elementNamePattern: 'b', groupName: 'b' },
-                { groupName: 'unusedGroup', elementNamePattern: 'X' },
-              ],
-              groups: [
-                'a',
-                'unusedGroup',
-                { newlinesBetween: groupNewlinesBetween },
-                'b',
-              ],
-              newlinesBetween: globalNewlinesBetween,
-            },
-          ],
-          code: dedent`
-            function a() {}
-
-            function b() {}
-          `,
-        })
-
-        await valid({
-          options: [
-            {
-              ...options,
-              customGroups: [
-                { elementNamePattern: 'a', groupName: 'a' },
-                { elementNamePattern: 'b', groupName: 'b' },
-                { groupName: 'unusedGroup', elementNamePattern: 'X' },
-              ],
-              groups: [
-                'a',
-                'unusedGroup',
-                { newlinesBetween: groupNewlinesBetween },
-                'b',
-              ],
-              newlinesBetween: globalNewlinesBetween,
-            },
-          ],
-          code: dedent`
-            function a() {}
-            function b() {}
-          `,
-        })
-      },
-    )
-
-    it('handles newlines and comments after fixes', async () => {
-      await invalid({
-        errors: [
-          {
-            data: {
-              rightGroup: 'function',
-              leftGroup: 'type',
-              right: 'a',
-              left: 'B',
-            },
-            messageId: 'unexpectedModulesGroupOrder',
-          },
-        ],
-        options: [
-          {
-            groups: ['function', 'type'],
-            newlinesBetween: 1,
-            newlinesInside: 0,
-          },
-        ],
-        output: dedent`
-          function a() {} // Comment after
-
-          type B = string
-          type C = string
-        `,
-        code: dedent`
-          type B = string
-          function a() {} // Comment after
-
-          type C = string
-        `,
-      })
-    })
-
-    it('preserves partition boundaries regardless of newlinesBetween 0', async () => {
-      await invalid({
-        options: [
-          {
-            ...options,
-            customGroups: [
-              {
-                elementNamePattern: 'a',
-                groupName: 'a',
-              },
-            ],
-            groups: ['a', 'unknown'],
-            partitionByComment: true,
-            newlinesBetween: 0,
-          },
-        ],
-        errors: [
-          {
-            messageId: 'unexpectedModulesOrder',
-            data: { right: 'b', left: 'c' },
-          },
-        ],
-        output: dedent`
-          function a() {}
-
-          // Partition comment
-
-          function b() {}
-          function c() {}
-        `,
-        code: dedent`
-          function a() {}
-
-          // Partition comment
-
-          function c() {}
-          function b() {}
-        `,
-      })
-    })
-
-    it('sorts inline non-declare functions correctly', async () => {
-      await invalid({
-        errors: [
-          {
-            messageId: 'unexpectedModulesOrder',
-            data: { right: 'a', left: 'b' },
-          },
-        ],
-        output: dedent`
-          function a() {} function b() {}
-        `,
-        code: dedent`
-          function b() {} function a() {}
-        `,
-        options: [options],
-      })
-
-      await invalid({
-        errors: [
-          {
-            messageId: 'unexpectedModulesOrder',
-            data: { right: 'a', left: 'b' },
-          },
-        ],
-        output: dedent`
-          function a() {} function b() {};
-        `,
-        code: dedent`
-          function b() {} function a() {};
-        `,
-        options: [options],
-      })
-
-      await invalid({
-        errors: [
-          {
-            messageId: 'unexpectedModulesOrder',
-            data: { right: 'a', left: 'b' },
-          },
-        ],
-        output: dedent`
-          function a() {}; function b() {}
-        `,
-        code: dedent`
-          function b() {}; function a() {}
-        `,
-        options: [options],
-      })
-    })
-
-    it('sorts inline declare functions correctly', async () => {
-      await invalid({
-        errors: [
-          {
-            messageId: 'unexpectedModulesOrder',
-            data: { right: 'a', left: 'b' },
-          },
-        ],
-        output: dedent`
-          declare function a(); declare function b();
-        `,
-        code: dedent`
-          declare function b(); declare function a()
-        `,
-        options: [options],
-      })
-
-      await invalid({
-        errors: [
-          {
-            messageId: 'unexpectedModulesOrder',
-            data: { right: 'a', left: 'b' },
-          },
-        ],
-        output: dedent`
-          declare function a(); declare function b();
-        `,
-        code: dedent`
-          declare function b(); declare function a();
-        `,
-        options: [options],
-      })
-    })
-
-    it('sorts inline interfaces correctly', async () => {
-      await invalid({
-        errors: [
-          {
-            messageId: 'unexpectedModulesOrder',
-            data: { right: 'A', left: 'B' },
-          },
-        ],
-        output: dedent`
-          interface A {} interface B {}
-        `,
-        code: dedent`
-          interface B {} interface A {}
-        `,
-        options: [options],
-      })
-
-      await invalid({
-        errors: [
-          {
-            messageId: 'unexpectedModulesOrder',
-            data: { right: 'A', left: 'B' },
-          },
-        ],
-        output: dedent`
-          interface A {} interface B {};
-        `,
-        code: dedent`
-          interface B {} interface A {};
-        `,
-        options: [options],
-      })
-
-      await invalid({
-        errors: [
-          {
-            messageId: 'unexpectedModulesOrder',
-            data: { right: 'A', left: 'B' },
-          },
-        ],
-        output: dedent`
-          interface A {}; interface B {}
-        `,
-        code: dedent`
-          interface B {}; interface A {}
-        `,
-        options: [options],
-      })
-    })
-
-    it('sorts inline type aliases correctly', async () => {
-      await invalid({
-        errors: [
-          {
-            messageId: 'unexpectedModulesOrder',
-            data: { right: 'a', left: 'b' },
-          },
-        ],
-        output: dedent`
-          type a = {}; type b = {};
-        `,
-        code: dedent`
-          type b = {}; type a = {}
-        `,
-        options: [options],
-      })
-
-      await invalid({
-        errors: [
-          {
-            messageId: 'unexpectedModulesOrder',
-            data: { right: 'a', left: 'b' },
-          },
-        ],
-        output: dedent`
-          type a = {}; type b = {};
-        `,
-        code: dedent`
-          type b = {}; type a = {};
-        `,
-        options: [options],
-      })
-    })
-
-    it('sorts inline classes correctly', async () => {
-      await invalid({
-        errors: [
-          {
-            messageId: 'unexpectedModulesOrder',
-            data: { right: 'A', left: 'B' },
-          },
-        ],
-        output: dedent`
-          class A {} class B {}
-        `,
-        code: dedent`
-          class B {} class A {}
-        `,
-        options: [options],
-      })
-
-      await invalid({
-        errors: [
-          {
-            messageId: 'unexpectedModulesOrder',
-            data: { right: 'A', left: 'B' },
-          },
-        ],
-        output: dedent`
-          class A {} class B {};
-        `,
-        code: dedent`
-          class B {} class A {};
-        `,
-        options: [options],
-      })
-
-      await invalid({
-        errors: [
-          {
-            messageId: 'unexpectedModulesOrder',
-            data: { right: 'A', left: 'B' },
-          },
-        ],
-        output: dedent`
-          class A {}; class B {}
-        `,
-        code: dedent`
-          class B {}; class A {}
-        `,
-        options: [options],
-      })
-    })
-
-    it('sorts inline enums correctly', async () => {
-      await invalid({
-        errors: [
-          {
-            messageId: 'unexpectedModulesOrder',
-            data: { right: 'A', left: 'B' },
-          },
-        ],
-        output: dedent`
-          enum A {} enum B {}
-        `,
-        code: dedent`
-          enum B {} enum A {}
-        `,
-        options: [options],
-      })
-
-      await invalid({
-        errors: [
-          {
-            messageId: 'unexpectedModulesOrder',
-            data: { right: 'A', left: 'B' },
-          },
-        ],
-        output: dedent`
-          enum A {} enum B {};
-        `,
-        code: dedent`
-          enum B {} enum A {};
-        `,
-        options: [options],
-      })
-
-      await invalid({
-        errors: [
-          {
-            messageId: 'unexpectedModulesOrder',
-            data: { right: 'A', left: 'B' },
-          },
-        ],
-        output: dedent`
-          enum A {}; enum B {}
-        `,
-        code: dedent`
-          enum B {}; enum A {}
-        `,
-        options: [options],
-      })
-    })
-
-    describe('exported decorated classes', () => {
-      it('accepts already sorted decorated exports', async () => {
-        await valid({
-          code: dedent`
-            @A
-            export class A {}
-
-            @B
-            class B {}
-          `,
-          options: [{ ...options, groups: ['unknown'] }],
-        })
-      })
-
-      it('allows exported then decorated classes to be sorted', async () => {
-        await invalid({
-          output: dedent`
-            // A
-            export @A class A {}
-
-            @B
-            class B {}
-
-            @C
-            class C {}
-          `,
-          code: dedent`
-            @C
-            class C {}
-
-            // A
-            export @A class A {}
-
-            @B
-            class B {}
-          `,
-          errors: [
-            {
-              messageId: 'unexpectedModulesOrder',
-              data: { right: 'A', left: 'C' },
-            },
-          ],
-          options: [
-            {
-              ...options,
-              groups: ['unknown'],
-            },
-          ],
-        })
-
-        await invalid({
-          output: dedent`
-            // A
-            export default @A class A {}
-
-            @B
-            class B {}
-
-            @C
-            class C {}
-          `,
-          code: dedent`
-            @C
-            class C {}
-
-            // A
-            export default @A class A {}
-
-            @B
-            class B {}
-          `,
-          errors: [
-            {
-              messageId: 'unexpectedModulesOrder',
-              data: { right: 'A', left: 'C' },
-            },
-          ],
-          options: [
-            {
-              ...options,
-              groups: ['unknown'],
-            },
-          ],
-        })
-      })
-
-      it('correctly sorts exported classes with decorators', async () => {
-        await invalid({
-          output: dedent`
-            @A1
-            @A2
-            // A
-            export class A {}
-
-            @B1
-            @B2
-            /* B */
-            class B {}
-
-            @C1
-            @C2
-            // C
-            class C {}
-          `,
-          code: dedent`
-            @C1
-            @C2
-            // C
-            class C {}
-
-            @A1
-            @A2
-            // A
-            export class A {}
-
-            @B1
-            @B2
-            /* B */
-            class B {}
-          `,
-          errors: [
-            {
-              messageId: 'unexpectedModulesOrder',
-              data: { right: 'A', left: 'C' },
-            },
-          ],
-          options: [
-            {
-              ...options,
-              groups: ['unknown'],
-            },
-          ],
-        })
-
-        await invalid({
-          output: dedent`
-            @A1
-            @A2
-            // A
-            export default class A {}
-
-            @B1
-            @B2
-            /* B */
-            class B {}
-
-            @C1
-            @C2
-            // C
-            class C {}
-          `,
-          code: dedent`
-            @C1
-            @C2
-            // C
-            class C {}
-
-            @A1
-            @A2
-            // A
-            export default class A {}
-
-            @B1
-            @B2
-            /* B */
-            class B {}
-          `,
-          errors: [
-            {
-              messageId: 'unexpectedModulesOrder',
-              data: { right: 'A', left: 'C' },
-            },
-          ],
-          options: [
-            {
-              ...options,
-              groups: ['unknown'],
-            },
-          ],
-        })
-      })
-
-      it('keeps a line comment attached to its exported decorated class', async () => {
-        await invalid({
-          output: dedent`
-            // doc for A1
-            @A
-            // doc for A2
-            export class A {}
-
-            // doc for B1
-            @B
-            // doc for B2
-            class B {}
-          `,
-          code: dedent`
-            // doc for B1
-            @B
-            // doc for B2
-            class B {}
-
-            // doc for A1
-            @A
-            // doc for A2
-            export class A {}
-          `,
-          errors: [
-            {
-              messageId: 'unexpectedModulesOrder',
-              data: { right: 'A', left: 'B' },
-            },
-          ],
-          options: [{ ...options, groups: ['unknown'] }],
-        })
-      })
-
-      it('keeps a JSDoc block comment attached to its exported decorated class', async () => {
-        await invalid({
-          output: dedent`
-            /** doc for A */
-            @A
-            export class A {}
-
-            /** doc for B */
-            @B
-            class B {}
-          `,
-          code: dedent`
-            /** doc for B */
-            @B
-            class B {}
-
-            /** doc for A */
-            @A
-            export class A {}
-          `,
-          errors: [
-            {
-              messageId: 'unexpectedModulesOrder',
-              data: { right: 'A', left: 'B' },
-            },
-          ],
-          options: [{ ...options, groups: ['unknown'] }],
-        })
-      })
-    })
-
-    describe('additionalModuleBlockTypes', () => {
-      it('analyzes the body of the given node types as a module block', async () => {
-        await invalidWithReplacedNodeType({
-          errors: [
-            {
-              messageId: 'unexpectedModulesOrder',
-              data: { right: 'A', left: 'B' },
-            },
-          ],
-          options: [
-            {
-              ...options,
-              additionalModuleBlockTypes: [UNKNOWN_MODULE_BLOCK_TYPE],
-            },
-          ],
-          parserOptions: {
-            replacementNodeType: UNKNOWN_MODULE_BLOCK_TYPE,
-            nodeTypeToReplace: 'BlockStatement',
-          },
-          output: dedent`
-            {
-              type A = string
-              type B = string
-            }
-          `,
-          code: dedent`
-            {
-              type B = string
-              type A = string
-            }
-          `,
-        })
-      })
-
-      it('does not sort statements across the body of an additional module block', async () => {
-        await validWithReplacedNodeType({
-          options: [
-            {
-              ...options,
-              additionalModuleBlockTypes: [UNKNOWN_MODULE_BLOCK_TYPE],
-            },
-          ],
-          code: dedent`
-            type Z = string
-            {
-              type C = string
-            }
-            type A = string
-          `,
-          parserOptions: {
-            replacementNodeType: UNKNOWN_MODULE_BLOCK_TYPE,
-            nodeTypeToReplace: 'BlockStatement',
-          },
-        })
-      })
-
-      it('ignores the body of node types that are not listed', async () => {
-        await validWithReplacedNodeType({
-          parserOptions: {
-            replacementNodeType: UNKNOWN_MODULE_BLOCK_TYPE,
-            nodeTypeToReplace: 'BlockStatement',
-          },
-          code: dedent`
-            {
-              type B = string
-              type A = string
-            }
-          `,
-          options: [options],
-        })
-      })
-
-      it('does not crash when a listed node type has no body', async () => {
-        await validWithReplacedNodeType({
-          options: [
-            {
-              ...options,
-              additionalModuleBlockTypes: [UNKNOWN_MODULE_BLOCK_TYPE],
-            },
-          ],
-          parserOptions: {
-            replacementNodeType: UNKNOWN_MODULE_BLOCK_TYPE,
-            nodeTypeToReplace: 'TSTypeAliasDeclaration',
-          },
-          code: dedent`
-            type A = string
-            type B = string
-          `,
-        })
-      })
-
-      it('does not crash when a listed node type has a non-array body', async () => {
-        await validWithReplacedNodeType({
-          options: [
-            {
-              ...options,
-              additionalModuleBlockTypes: [UNKNOWN_MODULE_BLOCK_TYPE],
-            },
-          ],
-          parserOptions: {
-            replacementNodeType: UNKNOWN_MODULE_BLOCK_TYPE,
-            nodeTypeToReplace: 'FunctionDeclaration',
-          },
-          code: dedent`
-            function a() {}
-            function b() {}
-          `,
-        })
-      })
-    })
-
-    describe('built-in module block types', () => {
-      it('analyzes the body of SvelteScriptElement nodes by default', async () => {
-        await invalidWithReplacedNodeType({
-          errors: [
-            {
-              messageId: 'unexpectedModulesOrder',
-              data: { right: 'A', left: 'B' },
-            },
-          ],
-          parserOptions: {
-            replacementNodeType: 'SvelteScriptElement',
-            nodeTypeToReplace: 'BlockStatement',
-          },
-          output: dedent`
-            {
-              type A = string
-              type B = string
-            }
-          `,
-          code: dedent`
-            {
-              type B = string
-              type A = string
-            }
-          `,
-          options: [options],
-        })
-      })
-    })
   })
 
-  describe('natural', () => {
+  describe(`${ruleName}: sorting by natural order`, () => {
+    let type = 'natural-order'
+
     let options = {
+      ignoreCase: true,
       type: 'natural',
       order: 'asc',
     } as const
 
-    it('sorts modules according to group hierarchy', async () => {
-      await invalid({
-        errors: [
-          {
-            data: {
-              leftGroup: 'export-interface',
-              left: 'FindUserInput',
-              right: 'CacheType',
-              rightGroup: 'enum',
-            },
-            messageId: 'unexpectedModulesGroupOrder',
-          },
-          {
-            data: {
-              rightGroup: 'export-function',
-              left: 'assertInputIsCorrect',
-              leftGroup: 'function',
-              right: 'findUser',
-            },
-            messageId: 'unexpectedModulesGroupOrder',
-          },
-          {
-            data: {
-              leftGroup: 'export-function',
-              right: 'FindAllUsersInput',
-              rightGroup: 'export-type',
-              left: 'findUser',
-            },
-            messageId: 'unexpectedModulesGroupOrder',
-          },
-          {
-            data: {
-              leftGroup: 'export-function',
-              left: 'findAllUsers',
-              rightGroup: 'class',
-              right: 'Cache',
-            },
-            messageId: 'unexpectedModulesGroupOrder',
-          },
-        ],
-        output: dedent`
-          enum CacheType {
-            ALWAYS = 'ALWAYS',
-            NEVER = 'NEVER',
-          }
-
-          export type FindAllUsersInput = {
-            ids: string[]
-            cache: CacheType
-          }
-
-          export type FindAllUsersOutput = FindUserOutput[]
-
-          export interface FindUserInput {
-            id: string
-            cache: CacheType
-          }
-
-          export type FindUserOutput = {
-            id: string
-            name: string
-            age: number
-          }
-
-          class Cache {
-            // Some logic
-          }
-
-          export function findAllUsers(input: FindAllUsersInput): FindAllUsersOutput {
-            assertInputIsCorrect(input)
-            return _findUserByIds(input.ids)
-          }
-
-          export function findUser(input: FindUserInput): FindUserOutput {
-            assertInputIsCorrect(input)
-            return _findUserByIds([input.id])[0]
-          }
-
-          function assertInputIsCorrect(input: FindUserInput | FindAllUsersInput): void {
-            // Some logic
-          }
-        `,
-        code: dedent`
-          export interface FindUserInput {
-            id: string
-            cache: CacheType
-          }
-
-          enum CacheType {
-            ALWAYS = 'ALWAYS',
-            NEVER = 'NEVER',
-          }
-
-          export type FindUserOutput = {
-            id: string
-            name: string
-            age: number
-          }
-
-          function assertInputIsCorrect(input: FindUserInput | FindAllUsersInput): void {
-            // Some logic
-          }
-
-          export function findUser(input: FindUserInput): FindUserOutput {
-            assertInputIsCorrect(input)
-            return _findUserByIds([input.id])[0]
-          }
-
-          export type FindAllUsersInput = {
-            ids: string[]
-            cache: CacheType
-          }
-
-          export type FindAllUsersOutput = FindUserOutput[]
-
-          export function findAllUsers(input: FindAllUsersInput): FindAllUsersOutput {
-            assertInputIsCorrect(input)
-            return _findUserByIds(input.ids)
-          }
-
-          class Cache {
-            // Some logic
-          }
-        `,
-        options: [options],
-      })
-    })
-
-    it('sorts modules within modules and namespaces', async () => {
-      await invalid({
-        errors: [
-          {
-            messageId: 'unexpectedModulesOrder',
-            data: { right: 'A', left: 'B' },
-          },
-          {
-            messageId: 'unexpectedModulesOrder',
-            data: { right: 'A', left: 'B' },
-          },
-        ],
-        output: dedent`
-          module ModuleB {
-            interface A {}
-            interface B {}
-          }
-          module ModuleA {
-            interface A {}
-            interface B {}
-          }
-        `,
-        code: dedent`
-          module ModuleB {
-            interface B {}
-            interface A {}
-          }
-          module ModuleA {
-            interface B {}
-            interface A {}
-          }
-        `,
-        options: [options],
-      })
-
-      await invalid({
-        errors: [
-          {
-            messageId: 'unexpectedModulesOrder',
-            data: { right: 'A', left: 'B' },
-          },
-          {
-            messageId: 'unexpectedModulesOrder',
-            data: { right: 'A', left: 'B' },
-          },
-        ],
-        output: dedent`
-          namespace NamespaceB {
-            interface A {}
-            interface B {}
-          }
-          namespace NamespaceA {
-            interface A {}
-            interface B {}
-          }
-        `,
-        code: dedent`
-          namespace NamespaceB {
-            interface B {}
-            interface A {}
-          }
-          namespace NamespaceA {
-            interface B {}
-            interface A {}
-          }
-        `,
-        options: [options],
-      })
-    })
-
-    it('creates partitions at variable declarations', async () => {
-      await valid({
-        code: dedent`
-          interface B {}
-          export let a;
-          interface A {}
-        `,
-        options: [options],
-      })
-    })
-
-    it('creates partitions at function call expressions', async () => {
-      await valid({
-        code: dedent`
-          interface B {}
-          iAmCallingAFunction();
-          interface A {}
-        `,
-        options: [options],
-      })
-    })
-
-    it('accepts complex predefined group configurations', async () => {
-      await valid({
-        options: [
-          {
-            ...options,
-            groups: [
-              'export-declare-interface',
-              'export-default-interface',
-              'export-declare-function',
-              'export-default-async-function',
-              'export-decorated-class',
-              'export-default-decorated-class',
-              'export-declare-type',
-              'export-enum',
-              'export-declare-enum',
-              'unknown',
-            ],
-          },
-        ],
-        code: dedent`
-          export declare interface Interface {}
-
-          export default interface Interface2 {}
-
-          export declare function f2()
-
-          export default async function f1()
-
-          export @Decorator declare class Class1 {}
-
-          export @Decorator default class Class2 {}
-
-          export declare type Type = {}
-
-          export enum Enum1 {}
-
-          export declare enum Enum2 {}
-        `,
-      })
-    })
-
-    it('filters elements based on selector and modifiers', async () => {
-      await invalid({
-        options: [
-          {
-            customGroups: [
-              {
-                groupName: 'unusedCustomGroup',
-                modifiers: ['export'],
-                selector: 'type',
-              },
-              {
-                groupName: 'exportInterfaceGroup',
-                selector: 'interface',
-                modifiers: ['export'],
-              },
-              {
-                groupName: 'interfaceGroup',
-                selector: 'interface',
-              },
-            ],
-            groups: ['interfaceGroup', 'exportInterfaceGroup'],
-          },
-        ],
-        errors: [
-          {
-            data: {
-              leftGroup: 'exportInterfaceGroup',
-              rightGroup: 'interfaceGroup',
-              right: 'C',
-              left: 'B',
-            },
-            messageId: 'unexpectedModulesGroupOrder',
-          },
-        ],
-        output: dedent`
-          interface C {}
-          export interface A {}
-          export interface B {}
-        `,
-        code: dedent`
-          export interface A {}
-          export interface B {}
-          interface C {}
-        `,
-      })
-    })
-
-    it.each([
-      ['string pattern', 'hello'],
-      ['array with string pattern', ['noMatch', 'hello']],
-      ['case-insensitive regex object', { pattern: 'HELLO', flags: 'i' }],
-      [
-        'array with regex object',
-        ['noMatch', { pattern: 'HELLO', flags: 'i' }],
-      ],
-    ])(
-      'filters functions by element name pattern - %s',
-      async (_description, elementNamePattern) => {
-        await invalid({
-          options: [
-            {
-              customGroups: [
-                {
-                  groupName: 'functionsStartingWithHello',
-                  selector: 'function',
-                  elementNamePattern,
-                },
-              ],
-              groups: ['functionsStartingWithHello', 'unknown'],
-            },
-          ],
+    ruleTester.run(`${ruleName}(${type}): sorts modules`, rule, {
+      invalid: [
+        {
           errors: [
             {
               data: {
-                rightGroup: 'functionsStartingWithHello',
-                right: 'helloFunction',
-                leftGroup: 'unknown',
-                left: 'func',
+                leftGroup: 'export-interface',
+                left: 'FindUserInput',
+                right: 'CacheType',
+                rightGroup: 'enum',
+              },
+              messageId: 'unexpectedModulesGroupOrder',
+            },
+            {
+              data: {
+                rightGroup: 'export-function',
+                left: 'assertInputIsCorrect',
+                leftGroup: 'function',
+                right: 'findUser',
+              },
+              messageId: 'unexpectedModulesGroupOrder',
+            },
+            {
+              data: {
+                leftGroup: 'export-function',
+                right: 'FindAllUsersInput',
+                rightGroup: 'export-type',
+                left: 'findUser',
+              },
+              messageId: 'unexpectedModulesGroupOrder',
+            },
+            {
+              data: {
+                leftGroup: 'export-function',
+                left: 'findAllUsers',
+                rightGroup: 'class',
+                right: 'Cache',
               },
               messageId: 'unexpectedModulesGroupOrder',
             },
           ],
           output: dedent`
-            function helloFunction() {}
-            interface A {}
-            interface B {}
-            function func() {}
+            enum CacheType {
+              ALWAYS = 'ALWAYS',
+              NEVER = 'NEVER',
+            }
+
+            export type FindAllUsersInput = {
+              ids: string[]
+              cache: CacheType
+            }
+
+            export type FindAllUsersOutput = FindUserOutput[]
+
+            export interface FindUserInput {
+              id: string
+              cache: CacheType
+            }
+
+            export type FindUserOutput = {
+              id: string
+              name: string
+              age: number
+            }
+
+            class Cache {
+              // Some logic
+            }
+
+            export function findAllUsers(input: FindAllUsersInput): FindAllUsersOutput {
+              assertInputIsCorrect(input)
+              return _findUserByIds(input.ids)
+            }
+
+            export function findUser(input: FindUserInput): FindUserOutput {
+              assertInputIsCorrect(input)
+              return _findUserByIds([input.id])[0]
+            }
+
+            function assertInputIsCorrect(input: FindUserInput | FindAllUsersInput): void {
+              // Some logic
+            }
           `,
           code: dedent`
-            interface A {}
-            interface B {}
-            function func() {}
-            function helloFunction() {}
-          `,
-        })
-      },
-    )
+            export interface FindUserInput {
+              id: string
+              cache: CacheType
+            }
 
-    it.each([
-      ['string pattern', 'Hello'],
-      ['array with string pattern', ['noMatch', 'Hello']],
-      ['case-insensitive regex object', { pattern: 'HELLO', flags: 'i' }],
-      [
-        'array with regex object',
-        ['noMatch', { pattern: 'HELLO', flags: 'i' }],
+            enum CacheType {
+              ALWAYS = 'ALWAYS',
+              NEVER = 'NEVER',
+            }
+
+            export type FindUserOutput = {
+              id: string
+              name: string
+              age: number
+            }
+
+            function assertInputIsCorrect(input: FindUserInput | FindAllUsersInput): void {
+              // Some logic
+            }
+
+            export function findUser(input: FindUserInput): FindUserOutput {
+              assertInputIsCorrect(input)
+              return _findUserByIds([input.id])[0]
+            }
+
+            export type FindAllUsersInput = {
+              ids: string[]
+              cache: CacheType
+            }
+
+            export type FindAllUsersOutput = FindUserOutput[]
+
+            export function findAllUsers(input: FindAllUsersInput): FindAllUsersOutput {
+              assertInputIsCorrect(input)
+              return _findUserByIds(input.ids)
+            }
+
+            class Cache {
+              // Some logic
+            }
+          `,
+          options: [options],
+        },
       ],
-    ])(
-      'filters classes by decorator name pattern - %s',
-      async (_description, decoratorNamePattern) => {
-        await invalid({
-          errors: [
-            {
-              data: {
-                rightGroup: 'classesWithDecoratorStartingWithHello',
-                leftGroup: 'unknown',
-                left: 'func',
-                right: 'C',
-              },
-              messageId: 'unexpectedModulesGroupOrder',
-            },
-            {
-              data: { right: 'AnotherClass', left: 'C' },
-              messageId: 'unexpectedModulesOrder',
-            },
-          ],
-          options: [
-            {
-              customGroups: [
-                {
-                  groupName: 'classesWithDecoratorStartingWithHello',
-                  decoratorNamePattern,
-                  selector: 'class',
-                },
-              ],
-              groups: ['classesWithDecoratorStartingWithHello', 'unknown'],
-            },
-          ],
-          output: dedent`
-            @HelloDecorator()
-            class AnotherClass {}
-
-            @HelloDecorator
-            class C {}
-
-            @Decorator
-            class A {}
-
-            class B {}
-
-            function func() {}
-          `,
-          code: dedent`
-            @Decorator
-            class A {}
-
-            class B {}
-
-            function func() {}
-
-            @HelloDecorator
-            class C {}
-
-            @HelloDecorator()
-            class AnotherClass {}
-          `,
-        })
-      },
-    )
-
-    it('filters elements using complex decorator name patterns', async () => {
-      await invalid({
-        options: [
-          {
-            customGroups: [
-              {
-                decoratorNamePattern: 'B',
-                groupName: 'B',
-              },
-              {
-                decoratorNamePattern: 'A',
-                groupName: 'A',
-              },
-            ],
-            type: 'alphabetical',
-            groups: ['B', 'A'],
-            order: 'asc',
-          },
-        ],
-        errors: [
-          {
-            data: {
-              rightGroup: 'B',
-              leftGroup: 'A',
-              right: 'B',
-              left: 'A',
-            },
-            messageId: 'unexpectedModulesGroupOrder',
-          },
-        ],
-        output: dedent`
-          @B.B()
-          class B {}
-
-          @A.A.A(() => A)
-          class A {}
-        `,
-        code: dedent`
-          @A.A.A(() => A)
-          class A {}
-
-          @B.B()
-          class B {}
-        `,
-      })
-    })
-
-    it('overrides sort type and order for custom groups', async () => {
-      await invalid({
-        errors: [
-          {
-            data: {
-              rightGroup: 'reversedFunctionsByLineLength',
-              leftGroup: 'unknown',
-              right: 'aFunction',
-              left: 'DDDD',
-            },
-            messageId: 'unexpectedModulesGroupOrder',
-          },
-          {
-            data: {
-              rightGroup: 'reversedFunctionsByLineLength',
-              right: 'anotherFunction',
-              leftGroup: 'unknown',
-              left: 'G',
-            },
-            messageId: 'unexpectedModulesGroupOrder',
-          },
-          {
-            data: { right: 'yetAnotherFunction', left: 'anotherFunction' },
-            messageId: 'unexpectedModulesOrder',
-          },
-        ],
-        options: [
-          {
-            customGroups: [
-              {
-                groupName: 'reversedFunctionsByLineLength',
-                selector: 'function',
-                type: 'line-length',
-                order: 'desc',
-              },
-            ],
-            groups: ['reversedFunctionsByLineLength', 'unknown'],
-            type: 'alphabetical',
-            order: 'asc',
-          },
-        ],
-        output: dedent`
-          function yetAnotherFunction() {}
-
-          function anotherFunction() {}
-
-          function aFunction() {}
-
-          interface A {}
-
-          interface BB {}
-
-          interface CCC {}
-
-          interface DDDD {}
-
-          interface EEE {}
-
-          interface FF {}
-
-          interface G {}
-        `,
-        code: dedent`
-          interface A {}
-
-          interface BB {}
-
-          interface CCC {}
-
-          interface DDDD {}
-
-          function aFunction() {}
-
-          interface EEE {}
-
-          interface FF {}
-
-          interface G {}
-
-          function anotherFunction() {}
-
-          function yetAnotherFunction() {}
-        `,
-      })
-    })
-
-    it('applies fallback sort when primary sort results in ties', async () => {
-      await invalid({
-        options: [
-          {
-            customGroups: [
-              {
-                fallbackSort: {
-                  type: 'alphabetical',
-                  order: 'asc',
-                },
-                elementNamePattern: '^foo',
-                type: 'line-length',
-                groupName: 'foo',
-                order: 'desc',
-              },
-            ],
-            type: 'alphabetical',
-            groups: ['foo'],
-            order: 'asc',
-          },
-        ],
-        errors: [
-          {
-            data: { right: 'fooBar', left: 'fooZar' },
-            messageId: 'unexpectedModulesOrder',
-          },
-        ],
-        output: dedent`
-          function fooBar() {}
-          function fooZar() {}
-        `,
-        code: dedent`
-          function fooZar() {}
-          function fooBar() {}
-        `,
-      })
-    })
-
-    it('preserves original order for unsorted custom groups', async () => {
-      await invalid({
-        options: [
-          {
-            customGroups: [
-              {
-                groupName: 'unsortedFunctions',
-                selector: 'function',
-                type: 'unsorted',
-              },
-            ],
-            groups: ['unsortedFunctions', 'unknown'],
-          },
-        ],
-        errors: [
-          {
-            data: {
-              rightGroup: 'unsortedFunctions',
-              leftGroup: 'unknown',
-              left: 'Interface',
-              right: 'c',
-            },
-            messageId: 'unexpectedModulesGroupOrder',
-          },
-        ],
-        output: dedent`
-          function b() {}
-
-          function a() {}
-
-          function d() {}
-
-          function e() {}
-
-          function c() {}
-
-          interface Interface {}
-        `,
-        code: dedent`
-          function b() {}
-
-          function a() {}
-
-          function d() {}
-
-          function e() {}
-
-          interface Interface {}
-
-          function c() {}
-        `,
-      })
-    })
-
-    it('sorts elements within custom group blocks', async () => {
-      await invalid({
-        options: [
-          {
-            customGroups: [
-              {
-                anyOf: [
-                  {
-                    selector: 'interface',
-                    modifiers: ['export'],
-                  },
-                  {
-                    selector: 'function',
-                    modifiers: ['async'],
-                  },
-                ],
-                groupName: 'exportInterfacesAndAsyncFunctions',
-              },
-            ],
-            groups: [['exportInterfacesAndAsyncFunctions', 'class'], 'unknown'],
-          },
-        ],
-        errors: [
-          {
-            data: {
-              leftGroup: 'unknown',
-              rightGroup: 'class',
-              left: 'func',
-              right: 'C',
-            },
-            messageId: 'unexpectedModulesGroupOrder',
-          },
-          {
-            data: { right: 'aFunction', left: 'C' },
-            messageId: 'unexpectedModulesOrder',
-          },
-          {
-            data: { right: 'anotherFunction', left: 'D' },
-            messageId: 'unexpectedModulesOrder',
-          },
-        ],
-        output: dedent`
-          export interface A {}
-
-          async function aFunction() {}
-
-          async function anotherFunction() {}
-
-          class b {}
-
-          class C {}
-
-          export interface D {}
-
-          class E {}
-
-          function func() {}
-        `,
-        code: dedent`
-          export interface A {}
-
-          class b {}
-
-          class E {}
-
-          function func() {}
-
-          class C {}
-
-          async function aFunction() {}
-
-          export interface D {}
-
-          async function anotherFunction() {}
-        `,
-      })
-    })
-
-    it('supports negative regex patterns for element names in custom groups', async () => {
-      await valid({
-        options: [
-          {
-            customGroups: [
-              {
-                elementNamePattern: '^(?!.*Foo).*$',
-                groupName: 'elementsWithoutFoo',
-              },
-            ],
-            groups: ['unknown', 'elementsWithoutFoo'],
-            type: 'alphabetical',
-          },
-        ],
-        code: dedent`
-          function iHaveFooInMyName() {}
-          function meTooIHaveFoo() {}
-          function a() {}
-          function b() {}
-        `,
-      })
-    })
-
-    it('supports regex patterns for decorator names in custom groups', async () => {
-      await valid({
-        options: [
-          {
-            customGroups: [
-              {
-                decoratorNamePattern: '^.*Foo.*$',
-                groupName: 'decoratorsWithFoo',
-              },
-            ],
-            groups: ['decoratorsWithFoo', 'unknown'],
-            type: 'alphabetical',
-          },
-        ],
-        code: dedent`
-          @IHaveFooInMyName
-          class X {}
-          @MeTooIHaveFoo
-          class Y {}
-          class A {}
-          class B {}
-        `,
-      })
-    })
-
-    it('enforces newlines between group members when newlinesInside is 1', async () => {
-      await invalid({
-        options: [
-          {
-            customGroups: [
-              {
-                groupName: 'group1',
-                newlinesInside: 1,
-                selector: 'type',
-              },
-            ],
-            groups: ['group1'],
-          },
-        ],
-        errors: [
-          {
-            messageId: 'missedSpacingBetweenModulesMembers',
-            data: { right: 'B', left: 'A' },
-          },
-        ],
-        output: dedent`
-          type A = {}
-
-          type B = {}
-        `,
-        code: dedent`
-          type A = {}
-          type B = {}
-        `,
-      })
-    })
-
-    it('removes newlines between group members when newlinesInside is 0', async () => {
-      await invalid({
-        options: [
-          {
-            customGroups: [
-              {
-                groupName: 'group1',
-                newlinesInside: 0,
-                selector: 'type',
-              },
-            ],
-            type: 'alphabetical',
-            groups: ['group1'],
-          },
-        ],
-        errors: [
-          {
-            messageId: 'extraSpacingBetweenModulesMembers',
-            data: { right: 'B', left: 'A' },
-          },
-        ],
-        output: dedent`
-          type A = {}
-          type B = {}
-        `,
-        code: dedent`
-          type A = {}
-
-          type B = {}
-        `,
-      })
-    })
-
-    it('prioritizes declare modifier over export modifier', async () => {
-      await invalid({
-        errors: [
-          {
-            data: {
-              rightGroup: 'declare-interface',
-              leftGroup: 'function',
-              right: 'Interface',
-              left: 'f',
-            },
-            messageId: 'unexpectedModulesGroupOrder',
-          },
-        ],
-        options: [
-          {
-            ...options,
-            groups: ['declare-interface', 'function', 'export-interface'],
-          },
-        ],
-        output: dedent`
-          export declare interface Interface {}
-
-          function f() {}
-        `,
-        code: dedent`
-          function f() {}
-
-          export declare interface Interface {}
-        `,
-      })
-    })
-
-    it('prioritizes default modifier over export modifier', async () => {
-      await invalid({
-        errors: [
-          {
-            data: {
-              rightGroup: 'default-interface',
-              leftGroup: 'function',
-              right: 'Interface',
-              left: 'f',
-            },
-            messageId: 'unexpectedModulesGroupOrder',
-          },
-        ],
-        options: [
-          {
-            ...options,
-            groups: ['default-interface', 'function', 'export-interface'],
-          },
-        ],
-        output: dedent`
-          export default interface Interface {}
-
-          function f() {}
-        `,
-        code: dedent`
-          function f() {}
-
-          export default interface Interface {}
-        `,
-      })
-    })
-
-    it('prioritizes declare modifier over export modifier for type declarations', async () => {
-      await invalid({
-        errors: [
-          {
-            data: {
-              rightGroup: 'declare-type',
-              leftGroup: 'function',
-              right: 'Type',
-              left: 'f',
-            },
-            messageId: 'unexpectedModulesGroupOrder',
-          },
-        ],
-        options: [
-          {
-            ...options,
-            groups: ['declare-type', 'function', 'export-type'],
-          },
-        ],
-        output: dedent`
-          export declare type Type = {}
-
-          function f() {}
-        `,
-        code: dedent`
-          function f() {}
-
-          export declare type Type = {}
-        `,
-      })
-    })
-
-    it('prioritizes declare modifier over export modifier for class declarations', async () => {
-      await invalid({
-        errors: [
-          {
-            data: {
-              rightGroup: 'declare-class',
-              leftGroup: 'function',
-              right: 'Class',
-              left: 'f',
-            },
-            messageId: 'unexpectedModulesGroupOrder',
-          },
-        ],
-        options: [
-          {
-            ...options,
-            groups: ['declare-class', 'function', 'export-class'],
-          },
-        ],
-        output: dedent`
-          export declare class Class {}
-
-          function f() {}
-        `,
-        code: dedent`
-          function f() {}
-
-          export declare class Class {}
-        `,
-      })
-    })
-
-    it('prioritizes declare modifier over export modifier for function declarations', async () => {
-      await invalid({
-        errors: [
-          {
-            data: {
-              rightGroup: 'declare-function',
-              leftGroup: 'interface',
-              left: 'Interface',
-              right: 'f',
-            },
-            messageId: 'unexpectedModulesGroupOrder',
-          },
-        ],
-        options: [
-          {
-            ...options,
-            groups: ['declare-function', 'interface', 'export-function'],
-          },
-        ],
-        output: dedent`
-          export declare function f()
-
-          interface Interface {}
-        `,
-        code: dedent`
-          interface Interface {}
-
-          export declare function f()
-        `,
-      })
-    })
-
-    it('prioritizes default modifier over async modifier for functions', async () => {
-      await invalid({
-        errors: [
-          {
-            data: {
-              rightGroup: 'default-function',
-              leftGroup: 'interface',
-              left: 'Interface',
-              right: 'f',
-            },
-            messageId: 'unexpectedModulesGroupOrder',
-          },
-        ],
-        options: [
-          {
-            ...options,
-            groups: ['default-function', 'interface', 'async-function'],
-          },
-        ],
-        output: dedent`
-          export default async function f() {}
-
-          interface Interface {}
-        `,
-        code: dedent`
-          interface Interface {}
-
-          export default async function f() {}
-        `,
-      })
-    })
-
-    it('prioritizes async modifier over export modifier for functions', async () => {
-      await invalid({
-        errors: [
-          {
-            data: {
-              rightGroup: 'async-function',
-              leftGroup: 'interface',
-              left: 'Interface',
-              right: 'f',
-            },
-            messageId: 'unexpectedModulesGroupOrder',
-          },
-        ],
-        options: [
-          {
-            ...options,
-            groups: ['async-function', 'interface', 'export-function'],
-          },
-        ],
-        output: dedent`
-          export async function f() {}
-
-          interface Interface {}
-        `,
-        code: dedent`
-          interface Interface {}
-
-          export async function f() {}
-        `,
-      })
-    })
-
-    it('prioritizes declare modifier over export modifier for enum declarations', async () => {
-      await invalid({
-        errors: [
-          {
-            data: {
-              rightGroup: 'declare-enum',
-              leftGroup: 'function',
-              right: 'Enum',
-              left: 'f',
-            },
-            messageId: 'unexpectedModulesGroupOrder',
-          },
-        ],
-        options: [
-          {
-            ...options,
-            groups: ['declare-enum', 'function', 'export-enum'],
-          },
-        ],
-        output: dedent`
-          export declare enum Enum {}
-
-          function f() {}
-        `,
-        code: dedent`
-          function f() {}
-
-          export declare enum Enum {}
-        `,
-      })
-    })
-
-    it('ignores non-static class method dependencies', async () => {
-      await valid({
-        code: dedent`
-          class A {
-            f() {
-              return Enum.V
-            }
-          }
-
-          enum Enum {
-            V = 'V'
-          }
-        `,
-        options: [
-          {
-            ...options,
-            groups: ['unknown'],
-          },
-        ],
-      })
-    })
-
-    it('ignores static class method dependencies when no static block or properties exist', async () => {
-      await valid({
-        code: dedent`
-          class A {
-            static f() {
-              return Enum.V
-            }
-          }
-
-          enum Enum {
-            V = 'V'
-          }
-        `,
-        options: [
-          {
-            ...options,
-            groups: ['unknown'],
-          },
-        ],
-      })
-    })
-
-    it('detects static class method dependencies when static block is present', async () => {
-      await valid({
-        code: dedent`
-          enum Enum {
-            V = 'V'
-          }
-
-          class A {
-            static {
-              console.log(Enum.V)
-            }
-          }
-        `,
-        options: [
-          {
-            ...options,
-            groups: ['unknown'],
-          },
-        ],
-      })
-
-      await valid({
-        code: dedent`
-          enum Enum {
-            V = 'V'
-          }
-
-          class A {
-            static {
-              console.log(A.f())
-            }
-
-            static f = () => {
-              return Enum.V
-            }
-          }
-        `,
-        options: [
-          {
-            ...options,
-            groups: ['unknown'],
-          },
-        ],
-      })
-
-      await valid({
-        code: dedent`
-          enum Enum {
-            V = 'V'
-          }
-
-          class Class {
-            static {
-              const method = () => {
-                return Enum.V || true;
-              };
-              method();
-            }
-          }
-        `,
-        options: [
-          {
-            ...options,
-            groups: ['unknown'],
-          },
-        ],
-      })
-    })
-
-    it('detects static class method dependencies when static property is present', async () => {
-      await valid({
-        code: dedent`
-          enum Enum {
-            V = 'V'
-          }
-
-          class A {
-            static a = Enum.V
-          }
-        `,
-        options: [
-          {
-            ...options,
-            groups: ['unknown'],
-          },
-        ],
-      })
-
-      await valid({
-        code: dedent`
-          enum Enum {
-            V = 'V'
-          }
-
-          class A {
-            static accessor a = Enum.V
-          }
-        `,
-        options: [
-          {
-            ...options,
-            groups: ['unknown'],
-          },
-        ],
-      })
-
-      await valid({
-        code: dedent`
-          enum Enum {
-            V = 'V'
-          }
-
-          class A {
-            static a = Object.values(Enum)
-          }
-        `,
-        options: [
-          {
-            ...options,
-            groups: ['unknown'],
-          },
-        ],
-      })
-    })
-
-    it('ignores non-static arrow method dependencies', async () => {
-      await valid({
-        code: dedent`
-          class A {
-            f = () => {
-              return Enum.V
-            }
-          }
-
-          enum Enum {
-            V = 'V'
-          }
-        `,
-        options: [
-          {
-            ...options,
-            groups: ['unknown'],
-          },
-        ],
-      })
-
-      await valid({
-        code: dedent`
-          class A {
-            accessor f = () => {
-              return Enum.V
-            }
-          }
-
-          enum Enum {
-            V = 'V'
-          }
-        `,
-        options: [
-          {
-            ...options,
-            groups: ['unknown'],
-          },
-        ],
-      })
-    })
-
-    it('ignores static arrow method dependencies when no static block or properties exist', async () => {
-      await valid({
-        code: dedent`
-          class A {
-            static f = () => {
-              return Enum.V
-            }
-          }
-
-          enum Enum {
-            V = 'V'
-          }
-        `,
-        options: [
-          {
-            ...options,
-            groups: ['unknown'],
-          },
-        ],
-      })
-    })
-
-    it('ignores interface type dependencies', async () => {
-      await valid({
-        code: dedent`
-          interface A {
-            a: Enum.V
-          }
-
-          enum Enum {
-            V = 'V'
-          }
-        `,
-        options: [
-          {
-            ...options,
-            groups: ['unknown'],
-          },
-        ],
-      })
-    })
-
-    it('ignores type alias dependencies', async () => {
-      await valid({
-        code: dedent`
-          type A = {
-            a: Enum.V
-          }
-
-          enum Enum {
-            V = 'V'
-          }
-        `,
-        options: [
-          {
-            ...options,
-            groups: ['unknown'],
-          },
-        ],
-      })
-    })
-
-    it('detects enum value dependencies', async () => {
-      await valid({
-        code: dedent`
-          enum B {
-            V = 'V'
-          }
-
-          enum A {
-            V = B.V
-          }
-        `,
-        options: [
-          {
-            ...options,
-            groups: ['unknown'],
-          },
-        ],
-      })
-    })
-
-    it('detects deeply nested dependencies', async () => {
-      await invalid({
-        output: dedent`
-          class B {
-            static b = 1
-          }
-
-          class A {
-            static a = x > y ? new Class([...{...!!method(1 + <any>(B?.b! as any))}]) : null
-          }
-        `,
-        code: dedent`
-          class A {
-            static a = x > y ? new Class([...{...!!method(1 + <any>(B?.b! as any))}]) : null
-          }
-
-          class B {
-            static b = 1
-          }
-        `,
-        errors: [
-          {
-            data: { nodeDependentOnRight: 'A', right: 'B' },
-            messageId: 'unexpectedModulesDependencyOrder',
-          },
-        ],
-        options: [options],
-      })
-    })
-
-    it('detects dependencies in template literal expressions', async () => {
-      await valid({
-        code: dedent`
-          class B {
-            static b = 1
-          }
-
-          class A {
-            static a = \`\${B.b}\`
-          }
-        `,
-        options: [
-          {
-            ...options,
-            groups: ['unknown'],
-          },
-        ],
-      })
-    })
-
-    it('detects dependencies in class inheritance', async () => {
-      await valid({
-        options: [
-          {
-            ...options,
-            groups: ['unknown'],
-          },
-        ],
-        code: dedent`
-          class B {}
-
-          class A extends B {}
-        `,
-      })
-    })
-
-    it('detects dependencies in decorator expressions', async () => {
-      await invalid({
-        output: dedent`
-          enum B {}
-
-          class A {
-            @SomeDecorator({
-              a: {
-                b: c.concat([B])
-              }
-            })
-            property
-          }
-        `,
-        code: dedent`
-          class A {
-            @SomeDecorator({
-              a: {
-                b: c.concat([B])
-              }
-            })
-            property
-          }
-
-          enum B {}
-        `,
-        errors: [
-          {
-            data: { nodeDependentOnRight: 'A', right: 'B' },
-            messageId: 'unexpectedModulesDependencyOrder',
-          },
-        ],
-        options: [
-          {
-            ...options,
-            groups: ['unknown'],
-          },
-        ],
-      })
-    })
-
-    it('detects and handles circular dependencies', async () => {
-      await invalid({
-        output: dedent`
-          class A {
-            static a = B.b
-          }
-
-          class B {
-            static b = C.c
-          }
-
-          class C {
-            static c = A.a
-          }
-        `,
-        code: dedent`
-          class B {
-            static b = C.c
-          }
-
-          class A {
-            static a = B.b
-          }
-
-          class C {
-            static c = A.a
-          }
-        `,
-        errors: [
-          {
-            messageId: 'unexpectedModulesOrder',
-            data: { right: 'A', left: 'B' },
-          },
-        ],
-        options: [options],
-      })
-    })
-
-    it('prioritizes dependencies over group configuration', async () => {
-      await valid({
-        options: [
-          {
-            ...options,
-            groups: ['export-class', 'class'],
-          },
-        ],
-        code: dedent`
-          class B { static b }
-          export class A { static a = B.b }
-        `,
-      })
-    })
-
-    it('prioritizes dependencies over partition by comment', async () => {
-      await invalid({
-        errors: [
-          {
-            data: { nodeDependentOnRight: 'B', right: 'A' },
-            messageId: 'unexpectedModulesDependencyOrder',
-          },
-        ],
-        output: dedent`
-          class A { static a }
-          // Part1
-          class B { static b = A.a }
-        `,
-        code: dedent`
-          class B { static b = A.a }
-          // Part1
-          class A { static a }
-        `,
-        options: [
-          {
-            ...options,
-            partitionByComment: 'Part',
-          },
-        ],
-      })
-    })
-
-    it('prioritizes dependencies over partition by new line', async () => {
-      await invalid({
-        errors: [
-          {
-            data: { nodeDependentOnRight: 'B', right: 'A' },
-            messageId: 'unexpectedModulesDependencyOrder',
-          },
-        ],
-        options: [
-          {
-            ...options,
-            partitionByNewLine: true,
-          },
-        ],
-        output: dedent`
-          class A { static a }
-
-          class B { static = A.a }
-        `,
-        code: dedent`
-          class B { static = A.a }
-
-          class A { static a }
-        `,
-      })
-    })
-
-    it('handles unknown groups correctly', async () => {
-      await invalid({
-        errors: [
-          {
-            data: {
-              leftGroup: 'function',
-              rightGroup: 'unknown',
-              right: 'SomeClass',
-              left: 'b',
-            },
-            messageId: 'unexpectedModulesGroupOrder',
-          },
-          {
-            data: {
-              rightGroup: 'function',
-              leftGroup: 'unknown',
-              left: 'SomeClass',
-              right: 'a',
-            },
-            messageId: 'unexpectedModulesGroupOrder',
-          },
-        ],
-        output: dedent`
-          function a() {}
-          class SomeClass {}
-          function b() {}
-        `,
-        code: dedent`
-          function b() {}
-          class SomeClass {}
-          function a() {}
-        `,
-        options: [
-          {
-            ...options,
-            groups: ['function'],
-          },
-        ],
-      })
-    })
-
-    it('trims special characters when configured', async () => {
-      await valid({
-        options: [
-          {
-            ...options,
-            specialCharacters: 'trim',
-          },
-        ],
-        code: dedent`
-          function _a() {}
-          function b() {}
-          function _c() {}
-        `,
-      })
-    })
-
-    it('removes special characters when configured', async () => {
-      await valid({
-        options: [
-          {
-            ...options,
-            specialCharacters: 'remove',
-          },
-        ],
-        code: dedent`
-          function ab() {}
-          function a_c() {}
-        `,
-      })
-    })
-
-    it('sorts using locale-specific rules', async () => {
-      await valid({
-        code: dedent`
-          function 你好() {}
-          function 世界() {}
-          function a() {}
-          function A() {}
-          function b() {}
-          function B() {}
-        `,
-        options: [{ ...options, locales: 'zh-CN' }],
-      })
-    })
-
-    it('removes newlines between groups when newlinesBetween is 0', async () => {
-      await invalid({
-        errors: [
-          {
-            data: {
-              leftGroup: 'interface',
-              rightGroup: 'unknown',
-              right: 'y',
-              left: 'A',
-            },
-            messageId: 'unexpectedModulesGroupOrder',
-          },
-          {
-            messageId: 'unexpectedModulesOrder',
-            data: { right: 'b', left: 'z' },
-          },
-        ],
-        options: [
-          {
-            ...options,
-            groups: ['unknown', 'interface'],
-            newlinesInside: 'ignore',
-            newlinesBetween: 0,
-          },
-        ],
-        output: dedent`
-            function b() {}
-
-
-           function y() {}
-          function z() {}
-              interface A {}
-        `,
-        code: dedent`
-            interface A {}
-
-
-           function y() {}
-          function z() {}
-
-              function b() {}
-        `,
-      })
-    })
-
-    it('maintains single newline between groups when newlinesBetween is 1', async () => {
-      await invalid({
-        options: [
-          {
-            ...options,
-            customGroups: [
-              {
-                elementNamePattern: 'a',
-                groupName: 'a',
-              },
-              {
-                elementNamePattern: 'b',
-                groupName: 'b',
-              },
-            ],
-            groups: ['a', 'b'],
-            newlinesBetween: 1,
-          },
-        ],
-        errors: [
-          {
-            messageId: 'missedSpacingBetweenModulesMembers',
-            data: { right: 'b', left: 'a' },
-          },
-        ],
-        output: dedent`
-          function a() {};
-
-          function b() {}
-        `,
-        code: dedent`
-          function a() {};function b() {}
-        `,
-      })
-
-      await invalid({
-        errors: [
-          {
-            messageId: 'extraSpacingBetweenModulesMembers',
-            data: { right: 'z', left: 'A' },
-          },
-          {
-            messageId: 'unexpectedModulesOrder',
-            data: { right: 'y', left: 'z' },
-          },
-          {
-            messageId: 'missedSpacingBetweenModulesMembers',
-            data: { right: 'B', left: 'y' },
-          },
-        ],
-        options: [
-          {
-            ...options,
-            groups: ['interface', 'unknown', 'class'],
-            newlinesBetween: 1,
-          },
-        ],
-        output: dedent`
-            interface A {}
-
-           function y() {}
-          function z() {}
-
-              class B {}
-        `,
-        code: dedent`
-            interface A {}
-
-
-           function z() {}
-          function y() {}
-              class B {}
-        `,
-      })
-    })
-
-    it('handles newlinesBetween settings between consecutive groups', async () => {
-      await invalid({
-        options: [
-          {
-            ...options,
-            customGroups: [
-              { elementNamePattern: 'a', groupName: 'a' },
-              { elementNamePattern: 'b', groupName: 'b' },
-              { elementNamePattern: 'c', groupName: 'c' },
-              { elementNamePattern: 'd', groupName: 'd' },
-              { elementNamePattern: 'e', groupName: 'e' },
-            ],
-            groups: [
-              'a',
-              { newlinesBetween: 1 },
-              'b',
-              { newlinesBetween: 1 },
-              'c',
-              { newlinesBetween: 0 },
-              'd',
-              { newlinesBetween: 'ignore' },
-              'e',
-            ],
-            newlinesBetween: 1,
-          },
-        ],
-        errors: [
-          {
-            messageId: 'missedSpacingBetweenModulesMembers',
-            data: { right: 'b', left: 'a' },
-          },
-          {
-            messageId: 'extraSpacingBetweenModulesMembers',
-            data: { right: 'c', left: 'b' },
-          },
-          {
-            messageId: 'extraSpacingBetweenModulesMembers',
-            data: { right: 'd', left: 'c' },
-          },
-        ],
-        output: dedent`
-          function a() {}
-
-          function b() {}
-
-          function c() {}
-          function d() {}
-
-
-          function e() {}
-        `,
-        code: dedent`
-          function a() {}
-          function b() {}
-
-
-          function c() {}
-
-          function d() {}
-
-
-          function e() {}
-        `,
-      })
-    })
-
-    it.each([
-      [2, 0],
-      [2, 'ignore'],
-      [0, 2],
-      ['ignore', 2],
-    ])(
-      'enforces 2 newlines when global is %s and group is %s',
-      async (globalNewlinesBetween, groupNewlinesBetween) => {
-        await invalid({
-          options: [
-            {
-              ...options,
-              customGroups: [
-                { elementNamePattern: 'a', groupName: 'a' },
-                { elementNamePattern: 'b', groupName: 'b' },
-                { groupName: 'unusedGroup', elementNamePattern: 'X' },
-              ],
-              groups: [
-                'a',
-                'unusedGroup',
-                { newlinesBetween: groupNewlinesBetween },
-                'b',
-              ],
-              newlinesBetween: globalNewlinesBetween,
-            },
-          ],
-          errors: [
-            {
-              messageId: 'missedSpacingBetweenModulesMembers',
-              data: { right: 'b', left: 'a' },
-            },
-          ],
-          output: dedent`
-            function a() {}
-
-
-            function b() {}
-          `,
-          code: dedent`
-            function a() {}
-            function b() {}
-          `,
-        })
-      },
-    )
-
-    it.each([1, 2, 'ignore', 0])(
-      'removes newlines when 0 overrides global %s between specific groups',
-      async globalNewlinesBetween => {
-        await invalid({
-          options: [
-            {
-              ...options,
-              customGroups: [
-                { elementNamePattern: 'a', groupName: 'a' },
-                { elementNamePattern: 'b', groupName: 'b' },
-                { elementNamePattern: 'c', groupName: 'c' },
-                { groupName: 'unusedGroup', elementNamePattern: 'X' },
-              ],
-              groups: [
-                'a',
-                { newlinesBetween: 0 },
-                'unusedGroup',
-                { newlinesBetween: 0 },
-                'b',
-                { newlinesBetween: 1 },
-                'c',
-              ],
-              newlinesBetween: globalNewlinesBetween,
-            },
-          ],
-          errors: [
-            {
-              messageId: 'extraSpacingBetweenModulesMembers',
-              data: { right: 'b', left: 'a' },
-            },
-          ],
-          output: dedent`
-            function a() {}
-            function b() {}
-          `,
-          code: dedent`
-            function a() {}
-
-            function b() {}
-          `,
-        })
-      },
-    )
-
-    it.each([
-      ['ignore', 0],
-      [0, 'ignore'],
-    ])(
-      'accepts any spacing when global is %s and group is %s',
-      async (globalNewlinesBetween, groupNewlinesBetween) => {
-        await valid({
-          options: [
-            {
-              ...options,
-              customGroups: [
-                { elementNamePattern: 'a', groupName: 'a' },
-                { elementNamePattern: 'b', groupName: 'b' },
-                { groupName: 'unusedGroup', elementNamePattern: 'X' },
-              ],
-              groups: [
-                'a',
-                'unusedGroup',
-                { newlinesBetween: groupNewlinesBetween },
-                'b',
-              ],
-              newlinesBetween: globalNewlinesBetween,
-            },
-          ],
-          code: dedent`
-            function a() {}
-
-            function b() {}
-          `,
-        })
-
-        await valid({
-          options: [
-            {
-              ...options,
-              customGroups: [
-                { elementNamePattern: 'a', groupName: 'a' },
-                { elementNamePattern: 'b', groupName: 'b' },
-                { groupName: 'unusedGroup', elementNamePattern: 'X' },
-              ],
-              groups: [
-                'a',
-                'unusedGroup',
-                { newlinesBetween: groupNewlinesBetween },
-                'b',
-              ],
-              newlinesBetween: globalNewlinesBetween,
-            },
-          ],
-          code: dedent`
-            function a() {}
-            function b() {}
-          `,
-        })
-      },
-    )
-
-    it('handles newlines and comments after fixes', async () => {
-      await invalid({
-        errors: [
-          {
-            data: {
-              rightGroup: 'function',
-              leftGroup: 'type',
-              right: 'a',
-              left: 'B',
-            },
-            messageId: 'unexpectedModulesGroupOrder',
-          },
-        ],
-        options: [
-          {
-            groups: ['function', 'type'],
-            newlinesBetween: 1,
-            newlinesInside: 0,
-          },
-        ],
-        output: dedent`
-          function a() {} // Comment after
-
-          type B = string
-          type C = string
-        `,
-        code: dedent`
-          type B = string
-          function a() {} // Comment after
-
-          type C = string
-        `,
-      })
-    })
-
-    it('preserves partition boundaries regardless of newlinesBetween 0', async () => {
-      await invalid({
-        options: [
-          {
-            ...options,
-            customGroups: [
-              {
-                elementNamePattern: 'a',
-                groupName: 'a',
-              },
-            ],
-            groups: ['a', 'unknown'],
-            partitionByComment: true,
-            newlinesBetween: 0,
-          },
-        ],
-        errors: [
-          {
-            messageId: 'unexpectedModulesOrder',
-            data: { right: 'b', left: 'c' },
-          },
-        ],
-        output: dedent`
-          function a() {}
-
-          // Partition comment
-
-          function b() {}
-          function c() {}
-        `,
-        code: dedent`
-          function a() {}
-
-          // Partition comment
-
-          function c() {}
-          function b() {}
-        `,
-      })
-    })
-
-    it('sorts inline non-declare functions correctly', async () => {
-      await invalid({
-        errors: [
-          {
-            messageId: 'unexpectedModulesOrder',
-            data: { right: 'a', left: 'b' },
-          },
-        ],
-        output: dedent`
-          function a() {} function b() {}
-        `,
-        code: dedent`
-          function b() {} function a() {}
-        `,
-        options: [options],
-      })
-
-      await invalid({
-        errors: [
-          {
-            messageId: 'unexpectedModulesOrder',
-            data: { right: 'a', left: 'b' },
-          },
-        ],
-        output: dedent`
-          function a() {} function b() {};
-        `,
-        code: dedent`
-          function b() {} function a() {};
-        `,
-        options: [options],
-      })
-
-      await invalid({
-        errors: [
-          {
-            messageId: 'unexpectedModulesOrder',
-            data: { right: 'a', left: 'b' },
-          },
-        ],
-        output: dedent`
-          function a() {}; function b() {}
-        `,
-        code: dedent`
-          function b() {}; function a() {}
-        `,
-        options: [options],
-      })
-    })
-
-    it('sorts inline declare functions correctly', async () => {
-      await invalid({
-        errors: [
-          {
-            messageId: 'unexpectedModulesOrder',
-            data: { right: 'a', left: 'b' },
-          },
-        ],
-        output: dedent`
-          declare function a(); declare function b();
-        `,
-        code: dedent`
-          declare function b(); declare function a()
-        `,
-        options: [options],
-      })
-
-      await invalid({
-        errors: [
-          {
-            messageId: 'unexpectedModulesOrder',
-            data: { right: 'a', left: 'b' },
-          },
-        ],
-        output: dedent`
-          declare function a(); declare function b();
-        `,
-        code: dedent`
-          declare function b(); declare function a();
-        `,
-        options: [options],
-      })
-    })
-
-    it('sorts inline interfaces correctly', async () => {
-      await invalid({
-        errors: [
-          {
-            messageId: 'unexpectedModulesOrder',
-            data: { right: 'A', left: 'B' },
-          },
-        ],
-        output: dedent`
-          interface A {} interface B {}
-        `,
-        code: dedent`
-          interface B {} interface A {}
-        `,
-        options: [options],
-      })
-
-      await invalid({
-        errors: [
-          {
-            messageId: 'unexpectedModulesOrder',
-            data: { right: 'A', left: 'B' },
-          },
-        ],
-        output: dedent`
-          interface A {} interface B {};
-        `,
-        code: dedent`
-          interface B {} interface A {};
-        `,
-        options: [options],
-      })
-
-      await invalid({
-        errors: [
-          {
-            messageId: 'unexpectedModulesOrder',
-            data: { right: 'A', left: 'B' },
-          },
-        ],
-        output: dedent`
-          interface A {}; interface B {}
-        `,
-        code: dedent`
-          interface B {}; interface A {}
-        `,
-        options: [options],
-      })
-    })
-
-    it('sorts inline type aliases correctly', async () => {
-      await invalid({
-        errors: [
-          {
-            messageId: 'unexpectedModulesOrder',
-            data: { right: 'a', left: 'b' },
-          },
-        ],
-        output: dedent`
-          type a = {}; type b = {};
-        `,
-        code: dedent`
-          type b = {}; type a = {}
-        `,
-        options: [options],
-      })
-
-      await invalid({
-        errors: [
-          {
-            messageId: 'unexpectedModulesOrder',
-            data: { right: 'a', left: 'b' },
-          },
-        ],
-        output: dedent`
-          type a = {}; type b = {};
-        `,
-        code: dedent`
-          type b = {}; type a = {};
-        `,
-        options: [options],
-      })
-    })
-
-    it('sorts inline classes correctly', async () => {
-      await invalid({
-        errors: [
-          {
-            messageId: 'unexpectedModulesOrder',
-            data: { right: 'A', left: 'B' },
-          },
-        ],
-        output: dedent`
-          class A {} class B {}
-        `,
-        code: dedent`
-          class B {} class A {}
-        `,
-        options: [options],
-      })
-
-      await invalid({
-        errors: [
-          {
-            messageId: 'unexpectedModulesOrder',
-            data: { right: 'A', left: 'B' },
-          },
-        ],
-        output: dedent`
-          class A {} class B {};
-        `,
-        code: dedent`
-          class B {} class A {};
-        `,
-        options: [options],
-      })
-
-      await invalid({
-        errors: [
-          {
-            messageId: 'unexpectedModulesOrder',
-            data: { right: 'A', left: 'B' },
-          },
-        ],
-        output: dedent`
-          class A {}; class B {}
-        `,
-        code: dedent`
-          class B {}; class A {}
-        `,
-        options: [options],
-      })
-    })
-
-    it('sorts inline enums correctly', async () => {
-      await invalid({
-        errors: [
-          {
-            messageId: 'unexpectedModulesOrder',
-            data: { right: 'A', left: 'B' },
-          },
-        ],
-        output: dedent`
-          enum A {} enum B {}
-        `,
-        code: dedent`
-          enum B {} enum A {}
-        `,
-        options: [options],
-      })
-
-      await invalid({
-        errors: [
-          {
-            messageId: 'unexpectedModulesOrder',
-            data: { right: 'A', left: 'B' },
-          },
-        ],
-        output: dedent`
-          enum A {} enum B {};
-        `,
-        code: dedent`
-          enum B {} enum A {};
-        `,
-        options: [options],
-      })
-
-      await invalid({
-        errors: [
-          {
-            messageId: 'unexpectedModulesOrder',
-            data: { right: 'A', left: 'B' },
-          },
-        ],
-        output: dedent`
-          enum A {}; enum B {}
-        `,
-        code: dedent`
-          enum B {}; enum A {}
-        `,
-        options: [options],
-      })
-    })
-
-    it('correctly sorts exported classes with decorators', async () => {
-      await invalid({
-        output: dedent`
-          @A1
-          @A2
-          export class A {}
-
-          @B1
-          @B2
-          class B {}
-
-          @C1
-          @C2
-          class C {}
-        `,
-        code: dedent`
-          @C1
-          @C2
-          class C {}
-
-          @A1
-          @A2
-          export class A {}
-
-          @B1
-          @B2
-          class B {}
-        `,
-        errors: [
-          {
-            messageId: 'unexpectedModulesOrder',
-            data: { right: 'A', left: 'C' },
-          },
-        ],
-        options: [
-          {
-            ...options,
-            groups: ['unknown'],
-          },
-        ],
-      })
+      valid: [],
     })
   })
 
-  describe('line-length', () => {
-    let options = {
-      type: 'line-length',
-      order: 'desc',
-    } as const
+  describe(`${ruleName}: sorts by custom alphabet`, () => {
+    let type = 'custom'
 
-    it('sorts modules according to group hierarchy', async () => {
-      await invalid({
-        errors: [
-          {
-            data: {
-              leftGroup: 'export-interface',
-              left: 'FindUserInput',
-              right: 'CacheType',
-              rightGroup: 'enum',
-            },
-            messageId: 'unexpectedModulesGroupOrder',
-          },
-          {
-            data: {
-              rightGroup: 'export-function',
-              left: 'assertInputIsCorrect',
-              leftGroup: 'function',
-              right: 'findUser',
-            },
-            messageId: 'unexpectedModulesGroupOrder',
-          },
-          {
-            data: {
-              leftGroup: 'export-function',
-              right: 'FindAllUsersInput',
-              rightGroup: 'export-type',
-              left: 'findUser',
-            },
-            messageId: 'unexpectedModulesGroupOrder',
-          },
-          {
-            data: {
-              leftGroup: 'export-function',
-              left: 'findAllUsers',
-              rightGroup: 'class',
-              right: 'Cache',
-            },
-            messageId: 'unexpectedModulesGroupOrder',
-          },
-        ],
-        output: dedent`
-          enum CacheType {
-            ALWAYS = 'ALWAYS',
-            NEVER = 'NEVER',
-          }
-
-          export type FindUserOutput = {
-            name: string
-            age: number
-            id: string
-          }
-
-          export type FindAllUsersInput = {
-            cache: CacheType
-            ids: string[]
-          }
-
-          export interface FindUserInput {
-            id: string
-            cache: CacheType
-          }
-
-          export type FindAllUsersOutput = FindUserOutput[]
-
-          class Cache {
-            // Some logic
-          }
-
-          export function findAllUsers(input: FindAllUsersInput): FindAllUsersOutput {
-            assertInputIsCorrect(input)
-            return _findUserByIds(input.ids)
-          }
-
-          export function findUser(input: FindUserInput): FindUserOutput {
-            assertInputIsCorrect(input)
-            return _findUserByIds([input.id])[0]
-          }
-
-          function assertInputIsCorrect(input: FindUserInput | FindAllUsersInput): void {
-            // Some logic
-          }
-
-        `,
-        code: dedent`
-          export interface FindUserInput {
-            id: string
-            cache: CacheType
-          }
-
-          enum CacheType {
-            ALWAYS = 'ALWAYS',
-            NEVER = 'NEVER',
-          }
-
-          export type FindUserOutput = {
-            name: string
-            age: number
-            id: string
-          }
-
-          function assertInputIsCorrect(input: FindUserInput | FindAllUsersInput): void {
-            // Some logic
-          }
-
-          export function findUser(input: FindUserInput): FindUserOutput {
-            assertInputIsCorrect(input)
-            return _findUserByIds([input.id])[0]
-          }
-
-          export type FindAllUsersInput = {
-            cache: CacheType
-            ids: string[]
-          }
-
-          export type FindAllUsersOutput = FindUserOutput[]
-
-          export function findAllUsers(input: FindAllUsersInput): FindAllUsersOutput {
-            assertInputIsCorrect(input)
-            return _findUserByIds(input.ids)
-          }
-
-          class Cache {
-            // Some logic
-          }
-        `,
-        options: [options],
-      })
-    })
-
-    it('sorts modules within modules and namespaces', async () => {
-      await invalid({
-        errors: [
-          {
-            messageId: 'unexpectedModulesOrder',
-            data: { right: 'AA', left: 'B' },
-          },
-          {
-            messageId: 'unexpectedModulesOrder',
-            data: { right: 'AA', left: 'B' },
-          },
-        ],
-        output: dedent`
-          module ModuleB {
-            interface AA {}
-            interface B {}
-          }
-          module ModuleA {
-            interface AA {}
-            interface B {}
-          }
-        `,
-        code: dedent`
-          module ModuleB {
-            interface B {}
-            interface AA {}
-          }
-          module ModuleA {
-            interface B {}
-            interface AA {}
-          }
-        `,
-        options: [options],
-      })
-
-      await invalid({
-        errors: [
-          {
-            messageId: 'unexpectedModulesOrder',
-            data: { right: 'AA', left: 'B' },
-          },
-          {
-            messageId: 'unexpectedModulesOrder',
-            data: { right: 'AA', left: 'B' },
-          },
-        ],
-        output: dedent`
-          namespace NamespaceB {
-            interface AA {}
-            interface B {}
-          }
-          namespace NamespaceA {
-            interface AA {}
-            interface B {}
-          }
-        `,
-        code: dedent`
-          namespace NamespaceB {
-            interface B {}
-            interface AA {}
-          }
-          namespace NamespaceA {
-            interface B {}
-            interface AA {}
-          }
-        `,
-        options: [options],
-      })
-    })
-
-    it('creates partitions at variable declarations', async () => {
-      await valid({
-        code: dedent`
-          interface B {}
-          export let a;
-          interface A {}
-        `,
-        options: [options],
-      })
-    })
-
-    it('creates partitions at function call expressions', async () => {
-      await valid({
-        code: dedent`
-          interface B {}
-          iAmCallingAFunction();
-          interface A {}
-        `,
-        options: [options],
-      })
-    })
-
-    it('accepts complex predefined group configurations', async () => {
-      await valid({
-        options: [
-          {
-            ...options,
-            groups: [
-              'export-declare-interface',
-              'export-default-interface',
-              'export-declare-function',
-              'export-default-async-function',
-              'export-decorated-class',
-              'export-default-decorated-class',
-              'export-declare-type',
-              'export-enum',
-              'export-declare-enum',
-              'unknown',
-            ],
-          },
-        ],
-        code: dedent`
-          export declare interface Interface {}
-
-          export default interface Interface2 {}
-
-          export declare function f2()
-
-          export default async function f1()
-
-          export @Decorator declare class Class1 {}
-
-          export @Decorator default class Class2 {}
-
-          export declare type Type = {}
-
-          export enum Enum1 {}
-
-          export declare enum Enum2 {}
-        `,
-      })
-    })
-
-    it('filters elements based on selector and modifiers', async () => {
-      await invalid({
-        options: [
-          {
-            customGroups: [
-              {
-                groupName: 'unusedCustomGroup',
-                modifiers: ['export'],
-                selector: 'type',
-              },
-              {
-                groupName: 'exportInterfaceGroup',
-                selector: 'interface',
-                modifiers: ['export'],
-              },
-              {
-                groupName: 'interfaceGroup',
-                selector: 'interface',
-              },
-            ],
-            groups: ['interfaceGroup', 'exportInterfaceGroup'],
-          },
-        ],
-        errors: [
-          {
-            data: {
-              leftGroup: 'exportInterfaceGroup',
-              rightGroup: 'interfaceGroup',
-              right: 'C',
-              left: 'B',
-            },
-            messageId: 'unexpectedModulesGroupOrder',
-          },
-        ],
-        output: dedent`
-          interface C {}
-          export interface A {}
-          export interface B {}
-        `,
-        code: dedent`
-          export interface A {}
-          export interface B {}
-          interface C {}
-        `,
-      })
-    })
-
-    it.each([
-      ['string pattern', 'hello'],
-      ['array with string pattern', ['noMatch', 'hello']],
-      ['case-insensitive regex object', { pattern: 'HELLO', flags: 'i' }],
-      [
-        'array with regex object',
-        ['noMatch', { pattern: 'HELLO', flags: 'i' }],
-      ],
-    ])(
-      'filters functions by element name pattern - %s',
-      async (_description, elementNamePattern) => {
-        await invalid({
-          options: [
-            {
-              customGroups: [
-                {
-                  groupName: 'functionsStartingWithHello',
-                  selector: 'function',
-                  elementNamePattern,
-                },
-              ],
-              groups: ['functionsStartingWithHello', 'unknown'],
-            },
-          ],
-          errors: [
-            {
-              data: {
-                rightGroup: 'functionsStartingWithHello',
-                right: 'helloFunction',
-                leftGroup: 'unknown',
-                left: 'func',
-              },
-              messageId: 'unexpectedModulesGroupOrder',
-            },
-          ],
-          output: dedent`
-            function helloFunction() {}
-            interface A {}
-            interface B {}
-            function func() {}
-          `,
-          code: dedent`
-            interface A {}
-            interface B {}
-            function func() {}
-            function helloFunction() {}
-          `,
-        })
-      },
-    )
-
-    it.each([
-      ['string pattern', 'Hello'],
-      ['array with string pattern', ['noMatch', 'Hello']],
-      ['case-insensitive regex object', { pattern: 'HELLO', flags: 'i' }],
-      [
-        'array with regex object',
-        ['noMatch', { pattern: 'HELLO', flags: 'i' }],
-      ],
-    ])(
-      'filters classes by decorator name pattern - %s',
-      async (_description, decoratorNamePattern) => {
-        await invalid({
-          errors: [
-            {
-              data: {
-                rightGroup: 'classesWithDecoratorStartingWithHello',
-                leftGroup: 'unknown',
-                left: 'func',
-                right: 'C',
-              },
-              messageId: 'unexpectedModulesGroupOrder',
-            },
-            {
-              data: { right: 'AnotherClass', left: 'C' },
-              messageId: 'unexpectedModulesOrder',
-            },
-          ],
-          options: [
-            {
-              customGroups: [
-                {
-                  groupName: 'classesWithDecoratorStartingWithHello',
-                  decoratorNamePattern,
-                  selector: 'class',
-                },
-              ],
-              groups: ['classesWithDecoratorStartingWithHello', 'unknown'],
-            },
-          ],
-          output: dedent`
-            @HelloDecorator()
-            class AnotherClass {}
-
-            @HelloDecorator
-            class C {}
-
-            @Decorator
-            class A {}
-
-            class B {}
-
-            function func() {}
-          `,
-          code: dedent`
-            @Decorator
-            class A {}
-
-            class B {}
-
-            function func() {}
-
-            @HelloDecorator
-            class C {}
-
-            @HelloDecorator()
-            class AnotherClass {}
-          `,
-        })
-      },
-    )
-
-    it('filters elements using complex decorator name patterns', async () => {
-      await invalid({
-        options: [
-          {
-            customGroups: [
-              {
-                decoratorNamePattern: 'B',
-                groupName: 'B',
-              },
-              {
-                decoratorNamePattern: 'A',
-                groupName: 'A',
-              },
-            ],
-            type: 'alphabetical',
-            groups: ['B', 'A'],
-            order: 'asc',
-          },
-        ],
-        errors: [
-          {
-            data: {
-              rightGroup: 'B',
-              leftGroup: 'A',
-              right: 'B',
-              left: 'A',
-            },
-            messageId: 'unexpectedModulesGroupOrder',
-          },
-        ],
-        output: dedent`
-          @B.B()
-          class B {}
-
-          @A.A.A(() => A)
-          class A {}
-        `,
-        code: dedent`
-          @A.A.A(() => A)
-          class A {}
-
-          @B.B()
-          class B {}
-        `,
-      })
-    })
-
-    it('overrides sort type and order for custom groups', async () => {
-      await invalid({
-        errors: [
-          {
-            data: {
-              rightGroup: 'reversedFunctionsByLineLength',
-              leftGroup: 'unknown',
-              right: 'aFunction',
-              left: 'DDDD',
-            },
-            messageId: 'unexpectedModulesGroupOrder',
-          },
-          {
-            data: {
-              rightGroup: 'reversedFunctionsByLineLength',
-              right: 'anotherFunction',
-              leftGroup: 'unknown',
-              left: 'G',
-            },
-            messageId: 'unexpectedModulesGroupOrder',
-          },
-          {
-            data: { right: 'yetAnotherFunction', left: 'anotherFunction' },
-            messageId: 'unexpectedModulesOrder',
-          },
-        ],
-        options: [
-          {
-            customGroups: [
-              {
-                groupName: 'reversedFunctionsByLineLength',
-                selector: 'function',
-                type: 'line-length',
-                order: 'desc',
-              },
-            ],
-            groups: ['reversedFunctionsByLineLength', 'unknown'],
-            type: 'alphabetical',
-            order: 'asc',
-          },
-        ],
-        output: dedent`
-          function yetAnotherFunction() {}
-
-          function anotherFunction() {}
-
-          function aFunction() {}
-
-          interface A {}
-
-          interface BB {}
-
-          interface CCC {}
-
-          interface DDDD {}
-
-          interface EEE {}
-
-          interface FF {}
-
-          interface G {}
-        `,
-        code: dedent`
-          interface A {}
-
-          interface BB {}
-
-          interface CCC {}
-
-          interface DDDD {}
-
-          function aFunction() {}
-
-          interface EEE {}
-
-          interface FF {}
-
-          interface G {}
-
-          function anotherFunction() {}
-
-          function yetAnotherFunction() {}
-        `,
-      })
-    })
-
-    it('applies fallback sort when primary sort results in ties', async () => {
-      await invalid({
-        options: [
-          {
-            customGroups: [
-              {
-                fallbackSort: {
-                  type: 'alphabetical',
-                  order: 'asc',
-                },
-                elementNamePattern: '^foo',
-                type: 'line-length',
-                groupName: 'foo',
-                order: 'desc',
-              },
-            ],
-            type: 'alphabetical',
-            groups: ['foo'],
-            order: 'asc',
-          },
-        ],
-        errors: [
-          {
-            data: { right: 'fooBar', left: 'fooZar' },
-            messageId: 'unexpectedModulesOrder',
-          },
-        ],
-        output: dedent`
-          function fooBar() {}
-          function fooZar() {}
-        `,
-        code: dedent`
-          function fooZar() {}
-          function fooBar() {}
-        `,
-      })
-    })
-
-    it('preserves original order for unsorted custom groups', async () => {
-      await invalid({
-        options: [
-          {
-            customGroups: [
-              {
-                groupName: 'unsortedFunctions',
-                selector: 'function',
-                type: 'unsorted',
-              },
-            ],
-            groups: ['unsortedFunctions', 'unknown'],
-          },
-        ],
-        errors: [
-          {
-            data: {
-              rightGroup: 'unsortedFunctions',
-              leftGroup: 'unknown',
-              left: 'Interface',
-              right: 'c',
-            },
-            messageId: 'unexpectedModulesGroupOrder',
-          },
-        ],
-        output: dedent`
-          function b() {}
-
-          function a() {}
-
-          function d() {}
-
-          function e() {}
-
-          function c() {}
-
-          interface Interface {}
-        `,
-        code: dedent`
-          function b() {}
-
-          function a() {}
-
-          function d() {}
-
-          function e() {}
-
-          interface Interface {}
-
-          function c() {}
-        `,
-      })
-    })
-
-    it('sorts elements within custom group blocks', async () => {
-      await invalid({
-        options: [
-          {
-            customGroups: [
-              {
-                anyOf: [
-                  {
-                    selector: 'interface',
-                    modifiers: ['export'],
-                  },
-                  {
-                    selector: 'function',
-                    modifiers: ['async'],
-                  },
-                ],
-                groupName: 'exportInterfacesAndAsyncFunctions',
-              },
-            ],
-            groups: [['exportInterfacesAndAsyncFunctions', 'class'], 'unknown'],
-          },
-        ],
-        errors: [
-          {
-            data: {
-              leftGroup: 'unknown',
-              rightGroup: 'class',
-              left: 'func',
-              right: 'C',
-            },
-            messageId: 'unexpectedModulesGroupOrder',
-          },
-          {
-            data: { right: 'aFunction', left: 'C' },
-            messageId: 'unexpectedModulesOrder',
-          },
-          {
-            data: { right: 'anotherFunction', left: 'D' },
-            messageId: 'unexpectedModulesOrder',
-          },
-        ],
-        output: dedent`
-          export interface A {}
-
-          async function aFunction() {}
-
-          async function anotherFunction() {}
-
-          class b {}
-
-          class C {}
-
-          export interface D {}
-
-          class E {}
-
-          function func() {}
-        `,
-        code: dedent`
-          export interface A {}
-
-          class b {}
-
-          class E {}
-
-          function func() {}
-
-          class C {}
-
-          async function aFunction() {}
-
-          export interface D {}
-
-          async function anotherFunction() {}
-        `,
-      })
-    })
-
-    it('supports negative regex patterns for element names in custom groups', async () => {
-      await valid({
-        options: [
-          {
-            customGroups: [
-              {
-                elementNamePattern: '^(?!.*Foo).*$',
-                groupName: 'elementsWithoutFoo',
-              },
-            ],
-            groups: ['unknown', 'elementsWithoutFoo'],
-            type: 'alphabetical',
-          },
-        ],
-        code: dedent`
-          function iHaveFooInMyName() {}
-          function meTooIHaveFoo() {}
-          function a() {}
-          function b() {}
-        `,
-      })
-    })
-
-    it('supports regex patterns for decorator names in custom groups', async () => {
-      await valid({
-        options: [
-          {
-            customGroups: [
-              {
-                decoratorNamePattern: '^.*Foo.*$',
-                groupName: 'decoratorsWithFoo',
-              },
-            ],
-            groups: ['decoratorsWithFoo', 'unknown'],
-            type: 'alphabetical',
-          },
-        ],
-        code: dedent`
-          @IHaveFooInMyName
-          class X {}
-          @MeTooIHaveFoo
-          class Y {}
-          class A {}
-          class B {}
-        `,
-      })
-    })
-
-    it('enforces newlines between group members when newlinesInside is 1', async () => {
-      await invalid({
-        options: [
-          {
-            customGroups: [
-              {
-                groupName: 'group1',
-                newlinesInside: 1,
-                selector: 'type',
-              },
-            ],
-            groups: ['group1'],
-          },
-        ],
-        errors: [
-          {
-            messageId: 'missedSpacingBetweenModulesMembers',
-            data: { right: 'B', left: 'A' },
-          },
-        ],
-        output: dedent`
-          type A = {}
-
-          type B = {}
-        `,
-        code: dedent`
-          type A = {}
-          type B = {}
-        `,
-      })
-    })
-
-    it('removes newlines between group members when newlinesInside is 0', async () => {
-      await invalid({
-        options: [
-          {
-            customGroups: [
-              {
-                groupName: 'group1',
-                newlinesInside: 0,
-                selector: 'type',
-              },
-            ],
-            type: 'alphabetical',
-            groups: ['group1'],
-          },
-        ],
-        errors: [
-          {
-            messageId: 'extraSpacingBetweenModulesMembers',
-            data: { right: 'B', left: 'A' },
-          },
-        ],
-        output: dedent`
-          type A = {}
-          type B = {}
-        `,
-        code: dedent`
-          type A = {}
-
-          type B = {}
-        `,
-      })
-    })
-
-    it('prioritizes declare modifier over export modifier', async () => {
-      await invalid({
-        errors: [
-          {
-            data: {
-              rightGroup: 'declare-interface',
-              leftGroup: 'function',
-              right: 'Interface',
-              left: 'f',
-            },
-            messageId: 'unexpectedModulesGroupOrder',
-          },
-        ],
-        options: [
-          {
-            ...options,
-            groups: ['declare-interface', 'function', 'export-interface'],
-          },
-        ],
-        output: dedent`
-          export declare interface Interface {}
-
-          function f() {}
-        `,
-        code: dedent`
-          function f() {}
-
-          export declare interface Interface {}
-        `,
-      })
-    })
-
-    it('prioritizes default modifier over export modifier', async () => {
-      await invalid({
-        errors: [
-          {
-            data: {
-              rightGroup: 'default-interface',
-              leftGroup: 'function',
-              right: 'Interface',
-              left: 'f',
-            },
-            messageId: 'unexpectedModulesGroupOrder',
-          },
-        ],
-        options: [
-          {
-            ...options,
-            groups: ['default-interface', 'function', 'export-interface'],
-          },
-        ],
-        output: dedent`
-          export default interface Interface {}
-
-          function f() {}
-        `,
-        code: dedent`
-          function f() {}
-
-          export default interface Interface {}
-        `,
-      })
-    })
-
-    it('prioritizes declare modifier over export modifier for type declarations', async () => {
-      await invalid({
-        errors: [
-          {
-            data: {
-              rightGroup: 'declare-type',
-              leftGroup: 'function',
-              right: 'Type',
-              left: 'f',
-            },
-            messageId: 'unexpectedModulesGroupOrder',
-          },
-        ],
-        options: [
-          {
-            ...options,
-            groups: ['declare-type', 'function', 'export-type'],
-          },
-        ],
-        output: dedent`
-          export declare type Type = {}
-
-          function f() {}
-        `,
-        code: dedent`
-          function f() {}
-
-          export declare type Type = {}
-        `,
-      })
-    })
-
-    it('prioritizes declare modifier over export modifier for class declarations', async () => {
-      await invalid({
-        errors: [
-          {
-            data: {
-              rightGroup: 'declare-class',
-              leftGroup: 'function',
-              right: 'Class',
-              left: 'f',
-            },
-            messageId: 'unexpectedModulesGroupOrder',
-          },
-        ],
-        options: [
-          {
-            ...options,
-            groups: ['declare-class', 'function', 'export-class'],
-          },
-        ],
-        output: dedent`
-          export declare class Class {}
-
-          function f() {}
-        `,
-        code: dedent`
-          function f() {}
-
-          export declare class Class {}
-        `,
-      })
-    })
-
-    it('prioritizes declare modifier over export modifier for function declarations', async () => {
-      await invalid({
-        errors: [
-          {
-            data: {
-              rightGroup: 'declare-function',
-              leftGroup: 'interface',
-              left: 'Interface',
-              right: 'f',
-            },
-            messageId: 'unexpectedModulesGroupOrder',
-          },
-        ],
-        options: [
-          {
-            ...options,
-            groups: ['declare-function', 'interface', 'export-function'],
-          },
-        ],
-        output: dedent`
-          export declare function f()
-
-          interface Interface {}
-        `,
-        code: dedent`
-          interface Interface {}
-
-          export declare function f()
-        `,
-      })
-    })
-
-    it('prioritizes default modifier over async modifier for functions', async () => {
-      await invalid({
-        errors: [
-          {
-            data: {
-              rightGroup: 'default-function',
-              leftGroup: 'interface',
-              left: 'Interface',
-              right: 'f',
-            },
-            messageId: 'unexpectedModulesGroupOrder',
-          },
-        ],
-        options: [
-          {
-            ...options,
-            groups: ['default-function', 'interface', 'async-function'],
-          },
-        ],
-        output: dedent`
-          export default async function f() {}
-
-          interface Interface {}
-        `,
-        code: dedent`
-          interface Interface {}
-
-          export default async function f() {}
-        `,
-      })
-    })
-
-    it('prioritizes async modifier over export modifier for functions', async () => {
-      await invalid({
-        errors: [
-          {
-            data: {
-              rightGroup: 'async-function',
-              leftGroup: 'interface',
-              left: 'Interface',
-              right: 'f',
-            },
-            messageId: 'unexpectedModulesGroupOrder',
-          },
-        ],
-        options: [
-          {
-            ...options,
-            groups: ['async-function', 'interface', 'export-function'],
-          },
-        ],
-        output: dedent`
-          export async function f() {}
-
-          interface Interface {}
-        `,
-        code: dedent`
-          interface Interface {}
-
-          export async function f() {}
-        `,
-      })
-    })
-
-    it('prioritizes declare modifier over export modifier for enum declarations', async () => {
-      await invalid({
-        errors: [
-          {
-            data: {
-              rightGroup: 'declare-enum',
-              leftGroup: 'function',
-              right: 'Enum',
-              left: 'f',
-            },
-            messageId: 'unexpectedModulesGroupOrder',
-          },
-        ],
-        options: [
-          {
-            ...options,
-            groups: ['declare-enum', 'function', 'export-enum'],
-          },
-        ],
-        output: dedent`
-          export declare enum Enum {}
-
-          function f() {}
-        `,
-        code: dedent`
-          function f() {}
-
-          export declare enum Enum {}
-        `,
-      })
-    })
-
-    it('ignores non-static class method dependencies', async () => {
-      await valid({
-        code: dedent`
-          class A {
-            f() {
-              return Enum.V
-            }
-          }
-
-          enum Enum {
-            V = 'V'
-          }
-        `,
-        options: [
-          {
-            ...options,
-            groups: ['unknown'],
-          },
-        ],
-      })
-    })
-
-    it('ignores static class method dependencies when no static block or properties exist', async () => {
-      await valid({
-        code: dedent`
-          class A {
-            static f() {
-              return Enum.V
-            }
-          }
-
-          enum Enum {
-            V = 'V'
-          }
-        `,
-        options: [
-          {
-            ...options,
-            groups: ['unknown'],
-          },
-        ],
-      })
-    })
-
-    it('detects static class method dependencies when static block is present', async () => {
-      await valid({
-        code: dedent`
-          enum Enum {
-            V = 'V'
-          }
-
-          class A {
-            static {
-              console.log(Enum.V)
-            }
-          }
-        `,
-        options: [
-          {
-            ...options,
-            groups: ['unknown'],
-          },
-        ],
-      })
-
-      await valid({
-        code: dedent`
-          enum Enum {
-            V = 'V'
-          }
-
-          class A {
-            static {
-              console.log(A.f())
-            }
-
-            static f = () => {
-              return Enum.V
-            }
-          }
-        `,
-        options: [
-          {
-            ...options,
-            groups: ['unknown'],
-          },
-        ],
-      })
-
-      await valid({
-        code: dedent`
-          enum Enum {
-            V = 'V'
-          }
-
-          class Class {
-            static {
-              const method = () => {
-                return Enum.V || true;
-              };
-              method();
-            }
-          }
-        `,
-        options: [
-          {
-            ...options,
-            groups: ['unknown'],
-          },
-        ],
-      })
-    })
-
-    it('detects static class method dependencies when static property is present', async () => {
-      await valid({
-        code: dedent`
-          enum Enum {
-            V = 'V'
-          }
-
-          class A {
-            static a = Enum.V
-          }
-        `,
-        options: [
-          {
-            ...options,
-            groups: ['unknown'],
-          },
-        ],
-      })
-
-      await valid({
-        code: dedent`
-          enum Enum {
-            V = 'V'
-          }
-
-          class A {
-            static accessor a = Enum.V
-          }
-        `,
-        options: [
-          {
-            ...options,
-            groups: ['unknown'],
-          },
-        ],
-      })
-
-      await valid({
-        code: dedent`
-          enum Enum {
-            V = 'V'
-          }
-
-          class A {
-            static a = Object.values(Enum)
-          }
-        `,
-        options: [
-          {
-            ...options,
-            groups: ['unknown'],
-          },
-        ],
-      })
-    })
-
-    it('ignores non-static arrow method dependencies', async () => {
-      await valid({
-        code: dedent`
-          class A {
-            f = () => {
-              return Enum.V
-            }
-          }
-
-          enum Enum {
-            V = 'V'
-          }
-        `,
-        options: [
-          {
-            ...options,
-            groups: ['unknown'],
-          },
-        ],
-      })
-
-      await valid({
-        code: dedent`
-          class A {
-            accessor f = () => {
-              return Enum.V
-            }
-          }
-
-          enum Enum {
-            V = 'V'
-          }
-        `,
-        options: [
-          {
-            ...options,
-            groups: ['unknown'],
-          },
-        ],
-      })
-    })
-
-    it('ignores static arrow method dependencies when no static block or properties exist', async () => {
-      await valid({
-        code: dedent`
-          class A {
-            static f = () => {
-              return Enum.V
-            }
-          }
-
-          enum Enum {
-            V = 'V'
-          }
-        `,
-        options: [
-          {
-            ...options,
-            groups: ['unknown'],
-          },
-        ],
-      })
-    })
-
-    it('ignores interface type dependencies', async () => {
-      await valid({
-        code: dedent`
-          interface A {
-            a: Enum.V
-          }
-
-          enum Enum {
-            V = 'V'
-          }
-        `,
-        options: [
-          {
-            ...options,
-            groups: ['unknown'],
-          },
-        ],
-      })
-    })
-
-    it('ignores type alias dependencies', async () => {
-      await valid({
-        code: dedent`
-          type A = {
-            a: Enum.V
-          }
-
-          enum Enum {
-            V = 'V'
-          }
-        `,
-        options: [
-          {
-            ...options,
-            groups: ['unknown'],
-          },
-        ],
-      })
-    })
-
-    it('detects enum value dependencies', async () => {
-      await valid({
-        code: dedent`
-          enum B {
-            V = 'V'
-          }
-
-          enum A {
-            V = B.V
-          }
-        `,
-        options: [
-          {
-            ...options,
-            groups: ['unknown'],
-          },
-        ],
-      })
-    })
-
-    it('detects deeply nested dependencies', async () => {
-      await invalid({
-        output: dedent`
-          class B {
-            static b = 1
-          }
-
-          class A {
-            static a = x > y ? new Class([...{...!!method(1 + <any>(B?.b! as any))}]) : null
-          }
-        `,
-        code: dedent`
-          class A {
-            static a = x > y ? new Class([...{...!!method(1 + <any>(B?.b! as any))}]) : null
-          }
-
-          class B {
-            static b = 1
-          }
-        `,
-        errors: [
-          {
-            data: { nodeDependentOnRight: 'A', right: 'B' },
-            messageId: 'unexpectedModulesDependencyOrder',
-          },
-        ],
-        options: [options],
-      })
-    })
-
-    it('detects dependencies in template literal expressions', async () => {
-      await valid({
-        code: dedent`
-          class B {
-            static b = 1
-          }
-
-          class A {
-            static a = \`\${B.b}\`
-          }
-        `,
-        options: [
-          {
-            ...options,
-            groups: ['unknown'],
-          },
-        ],
-      })
-    })
-
-    it('detects dependencies in class inheritance', async () => {
-      await valid({
-        options: [
-          {
-            ...options,
-            groups: ['unknown'],
-          },
-        ],
-        code: dedent`
-          class B {}
-
-          class A extends B {}
-        `,
-      })
-    })
-
-    it('detects dependencies in decorator expressions', async () => {
-      await invalid({
-        output: dedent`
-          enum B {}
-
-          class A {
-            @SomeDecorator({
-              a: {
-                b: c.concat([B])
-              }
-            })
-            property
-          }
-        `,
-        code: dedent`
-          class A {
-            @SomeDecorator({
-              a: {
-                b: c.concat([B])
-              }
-            })
-            property
-          }
-
-          enum B {}
-        `,
-        errors: [
-          {
-            data: { nodeDependentOnRight: 'A', right: 'B' },
-            messageId: 'unexpectedModulesDependencyOrder',
-          },
-        ],
-        options: [
-          {
-            ...options,
-            groups: ['unknown'],
-          },
-        ],
-      })
-    })
-
-    it('detects and handles circular dependencies', async () => {
-      await invalid({
-        output: dedent`
-          class AAA {
-            static a = BB.b
-          }
-
-          class C {
-            static c = AAA.a
-          }
-
-          class BB {
-            static b = C.c
-          }
-        `,
-        code: dedent`
-          class BB {
-            static b = C.c
-          }
-
-          class AAA {
-            static a = BB.b
-          }
-
-          class C {
-            static c = AAA.a
-          }
-        `,
-        errors: [
-          {
-            messageId: 'unexpectedModulesOrder',
-            data: { right: 'AAA', left: 'BB' },
-          },
-        ],
-        options: [options],
-      })
-    })
-
-    it('prioritizes dependencies over group configuration', async () => {
-      await valid({
-        options: [
-          {
-            ...options,
-            groups: ['export-class', 'class'],
-          },
-        ],
-        code: dedent`
-          class B { static b }
-          export class A { static a = B.b }
-        `,
-      })
-    })
-
-    it('prioritizes dependencies over partition by comment', async () => {
-      await invalid({
-        errors: [
-          {
-            data: { nodeDependentOnRight: 'B', right: 'A' },
-            messageId: 'unexpectedModulesDependencyOrder',
-          },
-        ],
-        output: dedent`
-          class A { static a }
-          // Part1
-          class B { static b = A.a }
-        `,
-        code: dedent`
-          class B { static b = A.a }
-          // Part1
-          class A { static a }
-        `,
-        options: [
-          {
-            ...options,
-            partitionByComment: 'Part',
-          },
-        ],
-      })
-    })
-
-    it('prioritizes dependencies over partition by new line', async () => {
-      await invalid({
-        errors: [
-          {
-            data: { nodeDependentOnRight: 'B', right: 'A' },
-            messageId: 'unexpectedModulesDependencyOrder',
-          },
-        ],
-        options: [
-          {
-            ...options,
-            partitionByNewLine: true,
-          },
-        ],
-        output: dedent`
-          class A { static a }
-
-          class B { static = A.a }
-        `,
-        code: dedent`
-          class B { static = A.a }
-
-          class A { static a }
-        `,
-      })
-    })
-
-    it('trims special characters when configured', async () => {
-      await valid({
-        options: [
-          {
-            ...options,
-            specialCharacters: 'trim',
-          },
-        ],
-        code: dedent`
-          function _a() {}
-          function bb() {}
-          function _c() {}
-        `,
-      })
-    })
-
-    it('removes special characters when configured', async () => {
-      await valid({
-        options: [
-          {
-            ...options,
-            specialCharacters: 'remove',
-          },
-        ],
-        code: dedent`
-          function abc() {}
-          function a_c() {}
-        `,
-      })
-    })
-
-    it('sorts using locale-specific rules', async () => {
-      await valid({
-        code: dedent`
-          function 你好() {}
-          function 世界() {}
-          function a() {}
-          function A() {}
-          function b() {}
-          function B() {}
-        `,
-        options: [{ ...options, locales: 'zh-CN' }],
-      })
-    })
-
-    it('removes newlines between groups when newlinesBetween is 0', async () => {
-      await invalid({
-        errors: [
-          {
-            data: {
-              leftGroup: 'interface',
-              rightGroup: 'unknown',
-              left: 'AAAA',
-              right: 'yy',
-            },
-            messageId: 'unexpectedModulesGroupOrder',
-          },
-          {
-            messageId: 'unexpectedModulesOrder',
-            data: { right: 'bbb', left: 'z' },
-          },
-        ],
-        options: [
-          {
-            ...options,
-            groups: ['unknown', 'interface'],
-            newlinesInside: 'ignore',
-            newlinesBetween: 0,
-          },
-        ],
-        output: dedent`
-            function bbb() {}
-
-
-           function yy() {}
-          function z() {}
-              interface AAAA {}
-        `,
-        code: dedent`
-            interface AAAA {}
-
-
-           function yy() {}
-          function z() {}
-
-              function bbb() {}
-        `,
-      })
-    })
-
-    it('maintains single newline between groups when newlinesBetween is 1', async () => {
-      await invalid({
-        options: [
-          {
-            ...options,
-            customGroups: [
-              {
-                elementNamePattern: 'a',
-                groupName: 'a',
-              },
-              {
-                elementNamePattern: 'b',
-                groupName: 'b',
-              },
-            ],
-            groups: ['a', 'b'],
-            newlinesBetween: 1,
-          },
-        ],
-        errors: [
-          {
-            messageId: 'missedSpacingBetweenModulesMembers',
-            data: { right: 'b', left: 'a' },
-          },
-        ],
-        output: dedent`
-          function a() {};
-
-          function b() {}
-        `,
-        code: dedent`
-          function a() {};function b() {}
-        `,
-      })
-
-      await invalid({
-        errors: [
-          {
-            data: {
-              left: 'AAAA',
-              right: 'z',
-            },
-            messageId: 'extraSpacingBetweenModulesMembers',
-          },
-          {
-            messageId: 'unexpectedModulesOrder',
-            data: { right: 'yy', left: 'z' },
-          },
-          {
-            messageId: 'missedSpacingBetweenModulesMembers',
-            data: { right: 'BBB', left: 'yy' },
-          },
-        ],
-        options: [
-          {
-            ...options,
-            groups: ['interface', 'unknown', 'class'],
-            newlinesBetween: 1,
-          },
-        ],
-        output: dedent`
-            interface AAAA {}
-
-           function yy() {}
-          function z() {}
-
-              class BBB {}
-        `,
-        code: dedent`
-            interface AAAA {}
-
-
-           function z() {}
-          function yy() {}
-              class BBB {}
-        `,
-      })
-    })
-
-    it('handles newlinesBetween settings between consecutive groups', async () => {
-      await invalid({
-        options: [
-          {
-            ...options,
-            customGroups: [
-              { elementNamePattern: 'a', groupName: 'a' },
-              { elementNamePattern: 'b', groupName: 'b' },
-              { elementNamePattern: 'c', groupName: 'c' },
-              { elementNamePattern: 'd', groupName: 'd' },
-              { elementNamePattern: 'e', groupName: 'e' },
-            ],
-            groups: [
-              'a',
-              { newlinesBetween: 1 },
-              'b',
-              { newlinesBetween: 1 },
-              'c',
-              { newlinesBetween: 0 },
-              'd',
-              { newlinesBetween: 'ignore' },
-              'e',
-            ],
-            newlinesBetween: 1,
-          },
-        ],
-        errors: [
-          {
-            messageId: 'missedSpacingBetweenModulesMembers',
-            data: { right: 'b', left: 'a' },
-          },
-          {
-            messageId: 'extraSpacingBetweenModulesMembers',
-            data: { right: 'c', left: 'b' },
-          },
-          {
-            messageId: 'extraSpacingBetweenModulesMembers',
-            data: { right: 'd', left: 'c' },
-          },
-        ],
-        output: dedent`
-          function a() {}
-
-          function b() {}
-
-          function c() {}
-          function d() {}
-
-
-          function e() {}
-        `,
-        code: dedent`
-          function a() {}
-          function b() {}
-
-
-          function c() {}
-
-          function d() {}
-
-
-          function e() {}
-        `,
-      })
-    })
-
-    it.each([
-      [2, 0],
-      [2, 'ignore'],
-      [0, 2],
-      ['ignore', 2],
-    ])(
-      'enforces 2 newlines when global is %s and group is %s',
-      async (globalNewlinesBetween, groupNewlinesBetween) => {
-        await invalid({
-          options: [
-            {
-              ...options,
-              customGroups: [
-                { elementNamePattern: 'a', groupName: 'a' },
-                { elementNamePattern: 'b', groupName: 'b' },
-                { groupName: 'unusedGroup', elementNamePattern: 'X' },
-              ],
-              groups: [
-                'a',
-                'unusedGroup',
-                { newlinesBetween: groupNewlinesBetween },
-                'b',
-              ],
-              newlinesBetween: globalNewlinesBetween,
-            },
-          ],
-          errors: [
-            {
-              messageId: 'missedSpacingBetweenModulesMembers',
-              data: { right: 'b', left: 'a' },
-            },
-          ],
-          output: dedent`
-            function a() {}
-
-
-            function b() {}
-          `,
-          code: dedent`
-            function a() {}
-            function b() {}
-          `,
-        })
-      },
-    )
-
-    it.each([1, 2, 'ignore', 0])(
-      'removes newlines when 0 overrides global %s between specific groups',
-      async globalNewlinesBetween => {
-        await invalid({
-          options: [
-            {
-              ...options,
-              customGroups: [
-                { elementNamePattern: 'a', groupName: 'a' },
-                { elementNamePattern: 'b', groupName: 'b' },
-                { elementNamePattern: 'c', groupName: 'c' },
-                { groupName: 'unusedGroup', elementNamePattern: 'X' },
-              ],
-              groups: [
-                'a',
-                { newlinesBetween: 0 },
-                'unusedGroup',
-                { newlinesBetween: 0 },
-                'b',
-                { newlinesBetween: 1 },
-                'c',
-              ],
-              newlinesBetween: globalNewlinesBetween,
-            },
-          ],
-          errors: [
-            {
-              messageId: 'extraSpacingBetweenModulesMembers',
-              data: { right: 'b', left: 'a' },
-            },
-          ],
-          output: dedent`
-            function a() {}
-            function b() {}
-          `,
-          code: dedent`
-            function a() {}
-
-            function b() {}
-          `,
-        })
-      },
-    )
-
-    it.each([
-      ['ignore', 0],
-      [0, 'ignore'],
-    ])(
-      'accepts any spacing when global is %s and group is %s',
-      async (globalNewlinesBetween, groupNewlinesBetween) => {
-        await valid({
-          options: [
-            {
-              ...options,
-              customGroups: [
-                { elementNamePattern: 'a', groupName: 'a' },
-                { elementNamePattern: 'b', groupName: 'b' },
-                { groupName: 'unusedGroup', elementNamePattern: 'X' },
-              ],
-              groups: [
-                'a',
-                'unusedGroup',
-                { newlinesBetween: groupNewlinesBetween },
-                'b',
-              ],
-              newlinesBetween: globalNewlinesBetween,
-            },
-          ],
-          code: dedent`
-            function a() {}
-
-            function b() {}
-          `,
-        })
-
-        await valid({
-          options: [
-            {
-              ...options,
-              customGroups: [
-                { elementNamePattern: 'a', groupName: 'a' },
-                { elementNamePattern: 'b', groupName: 'b' },
-                { groupName: 'unusedGroup', elementNamePattern: 'X' },
-              ],
-              groups: [
-                'a',
-                'unusedGroup',
-                { newlinesBetween: groupNewlinesBetween },
-                'b',
-              ],
-              newlinesBetween: globalNewlinesBetween,
-            },
-          ],
-          code: dedent`
-            function a() {}
-            function b() {}
-          `,
-        })
-      },
-    )
-
-    it('handles newlines and comments after fixes', async () => {
-      await invalid({
-        errors: [
-          {
-            data: {
-              rightGroup: 'function',
-              leftGroup: 'type',
-              right: 'a',
-              left: 'B',
-            },
-            messageId: 'unexpectedModulesGroupOrder',
-          },
-        ],
-        options: [
-          {
-            groups: ['function', 'type'],
-            newlinesBetween: 1,
-            newlinesInside: 0,
-          },
-        ],
-        output: dedent`
-          function a() {} // Comment after
-
-          type B = string
-          type C = string
-        `,
-        code: dedent`
-          type B = string
-          function a() {} // Comment after
-
-          type C = string
-        `,
-      })
-    })
-
-    it('preserves partition boundaries regardless of newlinesBetween 0', async () => {
-      await invalid({
-        options: [
-          {
-            ...options,
-            customGroups: [
-              {
-                elementNamePattern: 'a',
-                groupName: 'a',
-              },
-            ],
-            groups: ['a', 'unknown'],
-            partitionByComment: true,
-            newlinesBetween: 0,
-          },
-        ],
-        errors: [
-          {
-            messageId: 'unexpectedModulesOrder',
-            data: { right: 'bb', left: 'c' },
-          },
-        ],
-        output: dedent`
-          function a() {}
-
-          // Partition comment
-
-          function bb() {}
-          function c() {}
-        `,
-        code: dedent`
-          function a() {}
-
-          // Partition comment
-
-          function c() {}
-          function bb() {}
-        `,
-      })
-    })
-
-    it('sorts inline non-declare functions correctly', async () => {
-      await invalid({
-        errors: [
-          {
-            messageId: 'unexpectedModulesOrder',
-            data: { right: 'aa', left: 'b' },
-          },
-        ],
-        output: dedent`
-          function aa() {} function b() {}
-        `,
-        code: dedent`
-          function b() {} function aa() {}
-        `,
-        options: [options],
-      })
-
-      await invalid({
-        errors: [
-          {
-            messageId: 'unexpectedModulesOrder',
-            data: { right: 'aa', left: 'b' },
-          },
-        ],
-        output: dedent`
-          function aa() {} function b() {};
-        `,
-        code: dedent`
-          function b() {} function aa() {};
-        `,
-        options: [options],
-      })
-
-      await invalid({
-        errors: [
-          {
-            messageId: 'unexpectedModulesOrder',
-            data: { right: 'aa', left: 'b' },
-          },
-        ],
-        output: dedent`
-          function aa() {}; function b() {}
-        `,
-        code: dedent`
-          function b() {}; function aa() {}
-        `,
-        options: [options],
-      })
-    })
-
-    it('sorts inline declare functions correctly', async () => {
-      await invalid({
-        errors: [
-          {
-            messageId: 'unexpectedModulesOrder',
-            data: { right: 'aa', left: 'b' },
-          },
-        ],
-        output: dedent`
-          declare function aa(); declare function b();
-        `,
-        code: dedent`
-          declare function b(); declare function aa();
-        `,
-        options: [options],
-      })
-
-      await invalid({
-        errors: [
-          {
-            messageId: 'unexpectedModulesOrder',
-            data: { right: 'aa', left: 'b' },
-          },
-        ],
-        output: dedent`
-          declare function aa(); declare function b();
-        `,
-        code: dedent`
-          declare function b(); declare function aa();
-        `,
-        options: [options],
-      })
-    })
-
-    it('sorts inline interfaces correctly', async () => {
-      await invalid({
-        errors: [
-          {
-            messageId: 'unexpectedModulesOrder',
-            data: { right: 'AA', left: 'B' },
-          },
-        ],
-        output: dedent`
-          interface AA {} interface B {}
-        `,
-        code: dedent`
-          interface B {} interface AA {}
-        `,
-        options: [options],
-      })
-
-      await invalid({
-        errors: [
-          {
-            messageId: 'unexpectedModulesOrder',
-            data: { right: 'AA', left: 'B' },
-          },
-        ],
-        output: dedent`
-          interface AA {} interface B {};
-        `,
-        code: dedent`
-          interface B {} interface AA {};
-        `,
-        options: [options],
-      })
-
-      await invalid({
-        errors: [
-          {
-            messageId: 'unexpectedModulesOrder',
-            data: { right: 'AA', left: 'B' },
-          },
-        ],
-        output: dedent`
-          interface AA {}; interface B {}
-        `,
-        code: dedent`
-          interface B {}; interface AA {}
-        `,
-        options: [options],
-      })
-    })
-
-    it('sorts inline type aliases correctly', async () => {
-      await invalid({
-        errors: [
-          {
-            messageId: 'unexpectedModulesOrder',
-            data: { right: 'aa', left: 'b' },
-          },
-        ],
-        output: dedent`
-          type aa = {}; type b = {};
-        `,
-        code: dedent`
-          type b = {}; type aa = {}
-        `,
-        options: [options],
-      })
-
-      await invalid({
-        errors: [
-          {
-            messageId: 'unexpectedModulesOrder',
-            data: { right: 'aa', left: 'b' },
-          },
-        ],
-        output: dedent`
-          type aa = {}; type b = {};
-        `,
-        code: dedent`
-          type b = {}; type aa = {};
-        `,
-        options: [options],
-      })
-    })
-
-    it('sorts inline classes correctly', async () => {
-      await invalid({
-        errors: [
-          {
-            messageId: 'unexpectedModulesOrder',
-            data: { right: 'AA', left: 'B' },
-          },
-        ],
-        output: dedent`
-          class AA {} class B {}
-        `,
-        code: dedent`
-          class B {} class AA {}
-        `,
-        options: [options],
-      })
-
-      await invalid({
-        errors: [
-          {
-            messageId: 'unexpectedModulesOrder',
-            data: { right: 'AA', left: 'B' },
-          },
-        ],
-        output: dedent`
-          class AA {} class B {};
-        `,
-        code: dedent`
-          class B {} class AA {};
-        `,
-        options: [options],
-      })
-
-      await invalid({
-        errors: [
-          {
-            messageId: 'unexpectedModulesOrder',
-            data: { right: 'AA', left: 'B' },
-          },
-        ],
-        output: dedent`
-          class AA {}; class B {}
-        `,
-        code: dedent`
-          class B {}; class AA {}
-        `,
-        options: [options],
-      })
-    })
-
-    it('sorts inline enums correctly', async () => {
-      await invalid({
-        errors: [
-          {
-            messageId: 'unexpectedModulesOrder',
-            data: { right: 'AA', left: 'B' },
-          },
-        ],
-        output: dedent`
-          enum AA {} enum B {}
-        `,
-        code: dedent`
-          enum B {} enum AA {}
-        `,
-        options: [options],
-      })
-
-      await invalid({
-        errors: [
-          {
-            messageId: 'unexpectedModulesOrder',
-            data: { right: 'AA', left: 'B' },
-          },
-        ],
-        output: dedent`
-          enum AA {} enum B {};
-        `,
-        code: dedent`
-          enum B {} enum AA {};
-        `,
-        options: [options],
-      })
-
-      await invalid({
-        errors: [
-          {
-            messageId: 'unexpectedModulesOrder',
-            data: { right: 'AA', left: 'B' },
-          },
-        ],
-        output: dedent`
-          enum AA {}; enum B {}
-        `,
-        code: dedent`
-          enum B {}; enum AA {}
-        `,
-        options: [options],
-      })
-    })
-
-    it('correctly sorts exported classes with decorators', async () => {
-      await invalid({
-        output: dedent`
-          @A1
-          @A2
-          export class AAA {}
-
-          @B1
-          @B2
-          class BB {}
-
-          @C1
-          @C2
-          class C {}
-        `,
-        code: dedent`
-          @C1
-          @C2
-          class C {}
-
-          @A1
-          @A2
-          export class AAA {}
-
-          @B1
-          @B2
-          class BB {}
-        `,
-        errors: [
-          {
-            messageId: 'unexpectedModulesOrder',
-            data: { right: 'AAA', left: 'C' },
-          },
-        ],
-        options: [
-          {
-            ...options,
-            groups: ['unknown'],
-          },
-        ],
-      })
-    })
-
-    it('uses the implementation node when overload signatures are present', async () => {
-      await invalid({
-        errors: [
-          {
-            data: {
-              rightGroup: 'export-function',
-              leftGroup: 'function',
-              right: 'b',
-              left: 'a',
-            },
-            messageId: 'unexpectedModulesGroupOrder',
-          },
-        ],
-        output: dedent`
-          function b(): void;
-          export function b(arg: string): void {}
-
-          function a(arg: string | number | boolean): void;
-          function a(): void {}
-        `,
-        code: dedent`
-          function a(arg: string | number | boolean): void;
-          function a(): void {}
-
-          function b(): void;
-          export function b(arg: string): void {}
-        `,
-        options: [options],
-      })
-    })
-
-    it('considers the latest overload signature if the implementation is not present', async () => {
-      await invalid({
-        output: dedent`
-          function b(): void
-          declare function b(arg: string): void
-
-          function a(arg: string | number | boolean): void
-          declare function a(): void
-        `,
-        code: dedent`
-          function a(arg: string | number | boolean): void
-          declare function a(): void
-
-          function b(): void
-          declare function b(arg: string): void
-        `,
-        errors: [
-          {
-            messageId: 'unexpectedModulesOrder',
-            data: { right: 'b', left: 'a' },
-          },
-        ],
-        options: [options],
-      })
-    })
-  })
-
-  describe('custom', () => {
     let alphabet = Alphabet.generateRecommendedAlphabet()
       .sortByLocaleCompare('en-US')
       .getCharacters()
-
     let options = {
       type: 'custom',
       order: 'asc',
       alphabet,
     } as const
 
-    it('sorts modules according to group hierarchy', async () => {
-      await invalid({
-        errors: [
-          {
-            data: {
-              leftGroup: 'export-interface',
-              left: 'FindUserInput',
-              right: 'CacheType',
-              rightGroup: 'enum',
+    ruleTester.run(`${ruleName}(${type}): sorts modules`, rule, {
+      invalid: [
+        {
+          errors: [
+            {
+              data: {
+                leftGroup: 'export-interface',
+                left: 'FindUserInput',
+                right: 'CacheType',
+                rightGroup: 'enum',
+              },
+              messageId: 'unexpectedModulesGroupOrder',
             },
-            messageId: 'unexpectedModulesGroupOrder',
-          },
-          {
-            data: {
-              rightGroup: 'export-function',
-              left: 'assertInputIsCorrect',
-              leftGroup: 'function',
-              right: 'findUser',
+            {
+              data: {
+                rightGroup: 'export-function',
+                left: 'assertInputIsCorrect',
+                leftGroup: 'function',
+                right: 'findUser',
+              },
+              messageId: 'unexpectedModulesGroupOrder',
             },
-            messageId: 'unexpectedModulesGroupOrder',
-          },
-          {
-            data: {
-              leftGroup: 'export-function',
-              right: 'FindAllUsersInput',
-              rightGroup: 'export-type',
-              left: 'findUser',
+            {
+              data: {
+                leftGroup: 'export-function',
+                right: 'FindAllUsersInput',
+                rightGroup: 'export-type',
+                left: 'findUser',
+              },
+              messageId: 'unexpectedModulesGroupOrder',
             },
-            messageId: 'unexpectedModulesGroupOrder',
-          },
-          {
-            data: {
-              leftGroup: 'export-function',
-              left: 'findAllUsers',
-              rightGroup: 'class',
-              right: 'Cache',
+            {
+              data: {
+                leftGroup: 'export-function',
+                left: 'findAllUsers',
+                rightGroup: 'class',
+                right: 'Cache',
+              },
+              messageId: 'unexpectedModulesGroupOrder',
             },
-            messageId: 'unexpectedModulesGroupOrder',
-          },
-        ],
-        output: dedent`
-          enum CacheType {
-            ALWAYS = 'ALWAYS',
-            NEVER = 'NEVER',
-          }
+          ],
+          output: dedent`
+            enum CacheType {
+              ALWAYS = 'ALWAYS',
+              NEVER = 'NEVER',
+            }
 
-          export type FindAllUsersInput = {
-            ids: string[]
-            cache: CacheType
-          }
+            export type FindAllUsersInput = {
+              ids: string[]
+              cache: CacheType
+            }
 
-          export type FindAllUsersOutput = FindUserOutput[]
+            export type FindAllUsersOutput = FindUserOutput[]
 
-          export interface FindUserInput {
-            id: string
-            cache: CacheType
-          }
+            export interface FindUserInput {
+              id: string
+              cache: CacheType
+            }
 
-          export type FindUserOutput = {
-            id: string
-            name: string
-            age: number
-          }
+            export type FindUserOutput = {
+              id: string
+              name: string
+              age: number
+            }
 
-          class Cache {
-            // Some logic
-          }
+            class Cache {
+              // Some logic
+            }
 
-          export function findAllUsers(input: FindAllUsersInput): FindAllUsersOutput {
-            assertInputIsCorrect(input)
-            return _findUserByIds(input.ids)
-          }
+            export function findAllUsers(input: FindAllUsersInput): FindAllUsersOutput {
+              assertInputIsCorrect(input)
+              return _findUserByIds(input.ids)
+            }
 
-          export function findUser(input: FindUserInput): FindUserOutput {
-            assertInputIsCorrect(input)
-            return _findUserByIds([input.id])[0]
-          }
+            export function findUser(input: FindUserInput): FindUserOutput {
+              assertInputIsCorrect(input)
+              return _findUserByIds([input.id])[0]
+            }
 
-          function assertInputIsCorrect(input: FindUserInput | FindAllUsersInput): void {
-            // Some logic
-          }
-        `,
-        code: dedent`
-          export interface FindUserInput {
-            id: string
-            cache: CacheType
-          }
+            function assertInputIsCorrect(input: FindUserInput | FindAllUsersInput): void {
+              // Some logic
+            }
+          `,
+          code: dedent`
+            export interface FindUserInput {
+              id: string
+              cache: CacheType
+            }
 
-          enum CacheType {
-            ALWAYS = 'ALWAYS',
-            NEVER = 'NEVER',
-          }
+            enum CacheType {
+              ALWAYS = 'ALWAYS',
+              NEVER = 'NEVER',
+            }
 
-          export type FindUserOutput = {
-            id: string
-            name: string
-            age: number
-          }
+            export type FindUserOutput = {
+              id: string
+              name: string
+              age: number
+            }
 
-          function assertInputIsCorrect(input: FindUserInput | FindAllUsersInput): void {
-            // Some logic
-          }
+            function assertInputIsCorrect(input: FindUserInput | FindAllUsersInput): void {
+              // Some logic
+            }
 
-          export function findUser(input: FindUserInput): FindUserOutput {
-            assertInputIsCorrect(input)
-            return _findUserByIds([input.id])[0]
-          }
+            export function findUser(input: FindUserInput): FindUserOutput {
+              assertInputIsCorrect(input)
+              return _findUserByIds([input.id])[0]
+            }
 
-          export type FindAllUsersInput = {
-            ids: string[]
-            cache: CacheType
-          }
+            export type FindAllUsersInput = {
+              ids: string[]
+              cache: CacheType
+            }
 
-          export type FindAllUsersOutput = FindUserOutput[]
+            export type FindAllUsersOutput = FindUserOutput[]
 
-          export function findAllUsers(input: FindAllUsersInput): FindAllUsersOutput {
-            assertInputIsCorrect(input)
-            return _findUserByIds(input.ids)
-          }
+            export function findAllUsers(input: FindAllUsersInput): FindAllUsersOutput {
+              assertInputIsCorrect(input)
+              return _findUserByIds(input.ids)
+            }
 
-          class Cache {
-            // Some logic
-          }
-        `,
-        options: [options],
-      })
+            class Cache {
+              // Some logic
+            }
+          `,
+          options: [options],
+        },
+      ],
+      valid: [],
     })
   })
 
-  describe('subgroup-order', () => {
+  describe(`${ruleName}: sorting by line-length`, () => {
+    let type = 'line-length'
+
     let options = {
-      fallbackSort: {
-        type: 'subgroup-order',
-      },
-      type: 'alphabetical',
-    }
+      type: 'line-length',
+      order: 'desc',
+    } as const
 
-    it('fallback sorts by subgroup order', async () => {
-      await invalid({
-        errors: [
-          {
-            messageId: 'unexpectedModulesOrder',
-            data: { right: 'a', left: 'b' },
-          },
-          {
-            messageId: 'unexpectedModulesOrder',
-            data: { right: 'a', left: 'b' },
-          },
-        ],
-        output: dedent`
-          type a = typeof a
-          function a() {}
-          type b = typeof b
-          function b() {}
-        `,
-        code: dedent`
-          function b() {}
-          function a() {}
-          type b = typeof b
-          type a = typeof a
-        `,
-        options: [
-          {
-            ...options,
-            groups: [['type', 'function'], 'unknown'],
-          },
-        ],
-      })
+    ruleTester.run(`${ruleName}(${type}): sorts modules`, rule, {
+      invalid: [
+        {
+          errors: [
+            {
+              data: {
+                leftGroup: 'export-interface',
+                left: 'FindUserInput',
+                right: 'CacheType',
+                rightGroup: 'enum',
+              },
+              messageId: 'unexpectedModulesGroupOrder',
+            },
+            {
+              data: {
+                rightGroup: 'export-function',
+                left: 'assertInputIsCorrect',
+                leftGroup: 'function',
+                right: 'findUser',
+              },
+              messageId: 'unexpectedModulesGroupOrder',
+            },
+            {
+              data: {
+                leftGroup: 'export-function',
+                right: 'FindAllUsersInput',
+                rightGroup: 'export-type',
+                left: 'findUser',
+              },
+              messageId: 'unexpectedModulesGroupOrder',
+            },
+            {
+              data: {
+                leftGroup: 'export-function',
+                left: 'findAllUsers',
+                rightGroup: 'class',
+                right: 'Cache',
+              },
+              messageId: 'unexpectedModulesGroupOrder',
+            },
+          ],
+          output: dedent`
+            enum CacheType {
+              ALWAYS = 'ALWAYS',
+              NEVER = 'NEVER',
+            }
+
+            export type FindUserOutput = {
+              id: string
+              name: string
+              age: number
+            }
+
+            export type FindAllUsersInput = {
+              ids: string[]
+              cache: CacheType
+            }
+
+            export interface FindUserInput {
+              id: string
+              cache: CacheType
+            }
+
+            export type FindAllUsersOutput = FindUserOutput[]
+
+            class Cache {
+              // Some logic
+            }
+
+            export function findAllUsers(input: FindAllUsersInput): FindAllUsersOutput {
+              assertInputIsCorrect(input)
+              return _findUserByIds(input.ids)
+            }
+
+            export function findUser(input: FindUserInput): FindUserOutput {
+              assertInputIsCorrect(input)
+              return _findUserByIds([input.id])[0]
+            }
+
+            function assertInputIsCorrect(input: FindUserInput | FindAllUsersInput): void {
+              // Some logic
+            }
+          `,
+          code: dedent`
+            export interface FindUserInput {
+              id: string
+              cache: CacheType
+            }
+
+            enum CacheType {
+              ALWAYS = 'ALWAYS',
+              NEVER = 'NEVER',
+            }
+
+            export type FindUserOutput = {
+              id: string
+              name: string
+              age: number
+            }
+
+            function assertInputIsCorrect(input: FindUserInput | FindAllUsersInput): void {
+              // Some logic
+            }
+
+            export function findUser(input: FindUserInput): FindUserOutput {
+              assertInputIsCorrect(input)
+              return _findUserByIds([input.id])[0]
+            }
+
+            export type FindAllUsersInput = {
+              ids: string[]
+              cache: CacheType
+            }
+
+            export type FindAllUsersOutput = FindUserOutput[]
+
+            export function findAllUsers(input: FindAllUsersInput): FindAllUsersOutput {
+              assertInputIsCorrect(input)
+              return _findUserByIds(input.ids)
+            }
+
+            class Cache {
+              // Some logic
+            }
+          `,
+          options: [options],
+        },
+      ],
+      valid: [],
     })
 
-    it('fallback sorts by subgroup order through overriding groups option', async () => {
-      await invalid({
-        errors: [
+    ruleTester.run(
+      `${ruleName}(${type}): handles "fallbackSort" option`,
+      rule,
+      {
+        invalid: [
           {
-            messageId: 'unexpectedModulesOrder',
-            data: { right: 'a', left: 'b' },
-          },
-          {
-            messageId: 'unexpectedModulesOrder',
-            data: { right: 'a', left: 'b' },
-          },
-        ],
-        options: [
-          {
-            ...options,
-            groups: [
-              { group: ['type', 'function'], newlinesInside: 0 },
-              'unknown',
+            errors: [
+              {
+                data: {
+                  right: 'bb',
+                  left: 'a',
+                },
+                messageId: 'unexpectedModulesOrder',
+              },
             ],
+            options: [
+              {
+                ...options,
+                fallbackSort: {
+                  type: 'alphabetical',
+                },
+              },
+            ],
+            output: dedent`
+              function bb() {}
+              function c() {}
+              function a() {}
+            `,
+            code: dedent`
+              function a() {}
+              function bb() {}
+              function c() {}
+            `,
+          },
+          {
+            errors: [
+              {
+                data: {
+                  right: 'bb',
+                  left: 'c',
+                },
+                messageId: 'unexpectedModulesOrder',
+              },
+            ],
+            options: [
+              {
+                ...options,
+                fallbackSort: {
+                  type: 'alphabetical',
+                  order: 'asc',
+                },
+              },
+            ],
+            output: dedent`
+              function bb() {}
+              function a() {}
+              function c() {}
+            `,
+            code: dedent`
+              function c() {}
+              function bb() {}
+              function a() {}
+            `,
           },
         ],
-        output: dedent`
-          type a = typeof a
-          function a() {}
-          type b = typeof b
-          function b() {}
-        `,
-        code: dedent`
-          function b() {}
-          function a() {}
-          type b = typeof b
-          type a = typeof a
-        `,
-      })
-    })
+        valid: [],
+      },
+    )
   })
 
-  describe('unsorted', () => {
+  describe(`${ruleName}: unsorted type`, () => {
+    let type = 'unsorted'
+
     let options = {
       type: 'unsorted',
       order: 'asc',
     } as const
 
-    it('does not enforce element sorting within groups', async () => {
-      await valid({
-        code: dedent`
-          function b() {}
-          function c() {}
-          function a() {}
-        `,
-        options: [options],
-      })
-    })
-
-    it('enforces group ordering with custom groups', async () => {
-      await invalid({
-        options: [
-          {
-            ...options,
-            customGroups: [
-              {
-                elementNamePattern: '^a',
-                groupName: 'a',
-              },
-              {
-                elementNamePattern: '^b',
-                groupName: 'b',
-              },
-            ],
-            groups: ['b', 'a'],
-          },
-        ],
-        errors: [
-          {
-            data: {
-              rightGroup: 'b',
-              leftGroup: 'a',
-              right: 'ba',
-              left: 'aa',
-            },
-            messageId: 'unexpectedModulesGroupOrder',
-          },
-        ],
-        output: dedent`
-          function ba() {}
-          function bb() {}
-          function ab() {}
-          function aa() {}
-        `,
-        code: dedent`
-          function ab() {}
-          function aa() {}
-          function ba() {}
-          function bb() {}
-        `,
-      })
-    })
-
-    it('enforces newlines between groups', async () => {
-      await invalid({
-        options: [
-          {
-            ...options,
-            customGroups: [
-              {
-                elementNamePattern: 'a',
-                groupName: 'a',
-              },
-              {
-                elementNamePattern: 'b',
-                groupName: 'b',
-              },
-            ],
-            newlinesBetween: 1,
-            groups: ['b', 'a'],
-          },
-        ],
-        errors: [
-          {
-            messageId: 'missedSpacingBetweenModulesMembers',
-            data: { right: 'a', left: 'b' },
-          },
-        ],
-        output: dedent`
-          function b() {}
-
-          function a() {}
-        `,
-        code: dedent`
-          function b() {}
-          function a() {}
-        `,
-      })
-    })
-
-    it('enforces dependency-based ordering', async () => {
-      await invalid({
-        errors: [
-          {
-            data: { nodeDependentOnRight: 'A', right: 'B' },
-            messageId: 'unexpectedModulesDependencyOrder',
-          },
-        ],
-        output: dedent`
-          class B {}
-          class A extends B {}
-        `,
-        code: dedent`
-          class A extends B {}
-          class B {}
-        `,
-        options: [options],
-      })
-    })
-  })
-
-  describe('usage', () => {
-    let options = {
-      type: 'usage',
-      order: 'asc',
-    }
-
-    it('enforces used elements to be first', async () => {
-      await invalid({
-        errors: [
-          {
-            messageId: 'unexpectedModulesOrder',
-            data: { right: 'B', left: 'C' },
-          },
-          {
-            messageId: 'unexpectedModulesOrder',
-            data: { right: 'A', left: 'B' },
-          },
-        ],
-        output: dedent`
-          type A = 'a';
-          type B = A;
-          type C = B;
-        `,
-        code: dedent`
-          type C = B;
-          type B = A;
-          type A = 'a';
-        `,
-        options: [options],
-      })
-    })
-
-    it('supports fallbackSort', async () => {
-      await invalid({
-        options: [
-          {
-            ...options,
-            fallbackSort: {
-              type: 'alphabetical',
-            },
-            type: 'usage',
-          },
-        ],
-        errors: [
-          {
-            messageId: 'unexpectedModulesOrder',
-            data: { right: 'A', left: 'B' },
-          },
-        ],
-        output: dedent`
-          type A = 'a';
-          type B = 'b';
-          type C = A | B;
-        `,
-        code: dedent`
-          type B = 'b';
-          type A = 'a';
-          type C = A | B;
-        `,
-      })
-
-      await invalid({
-        options: [
-          {
-            ...options,
-            fallbackSort: {
-              type: 'alphabetical',
-            },
-            type: 'usage',
-          },
-        ],
-        errors: [
-          {
-            messageId: 'unexpectedModulesOrder',
-            data: { right: 'A', left: 'C' },
-          },
-        ],
-        output: dedent`
-          type A = 'a';
-          type C = 'c';
-          type B = A | C;
-        `,
-        code: dedent`
-          type C = 'c';
-          type A = 'a';
-          type B = A | C;
-        `,
-      })
-
-      await invalid({
-        errors: [
-          {
-            messageId: 'unexpectedModulesOrder',
-            data: { right: 'C', left: 'B' },
-          },
-          {
-            messageId: 'unexpectedModulesOrder',
-            data: { right: 'A', left: 'C' },
-          },
-        ],
-        options: [
-          {
-            ...options,
-            fallbackSort: {
-              type: 'alphabetical',
-            },
-            type: 'usage',
-          },
-        ],
-        output: dedent`
-          type A = 'a';
-          type C = 'c';
-          type B = A | C;
-        `,
-        code: dedent`
-          type B = A | C;
-          type C = 'c';
-          type A = 'a';
-        `,
-      })
-    })
-
-    function testDependencyDetection(
-      useExperimentalDependencyDetection: boolean,
-    ): void {
-      describe('legacy detection', () => {
-        it('detects and handles circular dependencies', async () => {
-          await valid({
-            options: [
-              {
-                ...options,
-                useExperimentalDependencyDetection,
-              },
-            ],
-            code: dedent`
-              type C = B;
-              type B = A;
-              type A = C;
-            `,
-          })
-        })
-
-        it('sorts diamond dependencies without an autofix loop (#739)', async () => {
-          await invalid({
-            errors: [
-              {
-                data: { left: 'Independent', right: 'Leaf' },
-                messageId: 'unexpectedModulesOrder',
-              },
-              {
-                data: { left: 'Caller2', right: 'Other' },
-                messageId: 'unexpectedModulesOrder',
-              },
-            ],
-            output: dedent`
-              type Leaf = 'leaf';
-              type Caller1 = Leaf;
-              type Other = 'other';
-              type Independent = Other;
-              type Caller2 = Leaf;
-            `,
-            code: dedent`
-              type Caller1 = Leaf;
-              type Independent = Other;
-              type Leaf = 'leaf';
-              type Caller2 = Leaf;
-              type Other = 'other';
-            `,
-            options: [
-              {
-                ...options,
-                useExperimentalDependencyDetection,
-                order: 'desc',
-              },
-            ],
-          })
-        })
-
-        it('keeps a sorted diamond stable with order desc (#739)', async () => {
-          await valid({
-            code: dedent`
-              type Leaf = 'leaf';
-              type Caller1 = Leaf;
-              type Other = 'other';
-              type Independent = Other;
-              type Caller2 = Leaf;
-            `,
-            options: [
-              {
-                ...options,
-                useExperimentalDependencyDetection,
-                order: 'desc',
-              },
-            ],
-          })
-        })
-
-        it('orders independent members via fallbackSort with order desc (#739)', async () => {
-          await invalid({
-            errors: [
-              {
-                messageId: 'unexpectedModulesOrder',
-                data: { right: 'B', left: 'A' },
-              },
-              {
-                messageId: 'unexpectedModulesOrder',
-                data: { right: 'C', left: 'B' },
-              },
-            ],
-            options: [
-              {
-                ...options,
-                fallbackSort: { type: 'alphabetical' },
-                useExperimentalDependencyDetection,
-                order: 'desc',
-              },
-            ],
-            output: dedent`
-              type C = 'c';
-              type B = 'b';
-              type A = 'a';
-            `,
-            code: dedent`
-              type A = 'a';
-              type B = 'b';
-              type C = 'c';
-            `,
-          })
-        })
-
-        it('detects usages in interface values', async () => {
-          await invalid({
-            output: dedent`
-              type B = Something;
-
-              export default interface A {
-                field?: Record<string, [B | null] & C>;
-              }
-            `,
-            code: dedent`
-              export default interface A {
-                field?: Record<string, [B | null] & C>;
-              }
-
-              type B = Something;
-            `,
-            options: [
-              {
-                ...options,
-                useExperimentalDependencyDetection,
-                groups: ['unknown'],
-              },
-            ],
-            errors: [
-              {
-                messageId: 'unexpectedModulesOrder',
-              },
-            ],
-          })
-        })
-
-        it('detects usages in type keys', async () => {
-          await invalid({
-            options: [
-              {
-                ...options,
-                useExperimentalDependencyDetection,
-                groups: ['unknown'],
-              },
-            ],
-            output: dedent`
-              enum B {
-                value = 'b'
-              }
-
-              type A = {
-                [B.value]: string;
-              }
-            `,
-            code: dedent`
-              type A = {
-                [B.value]: string;
-              }
-
-              enum B {
-                value = 'b'
-              }
-            `,
-            errors: [
-              {
-                messageId: 'unexpectedModulesOrder',
-              },
-            ],
-          })
-        })
-
-        it('detects usages in type values', async () => {
-          await invalid({
-            options: [
-              {
-                ...options,
-                useExperimentalDependencyDetection,
-                groups: ['unknown'],
-              },
-            ],
-            output: dedent`
-              type B = 'b';
-
-              type A = {
-                (...args: B): void;
-              }
-            `,
-            code: dedent`
-              type A = {
-                (...args: B): void;
-              }
-
-              type B = 'b';
-            `,
-            errors: [
-              {
-                messageId: 'unexpectedModulesOrder',
-              },
-            ],
-          })
-
-          await invalid({
-            output: dedent`
-              namespace Namespace1 {
-                export namespace Namespace2 {
-                  export type B = 'b'
-
-                  type A = Namespace1.Namespace2.B
-                }
-              }
-            `,
-            code: dedent`
-              namespace Namespace1 {
-                export namespace Namespace2 {
-                  type A = Namespace1.Namespace2.B
-
-                  export type B = 'b'
-                }
-              }
-            `,
-            options: [
-              {
-                ...options,
-                useExperimentalDependencyDetection,
-                groups: ['unknown'],
-              },
-            ],
-            errors: [
-              {
-                messageId: 'unexpectedModulesOrder',
-              },
-            ],
-          })
-        })
-
-        it('detects usages in type generics', async () => {
-          await invalid({
-            options: [
-              {
-                ...options,
-                useExperimentalDependencyDetection,
-                groups: ['unknown'],
-              },
-            ],
-            errors: [
-              {
-                messageId: 'unexpectedModulesOrder',
-              },
-            ],
-            output: dedent`
-              type B = 'b';
-
-              type A<T extends B> = {}
-            `,
-            code: dedent`
-              type A<T extends B> = {}
-
-              type B = 'b';
-            `,
-          })
-        })
-
-        it('detects usages in type indexes', async () => {
-          await invalid({
-            options: [
-              {
-                ...options,
-                useExperimentalDependencyDetection,
-                groups: ['unknown'],
-              },
-            ],
-            errors: [
-              {
-                messageId: 'unexpectedModulesOrder',
-              },
-            ],
-            output: dedent`
-              type B = 'b';
-
-              type A = Foo[B]
-            `,
-            code: dedent`
-              type A = Foo[B]
-
-              type B = 'b';
-            `,
-          })
-
-          await invalid({
-            options: [
-              {
-                ...options,
-                groups: ['unknown'],
-              },
-            ],
-            errors: [
-              {
-                messageId: 'unexpectedModulesOrder',
-              },
-            ],
-            output: dedent`
-              type B = 'b';
-
-              type A = B['foo']
-            `,
-            code: dedent`
-              type A = B['foo']
-
-              type B = 'b';
-            `,
-          })
-        })
-
-        it('detects usages in conditional types', async () => {
-          await invalid({
-            options: [
-              {
-                ...options,
-                useExperimentalDependencyDetection,
-                groups: ['unknown'],
-              },
-            ],
-            output: dedent`
-              type B = 'b';
-
-              type A = Foo extends B ? true : false;
-            `,
-            errors: [
-              {
-                messageId: 'unexpectedModulesOrder',
-              },
-            ],
-            code: dedent`
-              type A = Foo extends B ? true : false;
-
-              type B = 'b';
-            `,
-          })
-
-          await invalid({
-            options: [
-              {
-                ...options,
-                groups: ['unknown'],
-              },
-            ],
-            output: dedent`
-              type B = 'b';
-
-              type A = B extends Foo ? true : false;
-            `,
-            errors: [
-              {
-                messageId: 'unexpectedModulesOrder',
-              },
-            ],
-            code: dedent`
-              type A = B extends Foo ? true : false;
-
-              type B = 'b';
-            `,
-          })
-
-          await invalid({
-            options: [
-              {
-                ...options,
-                groups: ['unknown'],
-              },
-            ],
-            output: dedent`
-              type B = 'b';
-
-              type A = Foo extends Bar ? B : false;
-            `,
-            errors: [
-              {
-                messageId: 'unexpectedModulesOrder',
-              },
-            ],
-            code: dedent`
-              type A = Foo extends Bar ? B : false;
-
-              type B = 'b';
-            `,
-          })
-
-          await invalid({
-            options: [
-              {
-                ...options,
-                groups: ['unknown'],
-              },
-            ],
-            errors: [
-              {
-                messageId: 'unexpectedModulesOrder',
-              },
-            ],
-            output: dedent`
-              type B = 'b';
-
-              type A = Foo extends Bar ? true : B;
-            `,
-            code: dedent`
-              type A = Foo extends Bar ? true : B;
-
-              type B = 'b';
-            `,
-          })
-        })
-
-        it('detects usages in interface extends', async () => {
-          await invalid({
-            options: [
-              {
-                ...options,
-                useExperimentalDependencyDetection,
-                groups: ['unknown'],
-              },
-            ],
-            errors: [
-              {
-                messageId: 'unexpectedModulesOrder',
-              },
-            ],
-            output: dedent`
-              interface B {}
-
-              interface A extends B {}
-            `,
-            code: dedent`
-              interface A extends B {}
-
-              interface B {}
-            `,
-          })
-        })
-
-        it('detects usages in classes implements', async () => {
-          await invalid({
-            options: [
-              {
-                ...options,
-                useExperimentalDependencyDetection,
-                groups: ['unknown'],
-              },
-            ],
-            errors: [
-              {
-                messageId: 'unexpectedModulesOrder',
-              },
-            ],
-            output: dedent`
-              interface B {}
-
-              class A implements B {}
-            `,
-            code: dedent`
-              class A implements B {}
-
-              interface B {}
-            `,
-          })
-        })
-
-        it('detects usages in functions', async () => {
-          await invalid({
-            options: [
-              {
-                ...options,
-                useExperimentalDependencyDetection,
-                groups: ['unknown'],
-              },
-            ],
-            output: dedent`
-              type B = 'b';
-
-              function a() {
-                let foo: B;
-              }
-            `,
-            code: dedent`
-              function a() {
-                let foo: B;
-              }
-
-              type B = 'b';
-            `,
-            errors: [
-              {
-                messageId: 'unexpectedModulesOrder',
-              },
-            ],
-          })
-        })
-
-        it('ignores parameter binding usages that shadow module-level names', async () => {
-          await valid({
-            options: [
-              {
-                ...options,
-                useExperimentalDependencyDetection,
-                groups: ['unknown'],
-              },
-            ],
-            code: dedent`
-              function a(B: number) {}
-
-              type B = 'b'
-            `,
-          })
-        })
-
-        it('ignores usages in simple object keys', async () => {
-          await valid({
-            options: [
-              {
-                ...options,
-                useExperimentalDependencyDetection,
-                groups: ['unknown'],
-              },
-            ],
-            code: dedent`
-              const a = {
-                B: 'b'
-              }
-
-              type B = 'b'
-            `,
-          })
-        })
-
-        it('ignores usages in simple object type keys', async () => {
-          await valid({
-            options: [
-              {
-                ...options,
-                groups: ['unknown'],
-              },
-            ],
-            code: dedent`
-              type A = {
-                B: 'b'
-              }
-
-              type B = 'b'
-            `,
-          })
-        })
-
-        it('ignores usages in arguments', async () => {
-          await valid({
-            options: [
-              {
-                ...options,
-                useExperimentalDependencyDetection,
-                groups: ['unknown'],
-              },
-            ],
-            code: dedent`
-              type A = (B: 'b') => void
-
-              type B = 'b'
-            `,
-          })
-
-          await valid({
-            options: [
-              {
-                ...options,
-                useExperimentalDependencyDetection,
-                groups: ['unknown'],
-              },
-            ],
-            code: dedent`
-              type B = 'b'
-
-              class A {
-                a = (...B) => {}
-              }
-            `,
-          })
-
-          await valid({
-            options: [
-              {
-                ...options,
-                useExperimentalDependencyDetection,
-                groups: ['unknown'],
-              },
-            ],
-            code: dedent`
-              type B = 'b'
-
-              class A {
-                a(...B) {}
-              }
-            `,
-          })
-        })
-
-        it('ignores usages in simple interface keys', async () => {
-          await valid({
-            options: [
-              {
-                ...options,
-                useExperimentalDependencyDetection,
-                groups: ['unknown'],
-              },
-            ],
-            code: dedent`
-              interface A {
-                B: 'b'
-              }
-
-              type B = 'b'
-            `,
-          })
-        })
-
-        it('supports function overload names', async () => {
-          await valid({
-            code: dedent`
-              function a(input: string): void;
-              function a(input: number): void;
-              export function a(input: number | string): void {}
-            `,
-            options: [
-              {
-                ...options,
-                useExperimentalDependencyDetection,
-              },
-            ],
-          })
-
-          await invalid({
-            errors: [
-              {
-                data: {
-                  leftGroup: 'function',
-                  rightGroup: 'type',
-                  right: 'Type',
-                  left: 'a',
-                },
-                messageId: 'unexpectedModulesGroupOrder',
-              },
-            ],
-            output: dedent`
-              type Type = number;
-
-              function a(input: string): void;
-              function a(input: Type): void;
-              function a(input: Type | string): void {}
-            `,
-            code: dedent`
-              function a(input: string): void;
-              function a(input: Type): void;
-              function a(input: Type | string): void {}
-
-              type Type = number;
-            `,
-            options: [
-              {
-                ...options,
-                newlinesBetween: 1,
-              },
-            ],
-          })
-        })
-      })
-    }
-    testDependencyDetection(true)
-    testDependencyDetection(false)
-
-    describe('legacy detection specific', () => {
-      /* Unhandled cases */
-      it("doesn't support the following cases", async () => {
-        await invalid({
-          options: [
-            {
-              ...options,
-              useExperimentalDependencyDetection: false,
-              groups: ['unknown'],
-            },
-          ],
-          errors: [
-            {
-              messageId: 'unexpectedModulesOrder',
-              data: { right: 'B', left: 'a' },
-            },
-          ],
-          output: dedent`
-            type B = 'b'
-
-            function a(...B) {}
-          `,
+    ruleTester.run(`${ruleName}(${type}): does not enforce sorting`, rule, {
+      valid: [
+        {
           code: dedent`
-            function a(...B) {}
-
-            type B = 'b'
+            function b() {}
+            function c() {}
+            function a() {}
           `,
-        })
-
-        await invalid({
-          options: [
-            {
-              ...options,
-              useExperimentalDependencyDetection: false,
-              groups: ['unknown'],
-            },
-          ],
-          errors: [
-            {
-              messageId: 'unexpectedModulesOrder',
-              data: { right: 'B', left: 'A' },
-            },
-          ],
-          output: dedent`
-            type B = 'b'
-
-            class A {
-              a = (...B) => {}
-            }
-          `,
-          code: dedent`
-            class A {
-              a = (...B) => {}
-            }
-
-            type B = 'b'
-          `,
-        })
-
-        await invalid({
-          options: [
-            {
-              ...options,
-              useExperimentalDependencyDetection: false,
-              groups: ['unknown'],
-            },
-          ],
-          errors: [
-            {
-              messageId: 'unexpectedModulesOrder',
-              data: { right: 'B', left: 'A' },
-            },
-          ],
-          output: dedent`
-            type B = 'b'
-
-            class A {
-              a(...B) {}
-            }
-          `,
-          code: dedent`
-            class A {
-              a(...B) {}
-            }
-
-            type B = 'b'
-          `,
-        })
-
-        await invalid({
-          options: [
-            {
-              ...options,
-              useExperimentalDependencyDetection: false,
-              groups: ['unknown'],
-            },
-          ],
-          errors: [
-            {
-              messageId: 'unexpectedModulesOrder',
-              data: { right: 'B', left: 'A' },
-            },
-          ],
-          output: dedent`
-            type B = 'b'
-
-            type A<B> = void
-          `,
-          code: dedent`
-            type A<B> = void
-
-            type B = 'b'
-          `,
-        })
-
-        await invalid({
-          options: [
-            {
-              ...options,
-              useExperimentalDependencyDetection: false,
-              groups: ['unknown'],
-            },
-          ],
-          output: dedent`
-            type B = Something;
-
-            type A = {
-              field: typeof B
-            }
-          `,
-          code: dedent`
-            type A = {
-              field: typeof B
-            }
-
-            type B = Something;
-          `,
-          errors: [
-            {
-              messageId: 'unexpectedModulesOrder',
-            },
-          ],
-        })
-
-        await invalid({
-          options: [
-            {
-              ...options,
-              useExperimentalDependencyDetection: false,
-              groups: ['unknown'],
-            },
-          ],
-          output: dedent`
-            type B = 'b';
-
-            type A<T> = T extends {
-              (...args: any[]): infer B;
-            } ? Foo : Bar
-          `,
-          code: dedent`
-            type A<T> = T extends {
-              (...args: any[]): infer B;
-            } ? Foo : Bar
-
-            type B = 'b';
-          `,
-          errors: [
-            {
-              messageId: 'unexpectedModulesOrder',
-            },
-          ],
-        })
-      })
-    })
-
-    describe('experimental detection specific', () => {
-      it('ignores usages in arguments', async () => {
-        await valid({
-          options: [
-            {
-              ...options,
-              useExperimentalDependencyDetection: true,
-              groups: ['unknown'],
-            },
-          ],
-          code: dedent`
-            function a(...B) {}
-
-            type B = 'b'
-          `,
-        })
-      })
-
-      it('ignores usages in generics', async () => {
-        await valid({
-          options: [
-            {
-              ...options,
-              useExperimentalDependencyDetection: true,
-              groups: ['unknown'],
-            },
-          ],
-          code: dedent`
-            type A<B> = void
-
-            type B = 'b'
-          `,
-        })
-      })
-
-      it('ignores usages in typeof', async () => {
-        await valid({
-          options: [
-            {
-              ...options,
-              useExperimentalDependencyDetection: true,
-              groups: ['unknown'],
-            },
-          ],
-          code: dedent`
-            type A = {
-              field: typeof B
-            }
-
-            type B = Something;
-          `,
-        })
-      })
-
-      it('ignores usages in infer', async () => {
-        await valid({
-          options: [
-            {
-              ...options,
-              useExperimentalDependencyDetection: true,
-              groups: ['unknown'],
-            },
-          ],
-          code: dedent`
-            type A<T> = T extends {
-              (...args: any[]): infer B;
-            } ? Foo : Bar
-
-            type B = 'b';
-          `,
-        })
-      })
-    })
-  })
-
-  describe('misc', () => {
-    it('validates the JSON schema', async () => {
-      await expect(
-        validateRuleJsonSchema(rule.meta.schema),
-      ).resolves.not.toThrow()
-    })
-
-    it('uses alphabetical ascending order by default', async () => {
-      await invalid({
-        errors: [
-          {
-            messageId: 'unexpectedModulesOrder',
-            data: { right: 'a', left: 'B' },
-          },
-        ],
-        output: dedent`
-          function a() {}
-          function A() {}
-          function b() {}
-          function B() {}
-        `,
-        code: dedent`
-          function b() {}
-          function B() {}
-          function a() {}
-          function A() {}
-        `,
-      })
-    })
-
-    it('sorts elements using default group order', async () => {
-      await valid({
-        code: dedent`
-          declare enum O {}
-
-          export enum N {}
-
-          enum M {}
-
-          declare interface K {}
-          declare type L = {}
-
-          export interface I {}
-          export type J = {}
-
-          interface G {}
-          type H = {}
-
-          declare class F {}
-
-          class E {}
-
-          export class D {}
-
-          declare function c()
-
-          export function b() {}
-
-          function a() {}
-        `,
-        options: [
-          {
-            newlinesBetween: 1,
-          },
-        ],
-      })
-    })
-
-    it('respects the global settings configuration', async () => {
-      let settings = {
-        perfectionist: {
-          type: 'line-length',
-          order: 'desc',
+          options: [options],
         },
-      }
-
-      await valid({
-        code: dedent`
-          function ccc() {}
-          function bb() {}
-          function a() {}
-        `,
-        options: [{}],
-        settings,
-      })
-
-      await valid({
-        code: dedent`
-          function a() {}
-          function bb() {}
-          function ccc() {}
-        `,
-        options: [{ type: 'alphabetical', order: 'asc' }],
-        settings,
-      })
+      ],
+      invalid: [],
     })
 
-    it('preserves comments attached to their respective nodes', async () => {
-      await invalid({
-        output: dedent`
-          // Ignore this comment
-
-          // A4
-          // A3
-          /*
-           * A2
-           */
-          // A1
-          function a() {}
-
-          /**
-           * Ignore this comment as well
-           */
-
-          // B1
-          function b() {}
-        `,
-        code: dedent`
-          // Ignore this comment
-
-          // B1
-          function b() {}
-
-          /**
-           * Ignore this comment as well
-           */
-
-          // A4
-          // A3
-          /*
-           * A2
-           */
-          // A1
-          function a() {}
-        `,
-        errors: [
-          {
-            messageId: 'unexpectedModulesOrder',
-            data: { right: 'a', left: 'b' },
-          },
-        ],
-        options: [
-          {
-            type: 'alphabetical',
-          },
-        ],
-      })
-    })
-
-    it('handles partition comments correctly', async () => {
-      await invalid({
-        output: dedent`
-          // Ignore this comment
-
-          // B2
-          /**
-            * B1
-            */
-          function b() {}
-
-          // C2
-          // C1
-          function c() {}
-
-          // Above a partition comment ignore me
-          // PartitionComment: 1
-          function a() {}
-
-          /**
-            * D2
-            */
-          // D1
-          function d() {}
-        `,
-        code: dedent`
-          // Ignore this comment
-
-          // C2
-          // C1
-          function c() {}
-
-          // B2
-          /**
-            * B1
-            */
-          function b() {}
-
-          // Above a partition comment ignore me
-          // PartitionComment: 1
-          /**
-            * D2
-            */
-          // D1
-          function d() {}
-
-          function a() {}
-        `,
-        errors: [
-          {
-            messageId: 'unexpectedModulesOrder',
-            data: { right: 'b', left: 'c' },
-          },
-          {
-            messageId: 'unexpectedModulesOrder',
-            data: { right: 'a', left: 'd' },
-          },
-        ],
-        options: [
-          {
-            partitionByComment: 'PartitionComment:',
-            type: 'alphabetical',
-          },
-        ],
-      })
-    })
-
-    it('supports regex patterns for partition comments', async () => {
-      await valid({
-        code: dedent`
-          function e() {}
-          function f() {}
-          // I am a partition comment because I don't have f o o
-          function a() {}
-          function b() {}
-        `,
-        options: [
-          {
-            partitionByComment: ['^(?!.*foo).*$'],
-            type: 'alphabetical',
-          },
-        ],
-      })
-    })
-
-    it('ignores block comments when line comments are specified', async () => {
-      await invalid({
-        errors: [
-          {
-            messageId: 'unexpectedModulesOrder',
-            data: { right: 'a', left: 'b' },
-          },
-        ],
-        options: [
-          {
-            partitionByComment: {
-              line: true,
+    ruleTester.run(`${ruleName}(${type}): enforces grouping`, rule, {
+      invalid: [
+        {
+          options: [
+            {
+              ...options,
+              customGroups: [
+                {
+                  elementNamePattern: '^a',
+                  groupName: 'a',
+                },
+                {
+                  elementNamePattern: '^b',
+                  groupName: 'b',
+                },
+              ],
+              groups: ['b', 'a'],
             },
-          },
-        ],
-        output: dedent`
-          /* Comment */
-          function a() {}
-          function b() {}
-        `,
-        code: dedent`
-          function b() {}
-          /* Comment */
-          function a() {}
-        `,
-      })
-    })
-
-    it('uses line comments as partition boundaries', async () => {
-      await valid({
-        options: [
-          {
-            partitionByComment: {
-              line: true,
+          ],
+          errors: [
+            {
+              data: {
+                rightGroup: 'b',
+                leftGroup: 'a',
+                right: 'ba',
+                left: 'aa',
+              },
+              messageId: 'unexpectedModulesGroupOrder',
             },
-          },
-        ],
-        code: dedent`
-          function b() {}
-          // Comment
-          function a() {}
-        `,
-      })
+          ],
+          output: dedent`
+            function ba() {}
+            function bb() {}
+            function ab() {}
+            function aa() {}
+          `,
+          code: dedent`
+            function ab() {}
+            function aa() {}
+            function ba() {}
+            function bb() {}
+          `,
+        },
+      ],
+      valid: [],
     })
 
-    it('matches specific line comment patterns', async () => {
-      await valid({
-        code: dedent`
-          function c() {}
-          // b
-          function b() {}
-          // a
-          function a() {}
-        `,
-        options: [
-          {
-            partitionByComment: {
-              line: ['a', 'b'],
+    ruleTester.run(`${ruleName}(${type}): enforces newlines between`, rule, {
+      invalid: [
+        {
+          options: [
+            {
+              ...options,
+              customGroups: [
+                {
+                  elementNamePattern: 'a',
+                  groupName: 'a',
+                },
+                {
+                  elementNamePattern: 'b',
+                  groupName: 'b',
+                },
+              ],
+              newlinesBetween: 'always',
+              groups: ['b', 'a'],
             },
-          },
-        ],
-      })
-    })
-
-    it('supports regex patterns for line comments', async () => {
-      await valid({
-        code: dedent`
-          function b() {}
-          // I am a partition comment because I don't have f o o
-          function a() {}
-        `,
-        options: [
-          {
-            partitionByComment: {
-              line: ['^(?!.*foo).*$'],
+          ],
+          errors: [
+            {
+              data: {
+                right: 'a',
+                left: 'b',
+              },
+              messageId: 'missedSpacingBetweenModulesMembers',
             },
-          },
-        ],
-      })
+          ],
+          output: dedent`
+            function b() {}
+
+            function a() {}
+          `,
+          code: dedent`
+            function b() {}
+            function a() {}
+          `,
+        },
+      ],
+      valid: [],
     })
 
-    it('ignores line comments when block comments are specified', async () => {
-      await invalid({
-        errors: [
-          {
-            messageId: 'unexpectedModulesOrder',
-            data: { right: 'a', left: 'b' },
-          },
-        ],
-        options: [
-          {
-            partitionByComment: {
-              block: true,
+    ruleTester.run(`${ruleName}(${type}): enforces dependency sorting`, rule, {
+      invalid: [
+        {
+          errors: [
+            {
+              data: {
+                nodeDependentOnRight: 'A',
+                right: 'B',
+              },
+              messageId: 'unexpectedModulesDependencyOrder',
             },
-          },
-        ],
-        output: dedent`
-          // Comment
-          function a() {}
-          function b() {}
-        `,
-        code: dedent`
-          function b() {}
-          // Comment
-          function a() {}
-        `,
-      })
-    })
-
-    it('uses block comments as partition boundaries', async () => {
-      await valid({
-        options: [
-          {
-            partitionByComment: {
-              block: true,
+          ],
+          output: dedent`
+            class B {}
+            class A extends B {}
+          `,
+          code: dedent`
+            class A extends B {}
+            class B {}
+          `,
+          options: [
+            {
+              ...options,
             },
-          },
-        ],
-        code: dedent`
-          function b() {}
-          /* Comment */
-          function a() {}
-        `,
-      })
+          ],
+        },
+      ],
+      valid: [],
     })
+  })
 
-    it('matches specific block comment patterns', async () => {
-      await valid({
-        code: dedent`
-          function c() {}
-          /* b */
-          function b() {}
-          /* a */
-          function a() {}
-        `,
-        options: [
-          {
-            partitionByComment: {
-              block: ['a', 'b'],
-            },
-          },
-        ],
-      })
-    })
-
-    it('supports regex patterns for block comments', async () => {
-      await valid({
-        code: dedent`
-          function b() {}
-          /* I am a partition comment because I don't have f o o */
-          function a() {}
-        `,
-        options: [
-          {
-            partitionByComment: {
-              block: ['^(?!.*foo).*$'],
-            },
-          },
-        ],
-      })
-    })
-
-    it('uses newlines as partition boundaries', async () => {
-      await valid({
-        code: dedent`
-          function d() {}
-          function e() {}
-
-          function c() {}
-
-          function a() {}
-          function b() {}
-        `,
-        options: [
-          {
-            partitionByNewLine: true,
-          },
-        ],
-      })
-
-      await invalid({
-        errors: [
-          {
-            messageId: 'unexpectedModulesOrder',
-            data: { right: 'd', left: 'e' },
-          },
-          {
-            messageId: 'unexpectedModulesOrder',
-            data: { right: 'a', left: 'b' },
-          },
-        ],
-        output: dedent`
-          function d() {}
-          function e() {}
-
-          function c() {}
-
-          function a() {}
-          function b() {}
-        `,
-        code: dedent`
-          function e() {}
-          function d() {}
-
-          function c() {}
-
-          function b() {}
-          function a() {}
-        `,
-        options: [
-          {
-            partitionByNewLine: true,
-          },
-        ],
-      })
-    })
-
-    it('ignores nodes with eslint-disable-next-line comments', async () => {
-      await valid({
-        code: dedent`
-          function b() {}
-          function c() {}
-          // eslint-disable-next-line
-          function a() {}
-        `,
-      })
-
-      await invalid({
-        output: dedent`
-          function b() {}
-          function c() {}
-          // eslint-disable-next-line
-          function a() {}
-        `,
-        code: dedent`
-          function c() {}
-          function b() {}
-          // eslint-disable-next-line
-          function a() {}
-        `,
-        errors: [
-          {
-            messageId: 'unexpectedModulesOrder',
-            data: { right: 'b', left: 'c' },
-          },
-        ],
-        options: [{}],
-      })
-    })
-
-    it('handles eslint-disable with partition comments', async () => {
-      await invalid({
-        errors: [
-          {
-            messageId: 'unexpectedModulesOrder',
-            data: { right: 'c', left: 'd' },
-          },
-          {
-            messageId: 'unexpectedModulesOrder',
-            data: { right: 'b', left: 'a' },
-          },
-        ],
-        output: dedent`
-          function b() {}
-          function c() {}
-          // eslint-disable-next-line
-          function a() {}
-          function d() {}
-        `,
-        code: dedent`
-          function d() {}
-          function c() {}
-          // eslint-disable-next-line
-          function a() {}
-          function b() {}
-        `,
-        options: [
-          {
-            partitionByComment: true,
-          },
-        ],
-      })
-    })
-
-    it('handles eslint-disable with class dependencies', async () => {
-      await invalid({
-        errors: [
-          {
-            messageId: 'unexpectedModulesOrder',
-            data: { right: 'B', left: 'C' },
-          },
-        ],
-        output: dedent`
-          class B extends A {}
-          class C {}
-          // eslint-disable-next-line
-          class A {}
-        `,
-        code: dedent`
-          class C {}
-          class B extends A {}
-          // eslint-disable-next-line
-          class A {}
-        `,
-        options: [{}],
-      })
-    })
-
-    it('handles inline eslint-disable-line comments', async () => {
-      await invalid({
-        errors: [
-          {
-            messageId: 'unexpectedModulesOrder',
-            data: { right: 'b', left: 'c' },
-          },
-        ],
-        output: dedent`
-          function b() {}
-          function c() {}
-          function a() {} // eslint-disable-line
-        `,
-        code: dedent`
-          function c() {}
-          function b() {}
-          function a() {} // eslint-disable-line
-        `,
-        options: [{}],
-      })
-    })
-
-    it('handles block eslint-disable-next-line comments', async () => {
-      await invalid({
-        output: dedent`
-          function b() {}
-          function c() {}
-          /* eslint-disable-next-line */
-          function a() {}
-        `,
-        code: dedent`
-          function c() {}
-          function b() {}
-          /* eslint-disable-next-line */
-          function a() {}
-        `,
-        errors: [
-          {
-            messageId: 'unexpectedModulesOrder',
-            data: { right: 'b', left: 'c' },
-          },
-        ],
-        options: [{}],
-      })
-    })
-
-    it('handles inline block eslint-disable-line comments', async () => {
-      await invalid({
-        errors: [
-          {
-            messageId: 'unexpectedModulesOrder',
-            data: { right: 'b', left: 'c' },
-          },
-        ],
-        output: dedent`
-          function b() {}
-          function c() {}
-          function a() {} /* eslint-disable-line */
-        `,
-        code: dedent`
-          function c() {}
-          function b() {}
-          function a() {} /* eslint-disable-line */
-        `,
-        options: [{}],
-      })
-    })
-
-    it('handles eslint-disable/enable blocks', async () => {
-      await invalid({
-        output: dedent`
-          function a() {}
-          function d() {}
-          /* eslint-disable */
-          function c() {}
-          function b() {}
-          // Shouldn't move
-          /* eslint-enable */
-          function e() {}
-        `,
-        code: dedent`
-          function d() {}
-          function e() {}
-          /* eslint-disable */
-          function c() {}
-          function b() {}
-          // Shouldn't move
-          /* eslint-enable */
-          function a() {}
-        `,
-        errors: [
-          {
-            messageId: 'unexpectedModulesOrder',
-            data: { right: 'a', left: 'b' },
-          },
-        ],
-        options: [{}],
-      })
-    })
-
-    it('handles rule-specific eslint-disable-next-line comments', async () => {
-      await invalid({
-        output: dedent`
-          function b() {}
-          function c() {}
-          // eslint-disable-next-line rule-to-test/sort-modules
-          function a() {}
-        `,
-        code: dedent`
-          function c() {}
-          function b() {}
-          // eslint-disable-next-line rule-to-test/sort-modules
-          function a() {}
-        `,
-        errors: [
-          {
-            messageId: 'unexpectedModulesOrder',
-            data: { right: 'b', left: 'c' },
-          },
-        ],
-        options: [{}],
-      })
-    })
-
-    it('handles rule-specific inline eslint-disable-line comments', async () => {
-      await invalid({
-        output: dedent`
-          function b() {}
-          function c() {}
-          function a() {} // eslint-disable-line rule-to-test/sort-modules
-        `,
-        code: dedent`
-          function c() {}
-          function b() {}
-          function a() {} // eslint-disable-line rule-to-test/sort-modules
-        `,
-        errors: [
-          {
-            messageId: 'unexpectedModulesOrder',
-            data: { right: 'b', left: 'c' },
-          },
-        ],
-        options: [{}],
-      })
-    })
-
-    it('handles rule-specific block eslint-disable-next-line comments', async () => {
-      await invalid({
-        output: dedent`
-          function b() {}
-          function c() {}
-          /* eslint-disable-next-line rule-to-test/sort-modules */
-          function a() {}
-        `,
-        code: dedent`
-          function c() {}
-          function b() {}
-          /* eslint-disable-next-line rule-to-test/sort-modules */
-          function a() {}
-        `,
-        errors: [
-          {
-            messageId: 'unexpectedModulesOrder',
-            data: { right: 'b', left: 'c' },
-          },
-        ],
-        options: [{}],
-      })
-    })
-
-    it('handles rule-specific inline block eslint-disable-line comments', async () => {
-      await invalid({
-        output: dedent`
-          function b() {}
-          function c() {}
-          function a() {} /* eslint-disable-line rule-to-test/sort-modules */
-        `,
-        code: dedent`
-          function c() {}
-          function b() {}
-          function a() {} /* eslint-disable-line rule-to-test/sort-modules */
-        `,
-        errors: [
-          {
-            messageId: 'unexpectedModulesOrder',
-            data: { right: 'b', left: 'c' },
-          },
-        ],
-        options: [{}],
-      })
-    })
-
-    it('handles rule-specific eslint-disable/enable blocks', async () => {
-      await invalid({
-        output: dedent`
-          function a() {}
-          function d() {}
-          /* eslint-disable rule-to-test/sort-modules */
-          function c() {}
-          function b() {}
-          // Shouldn't move
-          /* eslint-enable */
-          function e() {}
-        `,
-        code: dedent`
-          function d() {}
-          function e() {}
-          /* eslint-disable rule-to-test/sort-modules */
-          function c() {}
-          function b() {}
-          // Shouldn't move
-          /* eslint-enable */
-          function a() {}
-        `,
-        errors: [
-          {
-            messageId: 'unexpectedModulesOrder',
-            data: { right: 'a', left: 'b' },
-          },
-        ],
-        options: [{}],
-      })
-    })
-
-    it('honors a disable directive that carries a description', async () => {
-      await invalid({
-        output: dedent`
-          function b() {}
-          function c() {}
-          // eslint-disable-next-line rule-to-test/sort-modules -- Pinned.
-          function a() {}
-        `,
-        code: dedent`
-          function c() {}
-          function b() {}
-          // eslint-disable-next-line rule-to-test/sort-modules -- Pinned.
-          function a() {}
-        `,
-        errors: [
-          {
-            messageId: 'unexpectedModulesOrder',
-            data: { right: 'b', left: 'c' },
-          },
-        ],
-        options: [{}],
-      })
-
-      await invalid({
-        errors: [
-          {
-            messageId: 'unexpectedModulesOrder',
-            data: { right: 'b', left: 'c' },
-          },
-        ],
-        output: dedent`
-          function b() {}
-          function c() {}
-          function a() {} // eslint-disable-line -- Pinned.
-        `,
-        code: dedent`
-          function c() {}
-          function b() {}
-          function a() {} // eslint-disable-line -- Pinned.
-        `,
-        options: [{}],
-      })
-
-      await invalid({
-        output: dedent`
-          function a() {}
-          function d() {}
-          /* eslint-disable rule-to-test/sort-modules -- Pinned. */
-          function c() {}
-          function b() {}
-          // Shouldn't move
-          /* eslint-enable rule-to-test/sort-modules -- Done. */
-          function e() {}
-        `,
-        code: dedent`
-          function d() {}
-          function e() {}
-          /* eslint-disable rule-to-test/sort-modules -- Pinned. */
-          function c() {}
-          function b() {}
-          // Shouldn't move
-          /* eslint-enable rule-to-test/sort-modules -- Done. */
-          function a() {}
-        `,
-        errors: [
-          {
-            messageId: 'unexpectedModulesOrder',
-            data: { right: 'a', left: 'b' },
-          },
-        ],
-        options: [{}],
-      })
-    })
-
-    it('handles non typescript-eslint parser', async () => {
-      await validEspree({
-        code: dedent`
-          class A {}
-          function func() {}
-        `,
-        options: [{}],
-      })
-    })
-
-    describe('oxlint', () => {
-      oxlintRuleTester.run('supports oxlint', {
+  describe(`${ruleName}: misc`, () => {
+    ruleTester.run(
+      `${ruleName}: sets alphabetical asc sorting as default`,
+      rule,
+      {
         invalid: [
           {
             errors: [
               {
+                data: {
+                  right: 'a',
+                  left: 'B',
+                },
                 messageId: 'unexpectedModulesOrder',
-                data: { right: 'a', left: 'b' },
               },
             ],
             output: dedent`
               function a() {}
+              function A() {}
               function b() {}
+              function B() {}
             `,
             code: dedent`
               function b() {}
+              function B() {}
+              function a() {}
+              function A() {}
+            `,
+          },
+        ],
+        valid: [],
+      },
+    )
+
+    ruleTester.run(`${ruleName}: sorts using default groups`, rule, {
+      valid: [
+        {
+          code: dedent`
+            declare enum O {}
+
+            export enum N {}
+
+            enum M {}
+
+            declare interface K {}
+            declare type L = {}
+
+            export interface I {}
+            export type J = {}
+
+            interface G {}
+            type H = {}
+
+            declare class F {}
+
+            class E {}
+
+            export class D {}
+
+            declare function c()
+
+            export function b() {}
+
+            function a() {}
+          `,
+          options: [
+            {
+              newlinesBetween: 'always',
+            },
+          ],
+        },
+      ],
+      invalid: [],
+    })
+
+    describe('handles complex comment cases', () => {
+      ruleTester.run(`keeps comments associated to their node`, rule, {
+        invalid: [
+          {
+            output: dedent`
+              // Ignore this comment
+
+              // A4
+              // A3
+              /*
+               * A2
+               */
+              // A1
+              function a() {}
+
+              /**
+               * Ignore this comment as well
+               */
+
+              // B1
+              function b() {}
+            `,
+            code: dedent`
+              // Ignore this comment
+
+              // B1
+              function b() {}
+
+              /**
+               * Ignore this comment as well
+               */
+
+              // A4
+              // A3
+              /*
+               * A2
+               */
+              // A1
               function a() {}
             `,
-            options: [{ type: 'alphabetical', order: 'asc' }],
+            errors: [
+              {
+                data: {
+                  right: 'a',
+                  left: 'b',
+                },
+                messageId: 'unexpectedModulesOrder',
+              },
+            ],
+            options: [
+              {
+                type: 'alphabetical',
+              },
+            ],
+          },
+        ],
+        valid: [],
+      })
+
+      describe('partition comments', () => {
+        ruleTester.run(`handles partition comments`, rule, {
+          invalid: [
+            {
+              output: dedent`
+                // Ignore this comment
+
+                // B2
+                /**
+                  * B1
+                  */
+                function b() {}
+
+                // C2
+                // C1
+                function c() {}
+
+                // Above a partition comment ignore me
+                // PartitionComment: 1
+                function a() {}
+
+                /**
+                  * D2
+                  */
+                // D1
+                function d() {}
+              `,
+              code: dedent`
+                // Ignore this comment
+
+                // C2
+                // C1
+                function c() {}
+
+                // B2
+                /**
+                  * B1
+                  */
+                function b() {}
+
+                // Above a partition comment ignore me
+                // PartitionComment: 1
+                /**
+                  * D2
+                  */
+                // D1
+                function d() {}
+
+                function a() {}
+              `,
+              errors: [
+                {
+                  data: {
+                    right: 'b',
+                    left: 'c',
+                  },
+                  messageId: 'unexpectedModulesOrder',
+                },
+                {
+                  data: {
+                    right: 'a',
+                    left: 'd',
+                  },
+                  messageId: 'unexpectedModulesOrder',
+                },
+              ],
+              options: [
+                {
+                  partitionByComment: 'PartitionComment:',
+                  type: 'alphabetical',
+                },
+              ],
+            },
+          ],
+          valid: [],
+        })
+
+        ruleTester.run(
+          `${ruleName}: allows to use regex for partition comments`,
+          rule,
+          {
+            valid: [
+              {
+                code: dedent`
+                  function e() {}
+                  function f() {}
+                  // I am a partition comment because I don't have f o o
+                  function a() {}
+                  function b() {}
+                `,
+                options: [
+                  {
+                    partitionByComment: ['^(?!.*foo).*$'],
+                    type: 'alphabetical',
+                  },
+                ],
+              },
+            ],
+            invalid: [],
+          },
+        )
+
+        describe(`${ruleName}: allows to use "partitionByComment.line"`, () => {
+          ruleTester.run(`${ruleName}: ignores block comments`, rule, {
+            invalid: [
+              {
+                errors: [
+                  {
+                    data: {
+                      right: 'a',
+                      left: 'b',
+                    },
+                    messageId: 'unexpectedModulesOrder',
+                  },
+                ],
+                options: [
+                  {
+                    partitionByComment: {
+                      line: true,
+                    },
+                  },
+                ],
+                output: dedent`
+                  /* Comment */
+                  function a() {}
+                  function b() {}
+                `,
+                code: dedent`
+                  function b() {}
+                  /* Comment */
+                  function a() {}
+                `,
+              },
+            ],
+            valid: [],
+          })
+
+          ruleTester.run(
+            `${ruleName}: allows to use all comments as parts`,
+            rule,
+            {
+              valid: [
+                {
+                  options: [
+                    {
+                      partitionByComment: {
+                        line: true,
+                      },
+                    },
+                  ],
+                  code: dedent`
+                    function b() {}
+                    // Comment
+                    function a() {}
+                  `,
+                },
+              ],
+              invalid: [],
+            },
+          )
+
+          ruleTester.run(
+            `${ruleName}: allows to use multiple partition comments`,
+            rule,
+            {
+              valid: [
+                {
+                  code: dedent`
+                    function c() {}
+                    // b
+                    function b() {}
+                    // a
+                    function a() {}
+                  `,
+                  options: [
+                    {
+                      partitionByComment: {
+                        line: ['a', 'b'],
+                      },
+                    },
+                  ],
+                },
+              ],
+              invalid: [],
+            },
+          )
+
+          ruleTester.run(
+            `${ruleName}: allows to use regex for partition comments`,
+            rule,
+            {
+              valid: [
+                {
+                  options: [
+                    {
+                      partitionByComment: {
+                        line: ['^(?!.*foo).*$'],
+                      },
+                    },
+                  ],
+                  code: dedent`
+                    function b() {}
+                    // I am a partition comment because I don't have f o o
+                    function a() {}
+                  `,
+                },
+              ],
+              invalid: [],
+            },
+          )
+        })
+
+        describe(`${ruleName}: allows to use "partitionByComment.block"`, () => {
+          ruleTester.run(`${ruleName}: ignores line comments`, rule, {
+            invalid: [
+              {
+                errors: [
+                  {
+                    data: {
+                      right: 'a',
+                      left: 'b',
+                    },
+                    messageId: 'unexpectedModulesOrder',
+                  },
+                ],
+                options: [
+                  {
+                    partitionByComment: {
+                      block: true,
+                    },
+                  },
+                ],
+                output: dedent`
+                  // Comment
+                  function a() {}
+                  function b() {}
+                `,
+                code: dedent`
+                  function b() {}
+                  // Comment
+                  function a() {}
+                `,
+              },
+            ],
+            valid: [],
+          })
+
+          ruleTester.run(
+            `${ruleName}: allows to use all comments as parts`,
+            rule,
+            {
+              valid: [
+                {
+                  options: [
+                    {
+                      partitionByComment: {
+                        block: true,
+                      },
+                    },
+                  ],
+                  code: dedent`
+                    function b() {}
+                    /* Comment */
+                    function a() {}
+                  `,
+                },
+              ],
+              invalid: [],
+            },
+          )
+
+          ruleTester.run(
+            `${ruleName}: allows to use multiple partition comments`,
+            rule,
+            {
+              valid: [
+                {
+                  code: dedent`
+                    function c() {}
+                    /* b */
+                    function b() {}
+                    /* a */
+                    function a() {}
+                  `,
+                  options: [
+                    {
+                      partitionByComment: {
+                        block: ['a', 'b'],
+                      },
+                    },
+                  ],
+                },
+              ],
+              invalid: [],
+            },
+          )
+
+          ruleTester.run(
+            `${ruleName}: allows to use regex for partition comments`,
+            rule,
+            {
+              valid: [
+                {
+                  options: [
+                    {
+                      partitionByComment: {
+                        block: ['^(?!.*foo).*$'],
+                      },
+                    },
+                  ],
+                  code: dedent`
+                    function b() {}
+                    /* I am a partition comment because I don't have f o o */
+                    function a() {}
+                  `,
+                },
+              ],
+              invalid: [],
+            },
+          )
+        })
+      })
+
+      ruleTester.run(`${ruleName}: allows to use new line as partition`, rule, {
+        invalid: [
+          {
+            errors: [
+              {
+                data: {
+                  right: 'd',
+                  left: 'e',
+                },
+                messageId: 'unexpectedModulesOrder',
+              },
+              {
+                data: {
+                  right: 'a',
+                  left: 'b',
+                },
+                messageId: 'unexpectedModulesOrder',
+              },
+            ],
+            output: dedent`
+              function d() {}
+              function e() {}
+
+              function c() {}
+
+              function a() {}
+              function b() {}
+            `,
+            code: dedent`
+              function e() {}
+              function d() {}
+
+              function c() {}
+
+              function b() {}
+              function a() {}
+            `,
+            options: [
+              {
+                partitionByNewLine: true,
+              },
+            ],
           },
         ],
         valid: [
           {
             code: dedent`
+              function d() {}
+              function e() {}
+
+              function c() {}
+
               function a() {}
               function b() {}
             `,
-            options: [{ type: 'alphabetical', order: 'asc' }],
+            options: [
+              {
+                partitionByNewLine: true,
+              },
+            ],
           },
         ],
       })
     })
+
+    let eslintDisableRuleTesterName = `${ruleName}: supports 'eslint-disable' for individual nodes`
+    ruleTester.run(eslintDisableRuleTesterName, rule, {
+      invalid: [
+        {
+          errors: [
+            {
+              data: {
+                right: 'b',
+                left: 'c',
+              },
+              messageId: 'unexpectedModulesOrder',
+            },
+          ],
+          output: dedent`
+            function b() {}
+            function c() {}
+            // eslint-disable-next-line
+            function a() {}
+          `,
+          code: dedent`
+            function c() {}
+            function b() {}
+            // eslint-disable-next-line
+            function a() {}
+          `,
+          options: [{}],
+        },
+        {
+          errors: [
+            {
+              data: {
+                right: 'c',
+                left: 'd',
+              },
+              messageId: 'unexpectedModulesOrder',
+            },
+            {
+              data: {
+                right: 'b',
+                left: 'a',
+              },
+              messageId: 'unexpectedModulesOrder',
+            },
+          ],
+          output: dedent`
+            function b() {}
+            function c() {}
+            // eslint-disable-next-line
+            function a() {}
+            function d() {}
+          `,
+          code: dedent`
+            function d() {}
+            function c() {}
+            // eslint-disable-next-line
+            function a() {}
+            function b() {}
+          `,
+          options: [
+            {
+              partitionByComment: true,
+            },
+          ],
+        },
+        {
+          errors: [
+            {
+              data: {
+                right: 'B',
+                left: 'C',
+              },
+              messageId: 'unexpectedModulesOrder',
+            },
+          ],
+          output: dedent`
+            class B extends A {}
+            class C {}
+            // eslint-disable-next-line
+            class A {}
+          `,
+          code: dedent`
+            class C {}
+            class B extends A {}
+            // eslint-disable-next-line
+            class A {}
+          `,
+          options: [{}],
+        },
+        {
+          errors: [
+            {
+              data: {
+                right: 'b',
+                left: 'c',
+              },
+              messageId: 'unexpectedModulesOrder',
+            },
+          ],
+          output: dedent`
+            function b() {}
+            function c() {}
+            function a() {} // eslint-disable-line
+          `,
+          code: dedent`
+            function c() {}
+            function b() {}
+            function a() {} // eslint-disable-line
+          `,
+          options: [{}],
+        },
+        {
+          errors: [
+            {
+              data: {
+                right: 'b',
+                left: 'c',
+              },
+              messageId: 'unexpectedModulesOrder',
+            },
+          ],
+          output: dedent`
+            function b() {}
+            function c() {}
+            /* eslint-disable-next-line */
+            function a() {}
+          `,
+          code: dedent`
+            function c() {}
+            function b() {}
+            /* eslint-disable-next-line */
+            function a() {}
+          `,
+          options: [{}],
+        },
+        {
+          errors: [
+            {
+              data: {
+                right: 'b',
+                left: 'c',
+              },
+              messageId: 'unexpectedModulesOrder',
+            },
+          ],
+          output: dedent`
+            function b() {}
+            function c() {}
+            function a() {} /* eslint-disable-line */
+          `,
+          code: dedent`
+            function c() {}
+            function b() {}
+            function a() {} /* eslint-disable-line */
+          `,
+          options: [{}],
+        },
+        {
+          output: dedent`
+            function a() {}
+            function d() {}
+            /* eslint-disable */
+            function c() {}
+            function b() {}
+            // Shouldn't move
+            /* eslint-enable */
+            function e() {}
+          `,
+          code: dedent`
+            function d() {}
+            function e() {}
+            /* eslint-disable */
+            function c() {}
+            function b() {}
+            // Shouldn't move
+            /* eslint-enable */
+            function a() {}
+          `,
+          errors: [
+            {
+              data: {
+                right: 'a',
+                left: 'b',
+              },
+              messageId: 'unexpectedModulesOrder',
+            },
+          ],
+          options: [{}],
+        },
+        {
+          output: dedent`
+            function b() {}
+            function c() {}
+            // eslint-disable-next-line @rule-tester/${eslintDisableRuleTesterName}
+            function a() {}
+          `,
+          errors: [
+            {
+              data: {
+                right: 'b',
+                left: 'c',
+              },
+              messageId: 'unexpectedModulesOrder',
+            },
+          ],
+          code: dedent`
+            function c() {}
+            function b() {}
+            // eslint-disable-next-line @rule-tester/${eslintDisableRuleTesterName}
+            function a() {}
+          `,
+          options: [{}],
+        },
+        {
+          errors: [
+            {
+              data: {
+                right: 'b',
+                left: 'c',
+              },
+              messageId: 'unexpectedModulesOrder',
+            },
+          ],
+          output: dedent`
+            function b() {}
+            function c() {}
+            function a() {} // eslint-disable-line @rule-tester/${eslintDisableRuleTesterName}
+          `,
+          code: dedent`
+            function c() {}
+            function b() {}
+            function a() {} // eslint-disable-line @rule-tester/${eslintDisableRuleTesterName}
+          `,
+          options: [{}],
+        },
+        {
+          output: dedent`
+            function b() {}
+            function c() {}
+            /* eslint-disable-next-line @rule-tester/${eslintDisableRuleTesterName} */
+            function a() {}
+          `,
+          code: dedent`
+            function c() {}
+            function b() {}
+            /* eslint-disable-next-line @rule-tester/${eslintDisableRuleTesterName} */
+            function a() {}
+          `,
+          errors: [
+            {
+              data: {
+                right: 'b',
+                left: 'c',
+              },
+              messageId: 'unexpectedModulesOrder',
+            },
+          ],
+          options: [{}],
+        },
+        {
+          errors: [
+            {
+              data: {
+                right: 'b',
+                left: 'c',
+              },
+              messageId: 'unexpectedModulesOrder',
+            },
+          ],
+          output: dedent`
+            function b() {}
+            function c() {}
+            function a() {} /* eslint-disable-line @rule-tester/${eslintDisableRuleTesterName} */
+          `,
+          code: dedent`
+            function c() {}
+            function b() {}
+            function a() {} /* eslint-disable-line @rule-tester/${eslintDisableRuleTesterName} */
+          `,
+          options: [{}],
+        },
+        {
+          output: dedent`
+            function a() {}
+            function d() {}
+            /* eslint-disable @rule-tester/${eslintDisableRuleTesterName} */
+            function c() {}
+            function b() {}
+            // Shouldn't move
+            /* eslint-enable */
+            function e() {}
+          `,
+          code: dedent`
+            function d() {}
+            function e() {}
+            /* eslint-disable @rule-tester/${eslintDisableRuleTesterName} */
+            function c() {}
+            function b() {}
+            // Shouldn't move
+            /* eslint-enable */
+            function a() {}
+          `,
+          errors: [
+            {
+              data: {
+                right: 'a',
+                left: 'b',
+              },
+              messageId: 'unexpectedModulesOrder',
+            },
+          ],
+          options: [{}],
+        },
+      ],
+      valid: [],
+    })
+
+    eslintRuleTester.run(
+      `${ruleName}: handles non typescript-eslint parser`,
+      rule as unknown as Rule.RuleModule,
+      {
+        valid: [
+          {
+            code: dedent`
+              class A {}
+
+              function func() {}
+            `,
+            options: [{}],
+          },
+        ],
+        invalid: [],
+      },
+    )
   })
 })

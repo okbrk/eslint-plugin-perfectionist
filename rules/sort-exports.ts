@@ -1,209 +1,178 @@
-import type { TSESLint } from '@typescript-eslint/utils'
 import type { TSESTree } from '@typescript-eslint/types'
 
-import { AST_NODE_TYPES } from '@typescript-eslint/types'
-
-import type { Modifier, Selector, Options } from './sort-exports/types'
+import type {
+  PartitionByCommentOption,
+  CommonOptions,
+  TypeOption,
+} from '../types/common-options'
 import type { SortingNode } from '../types/sorting-node'
 
 import {
-  MISSED_COMMENT_ABOVE_ERROR,
-  MISSED_SPACING_ERROR,
-  EXTRA_SPACING_ERROR,
-  GROUP_ORDER_ERROR,
-  ORDER_ERROR,
-} from '../utils/report-errors'
-import {
   partitionByCommentJsonSchema,
-  partitionByNewlineJsonSchema,
-} from '../utils/json-schemas/common-partition-json-schemas'
-import {
-  additionalCustomGroupMatchOptionsJsonSchema,
-  allModifiers,
-  allSelectors,
-} from './sort-exports/types'
-import { defaultComparatorByOptionsComputer } from '../utils/compare/default-comparator-by-options-computer'
-import { validateNewlinesAndPartitionConfig } from '../utils/validate-newlines-and-partition-config'
-import { buildOptionsByGroupIndexComputer } from '../utils/build-options-by-group-index-computer'
-import { buildCommonGroupsJsonSchemas } from '../utils/json-schemas/common-groups-json-schemas'
-import { buildCommonJsonSchemas } from '../utils/json-schemas/common-json-schemas'
-import { validateCustomSortConfig } from '../utils/validate-custom-sort-config'
-import { generatePredefinedGroups } from '../utils/generate-predefined-groups'
+  partitionByNewLineJsonSchema,
+  commonJsonSchemas,
+} from '../utils/common-json-schemas'
+import { validateCustomSortConfiguration } from '../utils/validate-custom-sort-configuration'
 import { getEslintDisabledLines } from '../utils/get-eslint-disabled-lines'
 import { isNodeEslintDisabled } from '../utils/is-node-eslint-disabled'
-import { doesCustomGroupMatch } from '../utils/does-custom-group-match'
-import { validateGroupsConfig } from '../utils/validate-groups-config'
-import { UnreachableCaseError } from '../utils/unreachable-case-error'
-import { isNodeOnSingleLine } from '../utils/is-node-on-single-line'
-import { sortNodesByGroups } from '../utils/sort-nodes-by-groups'
 import { createEslintRule } from '../utils/create-eslint-rule'
 import { reportAllErrors } from '../utils/report-all-errors'
 import { shouldPartition } from '../utils/should-partition'
-import { computeGroup } from '../utils/compute-group'
+import { getSourceCode } from '../utils/get-source-code'
 import { rangeToDiff } from '../utils/range-to-diff'
+import { ORDER_ERROR } from '../utils/report-errors'
 import { getSettings } from '../utils/get-settings'
+import { sortNodes } from '../utils/sort-nodes'
 import { complete } from '../utils/complete'
 
-/**
- * Cache computed groups by modifiers and selectors for performance.
- */
-let cachedGroupsByModifiersAndSelectors = new Map<string, string[]>()
+type Options = [
+  Partial<
+    {
+      groupKind: 'values-first' | 'types-first' | 'mixed'
+      partitionByComment: PartitionByCommentOption
+      partitionByNewLine: boolean
+      type: TypeOption
+    } & CommonOptions
+  >,
+]
 
-const ORDER_ERROR_ID = 'unexpectedExportsOrder'
-const GROUP_ORDER_ERROR_ID = 'unexpectedExportsGroupOrder'
-const EXTRA_SPACING_ERROR_ID = 'extraSpacingBetweenExports'
-const MISSED_SPACING_ERROR_ID = 'missedSpacingBetweenExports'
-const MISSED_COMMENT_ABOVE_ERROR_ID = 'missedCommentAboveExport'
+interface SortExportsSortingNode
+  extends SortingNode<
+    TSESTree.ExportNamedDeclarationWithSource | TSESTree.ExportAllDeclaration
+  > {
+  groupKind: 'value' | 'type'
+}
 
-type MessageId =
-  | typeof MISSED_COMMENT_ABOVE_ERROR_ID
-  | typeof MISSED_SPACING_ERROR_ID
-  | typeof EXTRA_SPACING_ERROR_ID
-  | typeof GROUP_ORDER_ERROR_ID
-  | typeof ORDER_ERROR_ID
+type MESSAGE_ID = 'unexpectedExportsOrder'
 
-type SortExportsSortingNode = SortingNode<
-  TSESTree.ExportNamedDeclarationWithSource | TSESTree.ExportAllDeclaration
->
-
-let defaultOptions: Required<Options[number]> = {
+let defaultOptions: Required<Options[0]> = {
   fallbackSort: { type: 'unsorted' },
-  newlinesInside: 'newlinesBetween',
   specialCharacters: 'keep',
   partitionByComment: false,
-  newlinesBetween: 'ignore',
   partitionByNewLine: false,
   type: 'alphabetical',
-  customGroups: [],
+  groupKind: 'mixed',
   ignoreCase: true,
   locales: 'en-US',
   alphabet: '',
   order: 'asc',
-  groups: [],
 }
 
-export default createEslintRule<Options, MessageId>({
+export default createEslintRule<Options, MESSAGE_ID>({
   create: context => {
     let settings = getSettings(context.settings)
 
     let options = complete(context.options.at(0), settings, defaultOptions)
-    validateCustomSortConfig(options)
-    validateGroupsConfig({
-      modifiers: allModifiers,
-      selectors: allSelectors,
-      options,
-    })
-    validateNewlinesAndPartitionConfig(options)
+    validateCustomSortConfiguration(options)
 
-    let { sourceCode, id } = context
+    let sourceCode = getSourceCode(context)
     let eslintDisabledLines = getEslintDisabledLines({
-      ruleName: id,
+      ruleName: context.id,
       sourceCode,
     })
 
-    let formattedMembers: SortExportsSortingNode[][] = [[]]
+    let parts: SortExportsSortingNode[][] = [[]]
 
-    function registerNode(
-      node: TSESTree.ExportNamedDeclaration | TSESTree.ExportAllDeclaration,
-    ): void {
-      if (!node.source) {
-        return
-      }
-
-      let selector: Selector = 'export'
-      let modifiers: Modifier[] = [
-        computeExportKindModifier(node),
-        computeExportTypeModifier(node),
-        computeLineCountModifier(node),
-      ]
-
-      let name = node.source.value
-
-      let predefinedGroups = generatePredefinedGroups({
-        cache: cachedGroupsByModifiersAndSelectors,
-        selectors: [selector],
-        modifiers,
-      })
-      let group = computeGroup({
-        customGroupMatcher: customGroup =>
-          doesCustomGroupMatch({
-            selectors: [selector],
-            elementName: name,
-            customGroup,
-            modifiers,
-          }),
-        predefinedGroups,
-        options,
-      })
-
-      let sortingNode: Omit<SortExportsSortingNode, 'partitionId'> = {
+    let registerNode = (
+      node:
+        | TSESTree.ExportNamedDeclarationWithSource
+        | TSESTree.ExportAllDeclaration,
+    ): void => {
+      let sortingNode: SortExportsSortingNode = {
         isEslintDisabled: isNodeEslintDisabled(node, eslintDisabledLines),
+        groupKind: node.exportKind === 'value' ? 'value' : 'type',
         size: rangeToDiff(node, sourceCode),
         addSafetySemicolonWhenInline: true,
-        group,
-        name,
+        name: node.source.value,
         node,
       }
-      let lastSortingNode = formattedMembers.at(-1)?.at(-1)
+      let lastNode = parts.at(-1)?.at(-1)
 
       if (
         shouldPartition({
-          lastSortingNode,
+          lastSortingNode: lastNode,
           sortingNode,
           sourceCode,
           options,
         })
       ) {
-        formattedMembers.push([])
+        parts.push([])
       }
 
-      formattedMembers.at(-1)!.push({
-        ...sortingNode,
-        partitionId: formattedMembers.length,
-      })
+      parts.at(-1)!.push(sortingNode)
     }
 
     return {
       'Program:exit': () => {
-        sortExportNodes({
-          formattedMembers,
-          context,
-          options,
-        })
+        let groupKindOrder
+        if (options.groupKind === 'values-first') {
+          groupKindOrder = ['value', 'type'] as const
+        } else if (options.groupKind === 'types-first') {
+          groupKindOrder = ['type', 'value'] as const
+        } else {
+          groupKindOrder = ['any'] as const
+        }
+
+        for (let nodes of parts) {
+          let filteredGroupKindNodes = groupKindOrder.map(groupKind =>
+            nodes.filter(
+              currentNode =>
+                groupKind === 'any' || currentNode.groupKind === groupKind,
+            ),
+          )
+          let sortNodesExcludingEslintDisabled = (
+            ignoreEslintDisabledNodes: boolean,
+          ): SortExportsSortingNode[] =>
+            filteredGroupKindNodes.flatMap(groupedNodes =>
+              sortNodes(groupedNodes, options, {
+                ignoreEslintDisabledNodes,
+              }),
+            )
+
+          reportAllErrors<MESSAGE_ID>({
+            availableMessageIds: {
+              unexpectedOrder: 'unexpectedExportsOrder',
+            },
+            sortNodesExcludingEslintDisabled,
+            sourceCode,
+            options,
+            context,
+            nodes,
+          })
+        }
       },
-      ExportNamedDeclaration: registerNode,
+      ExportNamedDeclaration: node => {
+        if (node.source !== null) {
+          registerNode(node)
+        }
+      },
       ExportAllDeclaration: registerNode,
     }
   },
   meta: {
-    schema: {
-      items: {
+    schema: [
+      {
         properties: {
-          ...buildCommonJsonSchemas(),
-          ...buildCommonGroupsJsonSchemas({
-            additionalCustomGroupMatchProperties:
-              additionalCustomGroupMatchOptionsJsonSchema,
-          }),
+          ...commonJsonSchemas,
+          groupKind: {
+            enum: ['mixed', 'values-first', 'types-first'],
+            description: 'Specifies top-level groups.',
+            type: 'string',
+          },
           partitionByComment: partitionByCommentJsonSchema,
-          partitionByNewLine: partitionByNewlineJsonSchema,
+          partitionByNewLine: partitionByNewLineJsonSchema,
         },
         additionalProperties: false,
         type: 'object',
       },
-      uniqueItems: true,
-      type: 'array',
-    },
-    messages: {
-      [MISSED_COMMENT_ABOVE_ERROR_ID]: MISSED_COMMENT_ABOVE_ERROR,
-      [MISSED_SPACING_ERROR_ID]: MISSED_SPACING_ERROR,
-      [EXTRA_SPACING_ERROR_ID]: EXTRA_SPACING_ERROR,
-      [GROUP_ORDER_ERROR_ID]: GROUP_ORDER_ERROR,
-      [ORDER_ERROR_ID]: ORDER_ERROR,
-    },
+    ],
     docs: {
       url: 'https://perfectionist.dev/rules/sort-exports',
       description: 'Enforce sorted exports.',
       recommended: true,
+    },
+    messages: {
+      unexpectedExportsOrder: ORDER_ERROR,
     },
     type: 'suggestion',
     fixable: 'code',
@@ -211,84 +180,3 @@ export default createEslintRule<Options, MessageId>({
   defaultOptions: [defaultOptions],
   name: 'sort-exports',
 })
-
-function sortExportNodes({
-  formattedMembers,
-  context,
-  options,
-}: {
-  context: TSESLint.RuleContext<MessageId, Options>
-  formattedMembers: SortExportsSortingNode[][]
-  options: Required<Options[number]>
-}): void {
-  let optionsByGroupIndexComputer = buildOptionsByGroupIndexComputer(options)
-
-  let nodes = formattedMembers.flat()
-  reportAllErrors<MessageId>({
-    availableMessageIds: {
-      missedSpacingBetweenMembers: MISSED_SPACING_ERROR_ID,
-      extraSpacingBetweenMembers: EXTRA_SPACING_ERROR_ID,
-      missedCommentAbove: MISSED_COMMENT_ABOVE_ERROR_ID,
-      unexpectedGroupOrder: GROUP_ORDER_ERROR_ID,
-      unexpectedOrder: ORDER_ERROR_ID,
-    },
-    sortNodesExcludingEslintDisabled,
-    options,
-    context,
-    nodes,
-  })
-
-  function sortNodesExcludingEslintDisabled(
-    ignoreEslintDisabledNodes: boolean,
-  ): SortExportsSortingNode[] {
-    return formattedMembers.flatMap(groupedNodes =>
-      sortNodesByGroups({
-        comparatorByOptionsComputer: defaultComparatorByOptionsComputer,
-        optionsByGroupIndexComputer,
-        ignoreEslintDisabledNodes,
-        groups: options.groups,
-        nodes: groupedNodes,
-      }),
-    )
-  }
-}
-
-function computeExportKindModifier(
-  node: TSESTree.ExportNamedDeclaration | TSESTree.ExportAllDeclaration,
-): 'value' | 'type' {
-  let exportKind = 'exportKind' in node ? node.exportKind : undefined
-
-  switch (exportKind) {
-    case undefined:
-    case 'value':
-      return 'value'
-    case 'type':
-      return 'type'
-    /* v8 ignore next 2 -- @preserve Exhaustive guard. */
-    default:
-      throw new UnreachableCaseError(exportKind)
-  }
-}
-
-function computeExportTypeModifier(
-  node: TSESTree.ExportNamedDeclaration | TSESTree.ExportAllDeclaration,
-): 'wildcard' | 'named' {
-  switch (node.type) {
-    case AST_NODE_TYPES.ExportNamedDeclaration:
-      return 'named'
-    case AST_NODE_TYPES.ExportAllDeclaration:
-      return 'wildcard'
-    /* v8 ignore next 2 -- @preserve Exhaustive guard. */
-    default:
-      throw new UnreachableCaseError(node)
-  }
-}
-
-function computeLineCountModifier(
-  node: TSESTree.ExportNamedDeclaration | TSESTree.ExportAllDeclaration,
-): 'singleline' | 'multiline' {
-  if (isNodeOnSingleLine(node)) {
-    return 'singleline'
-  }
-  return 'multiline'
-}

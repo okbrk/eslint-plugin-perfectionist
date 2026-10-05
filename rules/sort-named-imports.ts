@@ -1,85 +1,196 @@
-import { AST_NODE_TYPES } from '@typescript-eslint/types'
+import type { TSESTree } from '@typescript-eslint/types'
 
-import type { MessageId, Options } from './sort-named-imports/types'
+import type {
+  PartitionByCommentOption,
+  CommonOptions,
+  TypeOption,
+} from '../types/common-options'
+import type { SortingNode } from '../types/sorting-node'
 
-import {
-  additionalCustomGroupMatchOptionsJsonSchema,
-  MISSED_SPACING_ERROR_ID,
-  EXTRA_SPACING_ERROR_ID,
-  GROUP_ORDER_ERROR_ID,
-  ORDER_ERROR_ID,
-} from './sort-named-imports/types'
-import {
-  matchesAstSelectorJsonSchema,
-  buildUseConfigIfJsonSchema,
-  buildCommonJsonSchemas,
-} from '../utils/json-schemas/common-json-schemas'
 import {
   partitionByCommentJsonSchema,
-  partitionByNewlineJsonSchema,
-} from '../utils/json-schemas/common-partition-json-schemas'
-import {
-  MISSED_SPACING_ERROR,
-  EXTRA_SPACING_ERROR,
-  GROUP_ORDER_ERROR,
-  ORDER_ERROR,
-} from '../utils/report-errors'
-import { buildCommonGroupsJsonSchemas } from '../utils/json-schemas/common-groups-json-schemas'
-import {
-  sortNamedImport,
-  defaultOptions,
-} from './sort-named-imports/sort-named-import'
-import { buildAstListeners } from '../utils/build-ast-listeners'
+  partitionByNewLineJsonSchema,
+  commonJsonSchemas,
+} from '../utils/common-json-schemas'
+import { validateCustomSortConfiguration } from '../utils/validate-custom-sort-configuration'
+import { getEslintDisabledLines } from '../utils/get-eslint-disabled-lines'
+import { isNodeEslintDisabled } from '../utils/is-node-eslint-disabled'
 import { createEslintRule } from '../utils/create-eslint-rule'
+import { reportAllErrors } from '../utils/report-all-errors'
+import { shouldPartition } from '../utils/should-partition'
+import { getSourceCode } from '../utils/get-source-code'
+import { rangeToDiff } from '../utils/range-to-diff'
+import { ORDER_ERROR } from '../utils/report-errors'
+import { getSettings } from '../utils/get-settings'
+import { isSortable } from '../utils/is-sortable'
+import { sortNodes } from '../utils/sort-nodes'
+import { complete } from '../utils/complete'
 
-export default createEslintRule<Options, MessageId>({
+type Options = [
+  Partial<
+    {
+      groupKind: 'values-first' | 'types-first' | 'mixed'
+      partitionByComment: PartitionByCommentOption
+      partitionByNewLine: boolean
+      ignoreAlias: boolean
+      type: TypeOption
+    } & CommonOptions
+  >,
+]
+
+interface SortNamedImportsSortingNode
+  extends SortingNode<TSESTree.ImportClause> {
+  groupKind: 'value' | 'type'
+}
+
+type MESSAGE_ID = 'unexpectedNamedImportsOrder'
+
+let defaultOptions: Required<Options[0]> = {
+  fallbackSort: { type: 'unsorted' },
+  specialCharacters: 'keep',
+  partitionByNewLine: false,
+  partitionByComment: false,
+  type: 'alphabetical',
+  ignoreAlias: false,
+  groupKind: 'mixed',
+  ignoreCase: true,
+  locales: 'en-US',
+  alphabet: '',
+  order: 'asc',
+}
+
+export default createEslintRule<Options, MESSAGE_ID>({
+  create: context => ({
+    ImportDeclaration: node => {
+      let specifiers = node.specifiers.filter(
+        ({ type }) => type === 'ImportSpecifier',
+      )
+      if (!isSortable(specifiers)) {
+        return
+      }
+
+      let settings = getSettings(context.settings)
+      let options = complete(context.options.at(0), settings, defaultOptions)
+      validateCustomSortConfiguration(options)
+
+      let sourceCode = getSourceCode(context)
+      let eslintDisabledLines = getEslintDisabledLines({
+        ruleName: context.id,
+        sourceCode,
+      })
+
+      let formattedMembers: SortNamedImportsSortingNode[][] = [[]]
+      for (let specifier of specifiers) {
+        let { name } = specifier.local
+
+        if (specifier.type === 'ImportSpecifier' && options.ignoreAlias) {
+          if (specifier.imported.type === 'Identifier') {
+            ;({ name } = specifier.imported)
+          } else {
+            name = specifier.imported.value
+          }
+        }
+
+        let lastSortingNode = formattedMembers.at(-1)?.at(-1)
+        let sortingNode: SortNamedImportsSortingNode = {
+          groupKind:
+            specifier.type === 'ImportSpecifier' &&
+            specifier.importKind === 'type'
+              ? 'type'
+              : 'value',
+          isEslintDisabled: isNodeEslintDisabled(
+            specifier,
+            eslintDisabledLines,
+          ),
+          size: rangeToDiff(specifier, sourceCode),
+          node: specifier,
+          name,
+        }
+
+        if (
+          shouldPartition({
+            lastSortingNode,
+            sortingNode,
+            sourceCode,
+            options,
+          })
+        ) {
+          formattedMembers.push([])
+        }
+
+        formattedMembers.at(-1)!.push(sortingNode)
+      }
+
+      let groupKindOrder
+      if (options.groupKind === 'values-first') {
+        groupKindOrder = ['value', 'type'] as const
+      } else if (options.groupKind === 'types-first') {
+        groupKindOrder = ['type', 'value'] as const
+      } else {
+        groupKindOrder = ['any'] as const
+      }
+
+      for (let nodes of formattedMembers) {
+        let filteredGroupKindNodes = groupKindOrder.map(groupKind =>
+          nodes.filter(
+            currentNode =>
+              groupKind === 'any' || currentNode.groupKind === groupKind,
+          ),
+        )
+        let sortNodesExcludingEslintDisabled = (
+          ignoreEslintDisabledNodes: boolean,
+        ): SortNamedImportsSortingNode[] =>
+          filteredGroupKindNodes.flatMap(groupedNodes =>
+            sortNodes(groupedNodes, options, {
+              ignoreEslintDisabledNodes,
+            }),
+          )
+
+        reportAllErrors<MESSAGE_ID>({
+          availableMessageIds: {
+            unexpectedOrder: 'unexpectedNamedImportsOrder',
+          },
+          sortNodesExcludingEslintDisabled,
+          sourceCode,
+          options,
+          context,
+          nodes,
+        })
+      }
+    },
+  }),
   meta: {
-    schema: {
-      items: {
+    schema: [
+      {
         properties: {
-          ...buildCommonJsonSchemas(),
-          ...buildCommonGroupsJsonSchemas({
-            additionalCustomGroupMatchProperties:
-              additionalCustomGroupMatchOptionsJsonSchema,
-          }),
-          useConfigurationIf: buildUseConfigIfJsonSchema({
-            additionalProperties: {
-              matchesAstSelector: matchesAstSelectorJsonSchema,
-            },
-          }),
+          ...commonJsonSchemas,
+          groupKind: {
+            enum: ['mixed', 'values-first', 'types-first'],
+            description: 'Specifies top-level groups.',
+            type: 'string',
+          },
           ignoreAlias: {
             description: 'Controls whether to ignore alias names.',
             type: 'boolean',
           },
           partitionByComment: partitionByCommentJsonSchema,
-          partitionByNewLine: partitionByNewlineJsonSchema,
+          partitionByNewLine: partitionByNewLineJsonSchema,
         },
         additionalProperties: false,
         type: 'object',
       },
-      uniqueItems: true,
-      type: 'array',
-    },
-    messages: {
-      [MISSED_SPACING_ERROR_ID]: MISSED_SPACING_ERROR,
-      [EXTRA_SPACING_ERROR_ID]: EXTRA_SPACING_ERROR,
-      [GROUP_ORDER_ERROR_ID]: GROUP_ORDER_ERROR,
-      [ORDER_ERROR_ID]: ORDER_ERROR,
-    },
+    ],
     docs: {
       url: 'https://perfectionist.dev/rules/sort-named-imports',
       description: 'Enforce sorted named imports.',
       recommended: true,
     },
+    messages: {
+      unexpectedNamedImportsOrder: ORDER_ERROR,
+    },
     type: 'suggestion',
     fixable: 'code',
   },
-  create: context =>
-    buildAstListeners({
-      nodeTypes: [AST_NODE_TYPES.ImportDeclaration],
-      sorter: sortNamedImport,
-      context,
-    }),
   defaultOptions: [defaultOptions],
   name: 'sort-named-imports',
 })

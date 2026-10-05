@@ -17,7 +17,6 @@
 <style>
   .button {
     display: inline-flex;
-    flex-wrap: nowrap;
     align-items: center;
     justify-content: center;
     inline-size: 200px;
@@ -29,15 +28,10 @@
     outline: none;
     border: none;
     border-radius: var(--border-radius);
-
-    @media (prefers-reduced-motion: no-preference) {
-      transition: all 200ms ease-in-out;
-    }
+    transition: all 200ms ease-in-out;
 
     &:focus-visible {
       text-decoration: none;
-      outline: 2px solid transparent;
-      outline-offset: 2px;
       box-shadow: 0 0 0 3px var(--color-border-brand);
     }
 
@@ -47,7 +41,7 @@
   }
 
   .button-primary {
-    color: oklch(100% 0 0deg);
+    color: oklch(100% 0 0);
     background: var(--color-background-brand);
 
     &:focus-visible {

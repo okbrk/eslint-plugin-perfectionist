@@ -2,7 +2,7 @@ import { ImageResponse } from '@vercel/og'
 import fs from 'node:fs/promises'
 import path from 'node:path'
 
-export async function openGraph(title: string): Promise<ImageResponse> {
+export let openGraph = async (title: string): Promise<ImageResponse> => {
   let [inter, spaceGrotesk] = (await Promise.all(
     ['inter-regular', 'space-grotesk-bold'].map(
       async font =>
@@ -14,7 +14,7 @@ export async function openGraph(title: string): Promise<ImageResponse> {
   let logo = await fs.readFile(
     path.join(process.cwd(), './docs/public/logo.svg'),
   )
-  let logoImage = `data:image/svg+xml;base64,${logo.toBase64()}`
+  let logoImage = `data:image/svg+xml;base64,${Buffer.from(logo).toString('base64')}`
 
   return new ImageResponse(
     {
@@ -74,9 +74,9 @@ export async function openGraph(title: string): Promise<ImageResponse> {
               children: [
                 {
                   props: {
+                    height: '250px',
                     src: logoImage,
-                    height: 250,
-                    width: 250,
+                    width: '250px',
                   },
                   type: 'img',
                 },

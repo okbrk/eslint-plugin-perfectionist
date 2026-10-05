@@ -33,9 +33,6 @@
     <Button
       onClick={() => {
         selected = 'alphabetical'
-        if (globalThis.fathom) {
-          globalThis.fathom.trackEvent('demo: sort alphabetically')
-        }
       }}
       content="Sort Alphabetically"
       color="primary"
@@ -43,9 +40,6 @@
     <Button
       onClick={() => {
         selected = 'lineLength'
-        if (globalThis.fathom) {
-          globalThis.fathom.trackEvent('demo: sort by line length')
-        }
       }}
       content="Sort by Line Length"
       color="primary"
@@ -54,9 +48,6 @@
   <Button
     onClick={() => {
       selected = 'initial'
-      if (globalThis.fathom) {
-        globalThis.fathom.trackEvent('demo: reset')
-      }
     }}
     color="secondary"
     content="Reset"

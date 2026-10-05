@@ -2,7 +2,6 @@
 import SkipToContent from './SkipToContent.astro'
 import Navigation from './Navigation.astro'
 import IconMenu from '../icons/menu.svg'
-import Search from './Search.svelte'
 import Logo from './Logo.astro'
 
 interface Props {
@@ -23,91 +22,46 @@ let { border = false } = Astro.props
     >
       <IconMenu class="icon" />
     </button>
-    <a
-      aria-label="Perfectionist home page"
-      class="home-link"
-      href="/"
-    >
+    <a aria-label="Perfectionist home page" class="home-link" href="/">
       <Logo class="logo" />
       <span class="title">Perfectionist</span>
     </a>
   </div>
-  <Search client:load />
   <Navigation />
 </header>
 
 <script>
   import { toggleMenu } from '../stores/menu-open'
 
-  let menuController: AbortController | undefined
-  let scrollController: AbortController | undefined
-
-  let cleanup = () => {
-    menuController?.abort()
-    scrollController?.abort()
-    menuController = undefined
-    scrollController = undefined
+  let initMenu = () => {
+    document
+      .getElementById('menu-button')!
+      .addEventListener('click', toggleMenu)
   }
 
-  let setupMenu = () => {
-    let menuButton = document.getElementById('menu-button')
-    if (!menuButton) {
-      return
-    }
+  document.addEventListener('astro:after-swap', initMenu)
+  initMenu()
+</script>
 
-    menuController = new AbortController()
-    menuButton.addEventListener('click', toggleMenu, {
-      signal: menuController.signal,
-    })
-  }
+<script>
+  let initHeader = () => {
+    let header = document.querySelector('.header')!
 
-  let setupScroll = () => {
-    let header = document.querySelector('.header')
-    if (!header) {
-      return
-    }
+    document.addEventListener('scroll', () => {
+      let { scrollY } = globalThis
 
-    let handleScroll = () => {
-      if (header.classList.contains('border')) {
-        return
+      if (!header.classList.contains('border')) {
+        if (scrollY > 24) {
+          header.classList.add('scroll')
+        } else {
+          header.classList.remove('scroll')
+        }
       }
-
-      header.classList.toggle('scroll', globalThis.scrollY > 24)
-    }
-
-    scrollController = new AbortController()
-    document.addEventListener('scroll', handleScroll, {
-      signal: scrollController.signal,
-      passive: true,
     })
-    handleScroll()
   }
 
-  let scheduleNext = () => {
-    document.addEventListener(
-      'astro:before-swap',
-      () => {
-        cleanup()
-      },
-      { once: true },
-    )
-    document.addEventListener(
-      'astro:after-swap',
-      () => {
-        setup()
-      },
-      { once: true },
-    )
-  }
-
-  let setup = () => {
-    cleanup()
-    setupMenu()
-    setupScroll()
-    scheduleNext()
-  }
-
-  setup()
+  document.addEventListener('astro:after-swap', initHeader)
+  initHeader()
 </script>
 
 <style>
@@ -115,23 +69,19 @@ let { border = false } = Astro.props
     position: sticky;
     inset-block-start: 0;
     z-index: 2;
-    display: grid;
-    grid-template-columns: [menu] auto [search] auto [nav] 1fr;
-    gap: var(--space-m);
+    display: flex;
     align-items: center;
     justify-content: space-between;
     block-size: var(--header-block-size);
-    padding-inline: var(--space-m);
-    container-type: inline-size;
+    padding: var(--space-s) var(--space-m);
     color: var(--color-content-primary);
     background: var(--color-background-primary);
+    container-type: inline-size;
     border-block-end: 1px solid transparent;
   }
 
   .scroll {
-    @media (prefers-reduced-motion: no-preference) {
-      transition: border-block-end-color 300ms;
-    }
+    transition: border-block-end-color 300ms;
   }
 
   .border,
@@ -141,13 +91,11 @@ let { border = false } = Astro.props
 
   .home {
     display: flex;
-    flex-wrap: nowrap;
     align-items: center;
   }
 
   .menu-button {
     display: flex;
-    flex-wrap: nowrap;
     padding: var(--space-2xs) var(--space-s);
     margin-inline-start: calc(0px - var(--space-xs));
     color: inherit;
@@ -155,10 +103,7 @@ let { border = false } = Astro.props
     background: transparent;
     border: 0;
     border-radius: var(--border-radius);
-
-    @media (prefers-reduced-motion: no-preference) {
-      transition: background 300ms;
-    }
+    transition: background 300ms;
 
     @media (width >= 800px) {
       display: none;
@@ -173,10 +118,7 @@ let { border = false } = Astro.props
     &:focus-visible {
       background: var(--color-overlay-brand);
       box-shadow: 0 0 0 3px var(--color-border-brand);
-
-      @media (prefers-reduced-motion: no-preference) {
-        transition: box-shadow 200ms;
-      }
+      transition: box-shadow 200ms;
     }
   }
 
@@ -187,7 +129,6 @@ let { border = false } = Astro.props
 
   .home-link {
     display: flex;
-    flex-wrap: nowrap;
     gap: 8px;
     align-items: center;
     padding: var(--space-2xs) var(--space-2xs);

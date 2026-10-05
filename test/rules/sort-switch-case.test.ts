@@ -1,3360 +1,2728 @@
-import { createRuleTester } from 'eslint-vitest-rule-tester'
-import typescriptParser from '@typescript-eslint/parser'
-import { describe, expect, it } from 'vitest'
+import type { Rule } from 'eslint'
+
+import { RuleTester } from '@typescript-eslint/rule-tester'
+import { RuleTester as EslintRuleTester } from 'eslint'
+import { afterAll, describe, it } from 'vitest'
 import dedent from 'dedent'
 
-import { validateRuleJsonSchema } from '../utils/validate-rule-json-schema'
-import { buildOxlintRuleTester } from './build-oxlint-rule-tester'
 import rule from '../../rules/sort-switch-case'
 import { Alphabet } from '../../utils/alphabet'
 
-describe('sort-switch-case', () => {
-  let { invalid, valid } = createRuleTester({
-    name: 'sort-switch-case',
-    parser: typescriptParser,
-    rule,
-  })
-  let oxlintRuleTester = buildOxlintRuleTester(rule)
+let ruleName = 'sort-switch-case'
 
-  describe('alphabetical', () => {
+describe(ruleName, () => {
+  RuleTester.describeSkip = describe.skip
+  RuleTester.afterAll = afterAll
+  RuleTester.describe = describe
+  RuleTester.itOnly = it.only
+  RuleTester.itSkip = it.skip
+  RuleTester.it = it
+
+  let ruleTester = new RuleTester()
+  let eslintRuleTester = new EslintRuleTester()
+
+  describe(`${ruleName}: sorting by alphabetical order`, () => {
+    let type = 'alphabetical-order'
+
     let options = {
       type: 'alphabetical',
+      ignoreCase: true,
       order: 'asc',
     } as const
 
-    it('not works if switch-case is not sortable', async () => {
-      await valid({
-        code: dedent`
-          switch(x) {
-          }
-        `,
-        options: [{}],
-      })
-    })
-
-    it('sorts switch cases with return statements', async () => {
-      await valid({
-        code: dedent`
-          function func(name) {
-            switch(name) {
-              case 'aaa':
-                return 'a'
-              case 'bb':
-                return 'b'
-              case 'c':
-                return 'c'
-              default:
-                return 'x'
-            }
-          }
-        `,
-        options: [options],
-      })
-
-      await invalid({
-        output: dedent`
-          function func(name) {
-            switch(<any> myFunc(a! + b?.c as any)) {
-              case 'aaa':
-                return 'a'
-              case 'bb':
-                return 'b'
-              case 'c':
-                return 'c'
-              default:
-                return 'x'
-            }
-          }
-        `,
-        code: dedent`
-          function func(name) {
-            switch(<any> myFunc(a! + b?.c as any)) {
-              case 'bb':
-                return 'b'
-              case 'aaa':
-                return 'a'
-              case 'c':
-                return 'c'
-              default:
-                return 'x'
-            }
-          }
-        `,
-        errors: [
+    ruleTester.run(
+      `${ruleName}(${type}): sorts switch cases with return statements`,
+      rule,
+      {
+        invalid: [
           {
-            messageId: 'unexpectedSwitchCaseOrder',
-            data: { right: 'aaa', left: 'bb' },
+            output: dedent`
+              function func(name) {
+                switch(<any> myFunc(a! + b?.c as any)) {
+                  case 'aaa':
+                    return 'a'
+                  case 'bb':
+                    return 'b'
+                  case 'c':
+                    return 'c'
+                  default:
+                    return 'x'
+                }
+              }
+            `,
+            code: dedent`
+              function func(name) {
+                switch(<any> myFunc(a! + b?.c as any)) {
+                  case 'bb':
+                    return 'b'
+                  case 'aaa':
+                    return 'a'
+                  case 'c':
+                    return 'c'
+                  default:
+                    return 'x'
+                }
+              }
+            `,
+            errors: [
+              {
+                data: {
+                  right: 'aaa',
+                  left: 'bb',
+                },
+                messageId: 'unexpectedSwitchCaseOrder',
+              },
+            ],
+            options: [options],
+          },
+          {
+            output: dedent`
+              function func(name) {
+                switch(name) {
+                  case 'aaa':
+                    return 'a'
+                  case 'bb':
+                    return 'b'
+                  case 'c':
+                    return 'c'
+                  default:
+                    return 'x'
+                }
+              }
+            `,
+            code: dedent`
+              function func(name) {
+                switch(name) {
+                  case 'bb':
+                    return 'b'
+                  case 'aaa':
+                    return 'a'
+                  case 'c':
+                    return 'c'
+                  default:
+                    return 'x'
+                }
+              }
+            `,
+            errors: [
+              {
+                data: {
+                  right: 'aaa',
+                  left: 'bb',
+                },
+                messageId: 'unexpectedSwitchCaseOrder',
+              },
+            ],
+            options: [options],
           },
         ],
-        options: [options],
-      })
-
-      await invalid({
-        output: dedent`
-          function func(name) {
-            switch(name) {
-              case 'aaa':
-                return 'a'
-              case 'bb':
-                return 'b'
-              case 'c':
-                return 'c'
-              default:
-                return 'x'
-            }
-          }
-        `,
-        code: dedent`
-          function func(name) {
-            switch(name) {
-              case 'bb':
-                return 'b'
-              case 'aaa':
-                return 'a'
-              case 'c':
-                return 'c'
-              default:
-                return 'x'
-            }
-          }
-        `,
-        errors: [
+        valid: [
           {
-            messageId: 'unexpectedSwitchCaseOrder',
-            data: { right: 'aaa', left: 'bb' },
+            code: dedent`
+              switch(x) {
+              }
+            `,
+            options: [{}],
+          },
+          {
+            code: dedent`
+              switch(x) {
+                case "a":
+                  break;
+              }
+            `,
+            options: [{}],
+          },
+          {
+            code: dedent`
+              function func(name) {
+                switch(name) {
+                  case 'aaa':
+                    return 'a'
+                  case 'bb':
+                    return 'b'
+                  case 'c':
+                    return 'c'
+                  default:
+                    return 'x'
+                }
+              }
+            `,
+            options: [options],
           },
         ],
-        options: [options],
-      })
-    })
+      },
+    )
 
-    it('sorts switch cases with break statements', async () => {
-      await valid({
-        code: dedent`
-          function func(name) {
-            let size
-            switch(name) {
-              case 'aaa':
-                height = 1
-                break
-              case 'bb':
-                height = 2
-                break
-              case 'c':
-                height = 3
-                break
-              default:
-                height = NaN
-            }
-            return size
-          }
-        `,
-        options: [options],
-      })
-
-      await invalid({
-        output: dedent`
-          function func(name) {
-            let size
-            switch(name) {
-              case 'aaa':
-                height = 1
-                break
-              case 'bb':
-                height = 2
-                break
-              case 'c':
-                height = 3
-                break
-              default:
-                height = NaN
-            }
-            return size
-          }
-        `,
-        code: dedent`
-          function func(name) {
-            let size
-            switch(name) {
-              case 'aaa':
-                height = 1
-                break
-              case 'c':
-                height = 3
-                break
-              case 'bb':
-                height = 2
-                break
-              default:
-                height = NaN
-            }
-            return size
-          }
-        `,
-        errors: [
+    ruleTester.run(
+      `${ruleName}(${type}): sorts switch cases with break statements`,
+      rule,
+      {
+        invalid: [
           {
-            messageId: 'unexpectedSwitchCaseOrder',
-            data: { right: 'bb', left: 'c' },
+            output: dedent`
+              function func(name) {
+                let size
+                switch(name) {
+                  case 'aaa':
+                    height = 1
+                    break
+                  case 'bb':
+                    height = 2
+                    break
+                  case 'c':
+                    height = 3
+                    break
+                  default:
+                    height = NaN
+                }
+                return size
+              }
+            `,
+            code: dedent`
+              function func(name) {
+                let size
+                switch(name) {
+                  case 'aaa':
+                    height = 1
+                    break
+                  case 'c':
+                    height = 3
+                    break
+                  case 'bb':
+                    height = 2
+                    break
+                  default:
+                    height = NaN
+                }
+                return size
+              }
+            `,
+            errors: [
+              {
+                data: {
+                  right: 'bb',
+                  left: 'c',
+                },
+                messageId: 'unexpectedSwitchCaseOrder',
+              },
+            ],
+            options: [options],
           },
         ],
-        options: [options],
-      })
-    })
-
-    it('sorts switch cases with block statements', async () => {
-      await valid({
-        code: dedent`
-          function func(name) {
-            let size
-            switch(name) {
-              case 'aaa': {
-                height = 1
-              }
-              case 'bb': {
-                height = 2
-              }
-              case 'c': {
-                height = 3
-              }
-              default:
-                height = NaN
-            }
-            return size
-          }
-        `,
-        options: [options],
-      })
-
-      await invalid({
-        output: dedent`
-          function func(name) {
-            let size
-            switch(name) {
-              case 'aaa': {
-                height = 1
-                break
-              }
-              case 'bb': {
-                height = 2
-                break
-              }
-              case 'c': {
-                height = 3
-                break
-              }
-              default:
-                height = NaN
-                break
-            }
-            return size
-          }
-        `,
-        code: dedent`
-          function func(name) {
-            let size
-            switch(name) {
-              case 'aaa': {
-                height = 1
-                break
-              }
-              case 'c': {
-                height = 3
-                break
-              }
-              case 'bb': {
-                height = 2
-                break
-              }
-              default:
-                height = NaN
-                break
-            }
-            return size
-          }
-        `,
-        errors: [
+        valid: [
           {
-            messageId: 'unexpectedSwitchCaseOrder',
-            data: { right: 'bb', left: 'c' },
+            code: dedent`
+              function func(name) {
+                let size
+                switch(name) {
+                  case 'aaa':
+                    height = 1
+                    break
+                  case 'bb':
+                    height = 2
+                    break
+                  case 'c':
+                    height = 3
+                    break
+                  default:
+                    height = NaN
+                }
+                return size
+              }
+            `,
+            options: [options],
           },
         ],
-        options: [options],
-      })
+      },
+    )
+
+    ruleTester.run(
+      `${ruleName}(${type}): sorts switch cases with block statements`,
+      rule,
+      {
+        invalid: [
+          {
+            output: dedent`
+              function func(name) {
+                let size
+                switch(name) {
+                  case 'aaa': {
+                    height = 1
+                    break
+                  }
+                  case 'bb': {
+                    height = 2
+                    break
+                  }
+                  case 'c': {
+                    height = 3
+                    break
+                  }
+                  default:
+                    height = NaN
+                    break
+                }
+                return size
+              }
+            `,
+            code: dedent`
+              function func(name) {
+                let size
+                switch(name) {
+                  case 'aaa': {
+                    height = 1
+                    break
+                  }
+                  case 'c': {
+                    height = 3
+                    break
+                  }
+                  case 'bb': {
+                    height = 2
+                    break
+                  }
+                  default:
+                    height = NaN
+                    break
+                }
+                return size
+              }
+            `,
+            errors: [
+              {
+                data: {
+                  right: 'bb',
+                  left: 'c',
+                },
+                messageId: 'unexpectedSwitchCaseOrder',
+              },
+            ],
+            options: [options],
+          },
+        ],
+        valid: [
+          {
+            code: dedent`
+              function func(name) {
+                let size
+                switch(name) {
+                  case 'aaa': {
+                    height = 1
+                  }
+                  case 'bb': {
+                    height = 2
+                  }
+                  case 'c': {
+                    height = 3
+                  }
+                  default:
+                    height = NaN
+                }
+                return size
+              }
+            `,
+            options: [options],
+          },
+        ],
+      },
+    )
+
+    ruleTester.run(
+      `${ruleName}(${type}): sorts switch cases without ending statements`,
+      rule,
+      {
+        valid: [
+          {
+            code: dedent`
+              function func(name) {
+                switch(name) {
+                  case 'b':
+                    let b
+                    break
+                  case 'a':
+                }
+              }
+            `,
+            options: [options],
+          },
+          {
+            code: dedent`
+              function func(name) {
+                switch(name) {
+                  case 'b':
+                    let b
+                    break
+                  case 'a':
+                    let a
+                }
+              }
+            `,
+            options: [options],
+          },
+          {
+            code: dedent`
+              function func(name) {
+                switch(name) {
+                  case 'b':
+                    let b
+                    break
+                  default:
+                }
+              }
+            `,
+            options: [options],
+          },
+          {
+            code: dedent`
+              function func(name) {
+                switch(name) {
+                  case 'b':
+                    let b
+                    break
+                  default:
+                    let x
+                }
+              }
+            `,
+            options: [options],
+          },
+        ],
+        invalid: [
+          {
+            output: dedent`
+              function func(name) {
+                switch(name) {
+                  case 'b':
+                    let b
+                    break
+                  case 'c':
+                    let c
+                    break
+                  case 'a':
+                }
+              }
+            `,
+            code: dedent`
+              function func(name) {
+                switch(name) {
+                  case 'c':
+                    let c
+                    break
+                  case 'b':
+                    let b
+                    break
+                  case 'a':
+                }
+              }
+            `,
+            errors: [
+              {
+                data: {
+                  right: 'b',
+                  left: 'c',
+                },
+                messageId: 'unexpectedSwitchCaseOrder',
+              },
+            ],
+            options: [options],
+          },
+        ],
+      },
+    )
+
+    ruleTester.run(`${ruleName}(${type}): works with grouped cases`, rule, {
+      invalid: [
+        {
+          output: [
+            dedent`
+              switch (value) {
+                case 'aaaaaa':
+                  return 'primary'
+                case 'cccc':
+                case 'ee':
+                case 'f':
+                  return 'tertiary'
+                case 'bbbbb':
+                case 'ddd':
+                  return 'secondary'
+                case 'x':
+                default:
+                  return 'unknown'
+              }
+            `,
+            dedent`
+              switch (value) {
+                case 'aaaaaa':
+                  return 'primary'
+                case 'bbbbb':
+                case 'ddd':
+                  return 'secondary'
+                case 'cccc':
+                case 'ee':
+                case 'f':
+                  return 'tertiary'
+                case 'x':
+                default:
+                  return 'unknown'
+              }
+            `,
+          ],
+          code: dedent`
+            switch (value) {
+              case 'aaaaaa':
+                return 'primary'
+              case 'ee':
+              case 'cccc':
+              case 'f':
+                return 'tertiary'
+              case 'bbbbb':
+              case 'ddd':
+                return 'secondary'
+              case 'x':
+              default:
+                return 'unknown'
+            }
+          `,
+          errors: [
+            {
+              data: {
+                right: 'cccc',
+                left: 'ee',
+              },
+              messageId: 'unexpectedSwitchCaseOrder',
+            },
+            {
+              data: {
+                right: 'bbbbb',
+                left: 'f',
+              },
+              messageId: 'unexpectedSwitchCaseOrder',
+            },
+          ],
+          options: [options],
+        },
+      ],
+      valid: [
+        {
+          code: dedent`
+            switch (value) {
+              case 'aaaaaa':
+                return 'primary'
+              case 'bbbbb':
+              case 'ddd':
+                return 'secondary'
+              case 'cccc':
+              case 'ee':
+              case 'f':
+                return 'tertiary'
+              case 'x':
+              default:
+                return 'unknown'
+            }
+          `,
+          options: [options],
+        },
+      ],
     })
 
-    it('sorts switch cases without ending statements', async () => {
-      await valid({
-        code: dedent`
-          function func(name) {
-            switch(name) {
-              case 'b':
-                let b
+    ruleTester.run(
+      `${ruleName}(${type}): works with grouped cases with default`,
+      rule,
+      {
+        invalid: [
+          {
+            output: dedent`
+              switch (operationMode) {
+                case wwww:
+                  return null
+                case yy:
+                case z:
+                  return null
+                case xxx:
+                default:
+                  return null
+              }
+            `,
+            code: dedent`
+              switch (operationMode) {
+                case yy:
+                case z:
+                  return null
+                case wwww:
+                  return null
+                case xxx:
+                default:
+                  return null
+              }
+            `,
+            errors: [
+              {
+                data: {
+                  right: 'wwww',
+                  left: 'z',
+                },
+                messageId: 'unexpectedSwitchCaseOrder',
+              },
+            ],
+            options: [options],
+          },
+        ],
+        valid: [
+          {
+            code: dedent`
+              switch (operationMode) {
+                case wwww:
+                  return null
+                case yy:
+                case z:
+                  return null
+                case xxx:
+                default:
+                  return null
+              }
+            `,
+            options: [options],
+          },
+        ],
+      },
+    )
+
+    ruleTester.run(
+      `${ruleName}(${type}): works with single grouped case`,
+      rule,
+      {
+        invalid: [
+          {
+            errors: [
+              {
+                data: {
+                  right: 'AA',
+                  left: 'B',
+                },
+                messageId: 'unexpectedSwitchCaseOrder',
+              },
+            ],
+            output: dedent`
+              switch (x) {
+                case AA:
+                case B:
+                  const a = 1;
+                  break;
+              }
+            `,
+            code: dedent`
+              switch (x) {
+                case B:
+                case AA:
+                  const a = 1;
+                  break;
+              }
+            `,
+            options: [options],
+          },
+        ],
+        valid: [
+          {
+            code: dedent`
+              switch (x) {
+                case AA:
+                case B:
+                  const a = 1;
+                  break;
+              }
+            `,
+            options: [options],
+          },
+        ],
+      },
+    )
+
+    ruleTester.run(`${ruleName}(${type}): works with complex cases`, rule, {
+      invalid: [
+        {
+          output: [
+            dedent`
+              switch (x) {
+                case DD:
+                case E:
+                  const b = () => {
+                    return 2
+                  }
+                  break
+                case CCC:
+                  break
+                case AAAAA:
+                case BBBB:
+                  const a = 1
+                  break
+                default:
+                  const c = 3
+              }
+            `,
+            dedent`
+              switch (x) {
+                case AAAAA:
+                case BBBB:
+                  const a = 1
+                  break
+                case CCC:
+                  break
+                case DD:
+                case E:
+                  const b = () => {
+                    return 2
+                  }
+                  break
+                default:
+                  const c = 3
+              }
+            `,
+          ],
+          errors: [
+            {
+              data: {
+                right: 'DD',
+                left: 'E',
+              },
+              messageId: 'unexpectedSwitchCaseOrder',
+            },
+            {
+              data: {
+                right: 'CCC',
+                left: 'DD',
+              },
+              messageId: 'unexpectedSwitchCaseOrder',
+            },
+            {
+              data: {
+                right: 'BBBB',
+                left: 'CCC',
+              },
+              messageId: 'unexpectedSwitchCaseOrder',
+            },
+            {
+              data: {
+                right: 'AAAAA',
+                left: 'BBBB',
+              },
+              messageId: 'unexpectedSwitchCaseOrder',
+            },
+          ],
+          code: dedent`
+            switch (x) {
+              case E:
+              case DD:
+                const b = () => {
+                  return 2
+                }
                 break
+              case CCC:
+                break
+              case BBBB:
+              case AAAAA:
+                const a = 1
+                break
+              default:
+                const c = 3
+            }
+          `,
+          options: [options],
+        },
+      ],
+      valid: [
+        {
+          code: dedent`
+            switch (x) {
+              case AAAAA:
+              case BBBB:
+                const a = 1
+                break
+              case CCC:
+                break
+              case DD:
+              case E:
+                const b = () => {
+                  return 2
+                }
+                break
+              default:
+                const c = 3
+            }
+          `,
+          options: [options],
+        },
+      ],
+    })
+
+    ruleTester.run(
+      `${ruleName}(${type}): works with groups with default`,
+      rule,
+      {
+        invalid: [
+          {
+            errors: [
+              {
+                data: {
+                  left: 'default',
+                  right: 'B',
+                },
+                messageId: 'unexpectedSwitchCaseOrder',
+              },
+            ],
+            output: dedent`
+              switch (x) {
+                case 'AA':
+                case 'B':
+                default:
+                  break;
+              }
+            `,
+            code: dedent`
+              switch (x) {
+                case 'AA':
+                default:
+                case 'B':
+                  break;
+              }
+            `,
+            options: [options],
+          },
+          {
+            output: [
+              dedent`
+                switch (x) {
+                  case 'default':
+                  default:
+                    break;
+                  case 'somethingElse':
+                    break;
+                }
+              `,
+              dedent`
+                switch (x) {
+                  case 'somethingElse':
+                    break;
+                  case 'default':
+                  default:
+                    break;
+                }
+              `,
+            ],
+            errors: [
+              {
+                data: {
+                  right: 'default',
+                  left: 'default',
+                },
+                messageId: 'unexpectedSwitchCaseOrder',
+              },
+              {
+                data: {
+                  right: 'somethingElse',
+                  left: 'default',
+                },
+                messageId: 'unexpectedSwitchCaseOrder',
+              },
+            ],
+            code: dedent`
+              switch (x) {
+                default:
+                case 'default':
+                  break;
+                case 'somethingElse':
+                  break;
+              }
+            `,
+            options: [options],
+          },
+        ],
+        valid: [
+          {
+            code: dedent`
+              switch (x) {
+                case 'AA':
+                case 'B':
+                default:
+                  const c = 3
+              }
+            `,
+            options: [options],
+          },
+        ],
+      },
+    )
+
+    ruleTester.run(
+      `${ruleName}(${type}): allows to trim special characters`,
+      rule,
+      {
+        valid: [
+          {
+            code: dedent`
+              switch (x) {
+                case '_a':
+                case 'b':
+                case '_c':
+                  break;
+              }
+            `,
+            options: [
+              {
+                ...options,
+                specialCharacters: 'trim',
+              },
+            ],
+          },
+        ],
+        invalid: [],
+      },
+    )
+
+    ruleTester.run(
+      `${ruleName}(${type}): allows to remove special characters`,
+      rule,
+      {
+        valid: [
+          {
+            code: dedent`
+              switch (x) {
+                case 'ab':
+                case 'a_c':
+                  break;
+              }
+            `,
+            options: [
+              {
+                ...options,
+                specialCharacters: 'remove',
+              },
+            ],
+          },
+        ],
+        invalid: [],
+      },
+    )
+
+    ruleTester.run(`${ruleName}(${type}): allows to use locale`, rule, {
+      valid: [
+        {
+          code: dedent`
+            switch (x) {
+              case '你好':
+              case '世界':
               case 'a':
-            }
-          }
-        `,
-        options: [options],
-      })
-
-      await valid({
-        code: dedent`
-          function func(name) {
-            switch(name) {
+              case 'A':
               case 'b':
-                let b
+              case 'B':
+                break;
+            }
+          `,
+          options: [{ ...options, locales: 'zh-CN' }],
+        },
+      ],
+      invalid: [],
+    })
+
+    ruleTester.run(
+      `${ruleName}(${type}): sorts inline elements correctly`,
+      rule,
+      {
+        invalid: [
+          {
+            errors: [
+              {
+                data: {
+                  right: 'a',
+                  left: 'b',
+                },
+                messageId: 'unexpectedSwitchCaseOrder',
+              },
+            ],
+            output: dedent`
+              switch (x) {
+                case "a": break; case "b": break;
+              }
+            `,
+            code: dedent`
+              switch (x) {
+                case "b": break; case "a": break
+              }
+            `,
+            options: [options],
+          },
+          {
+            errors: [
+              {
+                data: {
+                  right: 'a',
+                  left: 'b',
+                },
+                messageId: 'unexpectedSwitchCaseOrder',
+              },
+            ],
+            output: dedent`
+              switch (x) {
+                case "a": break; case "b": break;
+              }
+            `,
+            code: dedent`
+              switch (x) {
+                case "b": break; case "a": break;
+              }
+            `,
+            options: [options],
+          },
+          {
+            errors: [
+              {
+                data: {
+                  right: 'a',
+                  left: 'b',
+                },
+                messageId: 'unexpectedSwitchCaseOrder',
+              },
+            ],
+            output: dedent`
+              switch (x) {
+                case "a": { break }; case "b": { break }
+              }
+            `,
+            code: dedent`
+              switch (x) {
+                case "b": { break } case "a": { break }
+              }
+            `,
+            options: [options],
+          },
+          {
+            errors: [
+              {
+                data: {
+                  right: 'a',
+                  left: 'b',
+                },
+                messageId: 'unexpectedSwitchCaseOrder',
+              },
+            ],
+            output: dedent`
+              switch (x) {
+                case "a": { break }; case "b": { break }
+              }
+            `,
+            code: dedent`
+              switch (x) {
+                case "b": { break } case "a": { break };
+              }
+            `,
+            options: [options],
+          },
+        ],
+        valid: [],
+      },
+    )
+
+    ruleTester.run(`${ruleName}: handles comments`, rule, {
+      invalid: [
+        {
+          output: [
+            dedent`
+              switch (value) {
+                case "a": // a
+                case "b": // b
+                  break;
+              }
+            `,
+          ],
+          code: dedent`
+            switch (value) {
+              case "b": // b
+              case "a": // a
+                break;
+            }
+          `,
+          errors: [
+            {
+              messageId: 'unexpectedSwitchCaseOrder',
+            },
+          ],
+          options: [{}],
+        },
+        {
+          output: [
+            dedent`
+              switch (value) {
+                case "a": // a
+                default: // default
+                  break;
+              }
+            `,
+          ],
+          code: dedent`
+            switch (value) {
+              default: // default
+              case "a": // a
+                break;
+            }
+          `,
+          errors: [
+            {
+              messageId: 'unexpectedSwitchCaseOrder',
+            },
+          ],
+          options: [{}],
+        },
+        {
+          output: [
+            dedent`
+              switch (value) {
+                case "z": { return; } // z
+                case      "x"
+                   : // x
+                case "y": // y
+                default    : // default
+                    let a;
+                case "b": // b
+                  return;
+                case "a": // A
+                  break;
+              }
+            `,
+            dedent`
+              switch (value) {
+                case "a": // A
+                  break;
+                case "z": { return; } // z
+                case      "x"
+                   : // x
+                case "y": // y
+                default    : // default
+                    let a;
+                case "b": // b
+                  return;
+              }
+            `,
+          ],
+          errors: [
+            {
+              data: {
+                left: 'default',
+                right: 'x',
+              },
+              messageId: 'unexpectedSwitchCaseOrder',
+            },
+            {
+              data: {
+                right: 'x',
+                left: 'y',
+              },
+              messageId: 'unexpectedSwitchCaseOrder',
+            },
+            {
+              data: {
+                right: 'a',
+                left: 'b',
+              },
+              messageId: 'unexpectedSwitchCaseOrder',
+            },
+          ],
+          code: dedent`
+            switch (value) {
+              case "z": { return; } // z
+              default    : // default
+              case "y": // y
+              case      "x"
+                 : // x
+                  let a;
+              case "b": // b
+                return;
+              case "a": // A
+                break;
+            }
+          `,
+          options: [{}],
+        },
+      ],
+      valid: [],
+    })
+
+    ruleTester.run(`${ruleName}: handles last case without break`, rule, {
+      valid: [
+        {
+          code: dedent`
+            switch(x) {
+              case "b": {
                 break
-              case 'a':
+              }
+              case "a": {
+                let a
+              }
+            }
+          `,
+          options: [{}],
+        },
+        {
+          code: dedent`
+            switch(x) {
+              default: {
+                break
+              }
+              case "a": {
+                let a
+              }
+            }
+          `,
+          options: [{}],
+        },
+        {
+          code: dedent`
+            switch(x) {
+              case "b":
+                break
+              case "a":
                 let a
             }
-          }
-        `,
-        options: [options],
-      })
-
-      await valid({
-        code: dedent`
-          function func(name) {
-            switch(name) {
-              case 'b':
-                let b
-                break
+          `,
+          options: [{}],
+        },
+        {
+          code: dedent`
+            switch(x) {
               default:
+                break;
+              case "a":
+                let a
             }
-          }
-        `,
-        options: [options],
-      })
-
-      await valid({
-        code: dedent`
-          function func(name) {
-            switch(name) {
-              case 'b':
-                let b
-                break
+          `,
+          options: [{}],
+        },
+      ],
+      invalid: [
+        {
+          errors: [
+            {
+              data: {
+                left: 'default',
+                right: 'a',
+              },
+              messageId: 'unexpectedSwitchCaseOrder',
+            },
+          ],
+          output: dedent`
+            switch(x) {
+              case "a":
+                break;
               default:
-                let x
+                break;
+              case "a":
             }
-          }
-        `,
-        options: [options],
-      })
-
-      await invalid({
-        output: dedent`
-          function func(name) {
-            switch(name) {
-              case 'b':
-                let b
-                break
-              case 'c':
-                let c
-                break
-              case 'a':
+          `,
+          code: dedent`
+            switch(x) {
+              default:
+                break;
+              case "a":
+                break;
+              case "a":
             }
-          }
-        `,
-        code: dedent`
-          function func(name) {
-            switch(name) {
-              case 'c':
-                let c
-                break
-              case 'b':
-                let b
-                break
-              case 'a':
-            }
-          }
-        `,
-        errors: [
-          {
-            messageId: 'unexpectedSwitchCaseOrder',
-            data: { right: 'b', left: 'c' },
-          },
-        ],
-        options: [options],
-      })
-    })
-
-    it('works with grouped cases', async () => {
-      await valid({
-        code: dedent`
-          switch (value) {
-            case 'aaaaaa':
-              return 'primary'
-            case 'bbbbb':
-            case 'ddd':
-              return 'secondary'
-            case 'cccc':
-            case 'ee':
-            case 'f':
-              return 'tertiary'
-            case 'x':
-            default:
-              return 'unknown'
-          }
-        `,
-        options: [options],
-      })
-
-      await invalid({
-        output: dedent`
-          switch (value) {
-            case 'aaaaaa':
-              return 'primary'
-            case 'bbbbb':
-            case 'ddd':
-              return 'secondary'
-            case 'cccc':
-            case 'ee':
-            case 'f':
-              return 'tertiary'
-            case 'x':
-            default:
-              return 'unknown'
-          }
-        `,
-        code: dedent`
-          switch (value) {
-            case 'aaaaaa':
-              return 'primary'
-            case 'ee':
-            case 'cccc':
-            case 'f':
-              return 'tertiary'
-            case 'bbbbb':
-            case 'ddd':
-              return 'secondary'
-            case 'x':
-            default:
-              return 'unknown'
-          }
-        `,
-        errors: [
-          {
-            messageId: 'unexpectedSwitchCaseOrder',
-            data: { right: 'cccc', left: 'ee' },
-          },
-          {
-            messageId: 'unexpectedSwitchCaseOrder',
-            data: { right: 'bbbbb', left: 'f' },
-          },
-        ],
-        options: [options],
-      })
-    })
-
-    it('sorts several unsorted case name groups in one pass', async () => {
-      await invalid({
-        errors: [
-          {
-            messageId: 'unexpectedSwitchCaseOrder',
-            data: { right: 'a1', left: 'a2' },
-          },
-          {
-            messageId: 'unexpectedSwitchCaseOrder',
-            data: { right: 'b1', left: 'b2' },
-          },
-        ],
-        output: dedent`
-          switch (value) {
-            case 'a1':
-            case 'a2':
-              return 'a'
-            case 'b1':
-            case 'b2':
-              return 'b'
-          }
-        `,
-        code: dedent`
-          switch (value) {
-            case 'a2':
-            case 'a1':
-              return 'a'
-            case 'b2':
-            case 'b1':
-              return 'b'
-          }
-        `,
-        options: [options],
-      })
-    })
-
-    it('works with grouped cases with default', async () => {
-      await valid({
-        code: dedent`
-          switch (operationMode) {
-            case wwww:
-              return null
-            case yy:
-            case z:
-              return null
-            case xxx:
-            default:
-              return null
-          }
-        `,
-        options: [options],
-      })
-
-      await invalid({
-        output: dedent`
-          switch (operationMode) {
-            case wwww:
-              return null
-            case yy:
-            case z:
-              return null
-            case xxx:
-            default:
-              return null
-          }
-        `,
-        code: dedent`
-          switch (operationMode) {
-            case yy:
-            case z:
-              return null
-            case wwww:
-              return null
-            case xxx:
-            default:
-              return null
-          }
-        `,
-        errors: [
-          {
-            messageId: 'unexpectedSwitchCaseOrder',
-            data: { right: 'wwww', left: 'z' },
-          },
-        ],
-        options: [options],
-      })
-    })
-
-    it('works with single grouped case', async () => {
-      await valid({
-        code: dedent`
-          switch (x) {
-            case AA:
-            case B:
-              const a = 1;
-              break;
-          }
-        `,
-        options: [options],
-      })
-
-      await invalid({
-        output: dedent`
-          switch (x) {
-            case AA:
-            case B:
-              const a = 1;
-              break;
-          }
-        `,
-        code: dedent`
-          switch (x) {
-            case B:
-            case AA:
-              const a = 1;
-              break;
-          }
-        `,
-        errors: [
-          {
-            messageId: 'unexpectedSwitchCaseOrder',
-            data: { right: 'AA', left: 'B' },
-          },
-        ],
-        options: [options],
-      })
-    })
-
-    it('works with complex cases', async () => {
-      await valid({
-        code: dedent`
-          switch (x) {
-            case AAAAA:
-            case BBBB:
-              const a = 1
-              break
-            case CCC:
-              break
-            case DD:
-            case E:
-              const b = () => {
-                return 2
-              }
-              break
-            default:
-              const c = 3
-          }
-        `,
-        options: [options],
-      })
-
-      await invalid({
-        errors: [
-          {
-            messageId: 'unexpectedSwitchCaseOrder',
-            data: { right: 'DD', left: 'E' },
-          },
-          {
-            messageId: 'unexpectedSwitchCaseOrder',
-            data: { right: 'CCC', left: 'DD' },
-          },
-          {
-            messageId: 'unexpectedSwitchCaseOrder',
-            data: { right: 'BBBB', left: 'CCC' },
-          },
-          {
-            data: { right: 'AAAAA', left: 'BBBB' },
-            messageId: 'unexpectedSwitchCaseOrder',
-          },
-        ],
-        output: dedent`
-          switch (x) {
-            case AAAAA:
-            case BBBB:
-              const a = 1
-              break
-            case CCC:
-              break
-            case DD:
-            case E:
-              const b = () => {
-                return 2
-              }
-              break
-            default:
-              const c = 3
-          }
-        `,
-        code: dedent`
-          switch (x) {
-            case E:
-            case DD:
-              const b = () => {
-                return 2
-              }
-              break
-            case CCC:
-              break
-            case BBBB:
-            case AAAAA:
-              const a = 1
-              break
-            default:
-              const c = 3
-          }
-        `,
-        options: [options],
-      })
-    })
-
-    it('works with groups with default', async () => {
-      await valid({
-        code: dedent`
-          switch (x) {
-            case 'AA':
-            case 'B':
-            default:
-              const c = 3
-          }
-        `,
-        options: [options],
-      })
-
-      await invalid({
-        errors: [
-          {
-            data: {
-              left: 'default',
-              right: 'B',
-            },
-            messageId: 'unexpectedSwitchCaseOrder',
-          },
-        ],
-        output: dedent`
-          switch (x) {
-            case 'AA':
-            case 'B':
-            default:
-              break;
-          }
-        `,
-        code: dedent`
-          switch (x) {
-            case 'AA':
-            default:
-            case 'B':
-              break;
-          }
-        `,
-        options: [options],
-      })
-
-      await invalid({
-        errors: [
-          {
-            data: { right: 'default', left: 'default' },
-            messageId: 'unexpectedSwitchCaseOrder',
-          },
-          {
-            data: { right: 'somethingElse', left: 'default' },
-            messageId: 'unexpectedSwitchCaseOrder',
-          },
-        ],
-        output: dedent`
-          switch (x) {
-            case 'somethingElse':
-              break;
-            case 'default':
-            default:
-              break;
-          }
-        `,
-        code: dedent`
-          switch (x) {
-            default:
-            case 'default':
-              break;
-            case 'somethingElse':
-              break;
-          }
-        `,
-        options: [options],
-      })
-    })
-
-    it('allows to trim special characters', async () => {
-      await valid({
-        code: dedent`
-          switch (x) {
-            case '_a':
-            case 'b':
-            case '_c':
-              break;
-          }
-        `,
-        options: [
-          {
-            ...options,
-            specialCharacters: 'trim',
-          },
-        ],
-      })
-    })
-
-    it('allows to remove special characters', async () => {
-      await valid({
-        code: dedent`
-          switch (x) {
-            case 'ab':
-            case 'a_c':
-              break;
-          }
-        `,
-        options: [
-          {
-            ...options,
-            specialCharacters: 'remove',
-          },
-        ],
-      })
-    })
-
-    it('allows to use locale', async () => {
-      await valid({
-        code: dedent`
-          switch (x) {
-            case '你好':
-            case '世界':
-            case 'a':
-            case 'A':
-            case 'b':
-            case 'B':
-              break;
-          }
-        `,
-        options: [{ ...options, locales: 'zh-CN' }],
-      })
-    })
-
-    it('sorts inline elements correctly', async () => {
-      await invalid({
-        errors: [
-          {
-            messageId: 'unexpectedSwitchCaseOrder',
-            data: { right: 'a', left: 'b' },
-          },
-        ],
-        output: dedent`
-          switch (x) {
-            case "a": break; case "b": break;
-          }
-        `,
-        code: dedent`
-          switch (x) {
-            case "b": break; case "a": break
-          }
-        `,
-        options: [options],
-      })
-
-      await invalid({
-        errors: [
-          {
-            messageId: 'unexpectedSwitchCaseOrder',
-            data: { right: 'a', left: 'b' },
-          },
-        ],
-        output: dedent`
-          switch (x) {
-            case "a": break; case "b": break;
-          }
-        `,
-        code: dedent`
-          switch (x) {
-            case "b": break; case "a": break;
-          }
-        `,
-        options: [options],
-      })
-
-      await invalid({
-        errors: [
-          {
-            messageId: 'unexpectedSwitchCaseOrder',
-            data: { right: 'a', left: 'b' },
-          },
-        ],
-        output: dedent`
-          switch (x) {
-            case "a": { break }; case "b": { break }
-          }
-        `,
-        code: dedent`
-          switch (x) {
-            case "b": { break } case "a": { break }
-          }
-        `,
-        options: [options],
-      })
-
-      await invalid({
-        errors: [
-          {
-            messageId: 'unexpectedSwitchCaseOrder',
-            data: { right: 'a', left: 'b' },
-          },
-        ],
-        output: dedent`
-          switch (x) {
-            case "a": { break }; case "b": { break }
-          }
-        `,
-        code: dedent`
-          switch (x) {
-            case "b": { break } case "a": { break };
-          }
-        `,
-        options: [options],
-      })
-    })
-
-    it('handles comments', async () => {
-      await invalid({
-        output: dedent`
-          switch (value) {
-            case "a": // a
-            case "b": // b
-              break;
-          }
-        `,
-        code: dedent`
-          switch (value) {
-            case "b": // b
-            case "a": // a
-              break;
-          }
-        `,
-        errors: [
-          {
-            messageId: 'unexpectedSwitchCaseOrder',
-          },
-        ],
-        options: [{}],
-      })
-
-      await invalid({
-        output: dedent`
-          switch (value) {
-            case "a": // a
-            default: // default
-              break;
-          }
-        `,
-        code: dedent`
-          switch (value) {
-            default: // default
-            case "a": // a
-              break;
-          }
-        `,
-        errors: [
-          {
-            messageId: 'unexpectedSwitchCaseOrder',
-          },
-        ],
-        options: [{}],
-      })
-
-      await invalid({
-        errors: [
-          {
-            data: {
-              left: 'default',
-              right: 'x',
-            },
-            messageId: 'unexpectedSwitchCaseOrder',
-          },
-          {
-            messageId: 'unexpectedSwitchCaseOrder',
-            data: { right: 'x', left: 'y' },
-          },
-          {
-            messageId: 'unexpectedSwitchCaseOrder',
-            data: { right: 'a', left: 'b' },
-          },
-        ],
-        output: dedent`
-          switch (value) {
-            case "a": // A
-              break;
-            case "z": { return; } // z
-            case      "x"
-               : // x
-            case "y": // y
-            default    : // default
-                let a;
-            case "b": // b
-              return;
-          }
-        `,
-        code: dedent`
-          switch (value) {
-            case "z": { return; } // z
-            default    : // default
-            case "y": // y
-            case      "x"
-               : // x
-                let a;
-            case "b": // b
-              return;
-            case "a": // A
-              break;
-          }
-        `,
-        options: [{}],
-      })
-    })
-
-    it('handles last case without break', async () => {
-      await valid({
-        code: dedent`
-          switch(x) {
-            case "b": {
-              break
-            }
-            case "a": {
-              let a
-            }
-          }
-        `,
-        options: [{}],
-      })
-
-      await valid({
-        code: dedent`
-          switch(x) {
-            default: {
-              break
-            }
-            case "a": {
-              let a
-            }
-          }
-        `,
-        options: [{}],
-      })
-
-      await valid({
-        code: dedent`
-          switch(x) {
-            case "b":
-              break
-            case "a":
-              let a
-          }
-        `,
-        options: [{}],
-      })
-
-      await valid({
-        code: dedent`
-          switch(x) {
-            default:
-              break;
-            case "a":
-              let a
-          }
-        `,
-        options: [{}],
-      })
-
-      await invalid({
-        errors: [
-          {
-            data: {
-              left: 'default',
-              right: 'a',
-            },
-            messageId: 'unexpectedSwitchCaseOrder',
-          },
-        ],
-        output: dedent`
-          switch(x) {
-            case "a":
-              break;
-            default:
-              break;
-            case "a":
-          }
-        `,
-        code: dedent`
-          switch(x) {
-            default:
-              break;
-            case "a":
-              break;
-            case "a":
-          }
-        `,
-        options: [{}],
-      })
-    })
-
-    it('sorts even when reordered cases may match the same value', async () => {
-      await invalid({
-        output: dedent`
-          const bb = 1
-          const aaa = 1
-          function f(x) {
-            switch (x) {
-              case aaa: return 'a'
-              case bb: return 'b'
-              default: return 'd'
-            }
-          }
-        `,
-        code: dedent`
-          const bb = 1
-          const aaa = 1
-          function f(x) {
-            switch (x) {
-              case bb: return 'b'
-              case aaa: return 'a'
-              default: return 'd'
-            }
-          }
-        `,
-        errors: [
-          {
-            messageId: 'unexpectedSwitchCaseOrder',
-            data: { right: 'aaa', left: 'bb' },
-          },
-        ],
-        options: [options],
-      })
+          `,
+          options: [{}],
+        },
+      ],
     })
   })
 
-  describe('natural', () => {
+  describe(`${ruleName}: sorting by natural order`, () => {
+    let type = 'natural-order'
+
     let options = {
+      ignoreCase: true,
       type: 'natural',
       order: 'asc',
     } as const
 
-    it('sorts switch cases with return statements', async () => {
-      await valid({
-        code: dedent`
-          function func(name) {
-            switch(name) {
-              case 'aaa':
-                return 'a'
-              case 'bb':
-                return 'b'
-              case 'c':
-                return 'c'
-              default:
-                return 'x'
-            }
-          }
-        `,
-        options: [options],
-      })
-
-      await invalid({
-        output: dedent`
-          function func(name) {
-            switch(<any> myFunc(a! + b?.c as any)) {
-              case 'aaa':
-                return 'a'
-              case 'bb':
-                return 'b'
-              case 'c':
-                return 'c'
-              default:
-                return 'x'
-            }
-          }
-        `,
-        code: dedent`
-          function func(name) {
-            switch(<any> myFunc(a! + b?.c as any)) {
-              case 'bb':
-                return 'b'
-              case 'aaa':
-                return 'a'
-              case 'c':
-                return 'c'
-              default:
-                return 'x'
-            }
-          }
-        `,
-        errors: [
+    ruleTester.run(
+      `${ruleName}(${type}): sorts switch cases with return statements`,
+      rule,
+      {
+        invalid: [
           {
-            messageId: 'unexpectedSwitchCaseOrder',
-            data: { right: 'aaa', left: 'bb' },
+            output: dedent`
+              function func(name) {
+                switch(name) {
+                  case 'aaa':
+                    return 'a'
+                  case 'bb':
+                    return 'b'
+                  case 'c':
+                    return 'c'
+                  default:
+                    return 'x'
+                }
+              }
+            `,
+            code: dedent`
+              function func(name) {
+                switch(name) {
+                  case 'bb':
+                    return 'b'
+                  case 'aaa':
+                    return 'a'
+                  case 'c':
+                    return 'c'
+                  default:
+                    return 'x'
+                }
+              }
+            `,
+            errors: [
+              {
+                data: {
+                  right: 'aaa',
+                  left: 'bb',
+                },
+                messageId: 'unexpectedSwitchCaseOrder',
+              },
+            ],
+            options: [options],
           },
         ],
-        options: [options],
-      })
-
-      await invalid({
-        output: dedent`
-          function func(name) {
-            switch(name) {
-              case 'aaa':
-                return 'a'
-              case 'bb':
-                return 'b'
-              case 'c':
-                return 'c'
-              default:
-                return 'x'
-            }
-          }
-        `,
-        code: dedent`
-          function func(name) {
-            switch(name) {
-              case 'bb':
-                return 'b'
-              case 'aaa':
-                return 'a'
-              case 'c':
-                return 'c'
-              default:
-                return 'x'
-            }
-          }
-        `,
-        errors: [
+        valid: [
           {
-            messageId: 'unexpectedSwitchCaseOrder',
-            data: { right: 'aaa', left: 'bb' },
+            code: dedent`
+              function func(name) {
+                switch(name) {
+                  case 'aaa':
+                    return 'a'
+                  case 'bb':
+                    return 'b'
+                  case 'c':
+                    return 'c'
+                  default:
+                    return 'x'
+                }
+              }
+            `,
+            options: [options],
           },
         ],
-        options: [options],
-      })
-    })
+      },
+    )
 
-    it('sorts switch cases with break statements', async () => {
-      await valid({
-        code: dedent`
-          function func(name) {
-            let size
-            switch(name) {
-              case 'aaa':
-                height = 1
-                break
-              case 'bb':
-                height = 2
-                break
-              case 'c':
-                height = 3
-                break
-              default:
-                height = NaN
-            }
-            return size
-          }
-        `,
-        options: [options],
-      })
-
-      await invalid({
-        output: dedent`
-          function func(name) {
-            let size
-            switch(name) {
-              case 'aaa':
-                height = 1
-                break
-              case 'bb':
-                height = 2
-                break
-              case 'c':
-                height = 3
-                break
-              default:
-                height = NaN
-            }
-            return size
-          }
-        `,
-        code: dedent`
-          function func(name) {
-            let size
-            switch(name) {
-              case 'aaa':
-                height = 1
-                break
-              case 'c':
-                height = 3
-                break
-              case 'bb':
-                height = 2
-                break
-              default:
-                height = NaN
-            }
-            return size
-          }
-        `,
-        errors: [
+    ruleTester.run(
+      `${ruleName}(${type}): sorts switch cases with break statements`,
+      rule,
+      {
+        invalid: [
           {
-            messageId: 'unexpectedSwitchCaseOrder',
-            data: { right: 'bb', left: 'c' },
+            output: dedent`
+              function func(name) {
+                let size
+                switch(name) {
+                  case 'aaa':
+                    height = 1
+                    break
+                  case 'bb':
+                    height = 2
+                    break
+                  case 'c':
+                    height = 3
+                    break
+                  default:
+                    height = NaN
+                }
+                return size
+              }
+            `,
+            code: dedent`
+              function func(name) {
+                let size
+                switch(name) {
+                  case 'aaa':
+                    height = 1
+                    break
+                  case 'c':
+                    height = 3
+                    break
+                  case 'bb':
+                    height = 2
+                    break
+                  default:
+                    height = NaN
+                }
+                return size
+              }
+            `,
+            errors: [
+              {
+                data: {
+                  right: 'bb',
+                  left: 'c',
+                },
+                messageId: 'unexpectedSwitchCaseOrder',
+              },
+            ],
+            options: [options],
           },
         ],
-        options: [options],
-      })
-    })
+        valid: [
+          {
+            code: dedent`
+              function func(name) {
+                let size
+                switch(name) {
+                  case 'aaa':
+                    height = 1
+                    break
+                  case 'bb':
+                    height = 2
+                    break
+                  case 'c':
+                    height = 3
+                    break
+                  default:
+                    height = NaN
+                }
+                return size
+              }
+            `,
+            options: [options],
+          },
+        ],
+      },
+    )
 
-    it('sorts switch cases with block statements', async () => {
-      await valid({
-        code: dedent`
-          function func(name) {
-            let size
-            switch(name) {
-              case 'aaa': {
-                height = 1
+    ruleTester.run(
+      `${ruleName}(${type}): sorts switch cases with block statements`,
+      rule,
+      {
+        invalid: [
+          {
+            output: dedent`
+              function func(name) {
+                let size
+                switch(name) {
+                  case 'aaa': {
+                    height = 1
+                    break
+                  }
+                  case 'bb': {
+                    height = 2
+                    break
+                  }
+                  case 'c': {
+                    height = 3
+                    break
+                  }
+                  default:
+                    height = NaN
+                    break
+                }
+                return size
               }
-              case 'bb': {
-                height = 2
+            `,
+            code: dedent`
+              function func(name) {
+                let size
+                switch(name) {
+                  case 'aaa': {
+                    height = 1
+                    break
+                  }
+                  case 'c': {
+                    height = 3
+                    break
+                  }
+                  case 'bb': {
+                    height = 2
+                    break
+                  }
+                  default:
+                    height = NaN
+                    break
+                }
+                return size
               }
-              case 'c': {
-                height = 3
+            `,
+            errors: [
+              {
+                data: {
+                  right: 'bb',
+                  left: 'c',
+                },
+                messageId: 'unexpectedSwitchCaseOrder',
+              },
+            ],
+            options: [options],
+          },
+        ],
+        valid: [
+          {
+            code: dedent`
+              function func(name) {
+                let size
+                switch(name) {
+                  case 'aaa': {
+                    height = 1
+                  }
+                  case 'bb': {
+                    height = 2
+                  }
+                  case 'c': {
+                    height = 3
+                  }
+                  default:
+                    height = NaN
+                }
+                return size
               }
+            `,
+            options: [options],
+          },
+        ],
+      },
+    )
+
+    ruleTester.run(`${ruleName}(${type}): works with grouped cases`, rule, {
+      invalid: [
+        {
+          output: [
+            dedent`
+              switch (value) {
+                case 'aaaaaa':
+                  return 'primary'
+                case 'cccc':
+                case 'ee':
+                case 'f':
+                  return 'tertiary'
+                case 'bbbbb':
+                case 'ddd':
+                  return 'secondary'
+                case 'x':
+                default:
+                  return 'unknown'
+              }
+            `,
+            dedent`
+              switch (value) {
+                case 'aaaaaa':
+                  return 'primary'
+                case 'bbbbb':
+                case 'ddd':
+                  return 'secondary'
+                case 'cccc':
+                case 'ee':
+                case 'f':
+                  return 'tertiary'
+                case 'x':
+                default:
+                  return 'unknown'
+              }
+            `,
+          ],
+          code: dedent`
+            switch (value) {
+              case 'aaaaaa':
+                return 'primary'
+              case 'ee':
+              case 'cccc':
+              case 'f':
+                return 'tertiary'
+              case 'bbbbb':
+              case 'ddd':
+                return 'secondary'
+              case 'x':
               default:
-                height = NaN
+                return 'unknown'
             }
-            return size
-          }
-        `,
-        options: [options],
-      })
-
-      await invalid({
-        output: dedent`
-          function func(name) {
-            let size
-            switch(name) {
-              case 'aaa': {
-                height = 1
-                break
-              }
-              case 'bb': {
-                height = 2
-                break
-              }
-              case 'c': {
-                height = 3
-                break
-              }
-              default:
-                height = NaN
-                break
-            }
-            return size
-          }
-        `,
-        code: dedent`
-          function func(name) {
-            let size
-            switch(name) {
-              case 'aaa': {
-                height = 1
-                break
-              }
-              case 'c': {
-                height = 3
-                break
-              }
-              case 'bb': {
-                height = 2
-                break
-              }
-              default:
-                height = NaN
-                break
-            }
-            return size
-          }
-        `,
-        errors: [
-          {
-            messageId: 'unexpectedSwitchCaseOrder',
-            data: { right: 'bb', left: 'c' },
-          },
-        ],
-        options: [options],
-      })
-    })
-
-    it('sorts switch cases without ending statements', async () => {
-      await valid({
-        code: dedent`
-          function func(name) {
-            switch(name) {
-              case 'b':
-                let b
-                break
-              case 'a':
-            }
-          }
-        `,
-        options: [options],
-      })
-
-      await valid({
-        code: dedent`
-          function func(name) {
-            switch(name) {
-              case 'b':
-                let b
-                break
-              case 'a':
-                let a
-            }
-          }
-        `,
-        options: [options],
-      })
-
-      await valid({
-        code: dedent`
-          function func(name) {
-            switch(name) {
-              case 'b':
-                let b
-                break
-              default:
-            }
-          }
-        `,
-        options: [options],
-      })
-
-      await valid({
-        code: dedent`
-          function func(name) {
-            switch(name) {
-              case 'b':
-                let b
-                break
-              default:
-                let x
-            }
-          }
-        `,
-        options: [options],
-      })
-
-      await invalid({
-        output: dedent`
-          function func(name) {
-            switch(name) {
-              case 'b':
-                let b
-                break
-              case 'c':
-                let c
-                break
-              case 'a':
-            }
-          }
-        `,
-        code: dedent`
-          function func(name) {
-            switch(name) {
-              case 'c':
-                let c
-                break
-              case 'b':
-                let b
-                break
-              case 'a':
-            }
-          }
-        `,
-        errors: [
-          {
-            messageId: 'unexpectedSwitchCaseOrder',
-            data: { right: 'b', left: 'c' },
-          },
-        ],
-        options: [options],
-      })
-    })
-
-    it('works with grouped cases', async () => {
-      await valid({
-        code: dedent`
-          switch (value) {
-            case 'aaaaaa':
-              return 'primary'
-            case 'bbbbb':
-            case 'ddd':
-              return 'secondary'
-            case 'cccc':
-            case 'ee':
-            case 'f':
-              return 'tertiary'
-            case 'x':
-            default:
-              return 'unknown'
-          }
-        `,
-        options: [options],
-      })
-
-      await invalid({
-        output: dedent`
-          switch (value) {
-            case 'aaaaaa':
-              return 'primary'
-            case 'bbbbb':
-            case 'ddd':
-              return 'secondary'
-            case 'cccc':
-            case 'ee':
-            case 'f':
-              return 'tertiary'
-            case 'x':
-            default:
-              return 'unknown'
-          }
-        `,
-        code: dedent`
-          switch (value) {
-            case 'aaaaaa':
-              return 'primary'
-            case 'ee':
-            case 'cccc':
-            case 'f':
-              return 'tertiary'
-            case 'bbbbb':
-            case 'ddd':
-              return 'secondary'
-            case 'x':
-            default:
-              return 'unknown'
-          }
-        `,
-        errors: [
-          {
-            messageId: 'unexpectedSwitchCaseOrder',
-            data: { right: 'cccc', left: 'ee' },
-          },
-          {
-            messageId: 'unexpectedSwitchCaseOrder',
-            data: { right: 'bbbbb', left: 'f' },
-          },
-        ],
-        options: [options],
-      })
-    })
-
-    it('works with grouped cases with default', async () => {
-      await valid({
-        code: dedent`
-          switch (operationMode) {
-            case wwww:
-              return null
-            case yy:
-            case z:
-              return null
-            case xxx:
-            default:
-              return null
-          }
-        `,
-        options: [options],
-      })
-
-      await invalid({
-        output: dedent`
-          switch (operationMode) {
-            case wwww:
-              return null
-            case yy:
-            case z:
-              return null
-            case xxx:
-            default:
-              return null
-          }
-        `,
-        code: dedent`
-          switch (operationMode) {
-            case yy:
-            case z:
-              return null
-            case wwww:
-              return null
-            case xxx:
-            default:
-              return null
-          }
-        `,
-        errors: [
-          {
-            messageId: 'unexpectedSwitchCaseOrder',
-            data: { right: 'wwww', left: 'z' },
-          },
-        ],
-        options: [options],
-      })
-    })
-
-    it('works with single grouped case', async () => {
-      await valid({
-        code: dedent`
-          switch (x) {
-            case AA:
-            case B:
-              const a = 1;
-              break;
-          }
-        `,
-        options: [options],
-      })
-
-      await invalid({
-        output: dedent`
-          switch (x) {
-            case AA:
-            case B:
-              const a = 1;
-              break;
-          }
-        `,
-        code: dedent`
-          switch (x) {
-            case B:
-            case AA:
-              const a = 1;
-              break;
-          }
-        `,
-        errors: [
-          {
-            messageId: 'unexpectedSwitchCaseOrder',
-            data: { right: 'AA', left: 'B' },
-          },
-        ],
-        options: [options],
-      })
-    })
-
-    it('works with complex cases', async () => {
-      await valid({
-        code: dedent`
-          switch (x) {
-            case AAAAA:
-            case BBBB:
-              const a = 1
-              break
-            case CCC:
-              break
-            case DD:
-            case E:
-              const b = () => {
-                return 2
-              }
-              break
-            default:
-              const c = 3
-          }
-        `,
-        options: [options],
-      })
-
-      await invalid({
-        errors: [
-          {
-            messageId: 'unexpectedSwitchCaseOrder',
-            data: { right: 'DD', left: 'E' },
-          },
-          {
-            messageId: 'unexpectedSwitchCaseOrder',
-            data: { right: 'CCC', left: 'DD' },
-          },
-          {
-            messageId: 'unexpectedSwitchCaseOrder',
-            data: { right: 'BBBB', left: 'CCC' },
-          },
-          {
-            data: { right: 'AAAAA', left: 'BBBB' },
-            messageId: 'unexpectedSwitchCaseOrder',
-          },
-        ],
-        output: dedent`
-          switch (x) {
-            case AAAAA:
-            case BBBB:
-              const a = 1
-              break
-            case CCC:
-              break
-            case DD:
-            case E:
-              const b = () => {
-                return 2
-              }
-              break
-            default:
-              const c = 3
-          }
-        `,
-        code: dedent`
-          switch (x) {
-            case E:
-            case DD:
-              const b = () => {
-                return 2
-              }
-              break
-            case CCC:
-              break
-            case BBBB:
-            case AAAAA:
-              const a = 1
-              break
-            default:
-              const c = 3
-          }
-        `,
-        options: [options],
-      })
-    })
-
-    it('works with groups with default', async () => {
-      await valid({
-        code: dedent`
-          switch (x) {
-            case 'AA':
-            case 'B':
-            default:
-              const c = 3
-          }
-        `,
-        options: [options],
-      })
-
-      await invalid({
-        errors: [
-          {
-            data: {
-              left: 'default',
-              right: 'B',
+          `,
+          errors: [
+            {
+              data: {
+                right: 'cccc',
+                left: 'ee',
+              },
+              messageId: 'unexpectedSwitchCaseOrder',
             },
-            messageId: 'unexpectedSwitchCaseOrder',
-          },
-        ],
-        output: dedent`
-          switch (x) {
-            case 'AA':
-            case 'B':
-            default:
-              break;
-          }
-        `,
-        code: dedent`
-          switch (x) {
-            case 'AA':
-            default:
-            case 'B':
-              break;
-          }
-        `,
-        options: [options],
-      })
-
-      await invalid({
-        errors: [
-          {
-            data: { right: 'default', left: 'default' },
-            messageId: 'unexpectedSwitchCaseOrder',
-          },
-          {
-            data: { right: 'somethingElse', left: 'default' },
-            messageId: 'unexpectedSwitchCaseOrder',
-          },
-        ],
-        output: dedent`
-          switch (x) {
-            case 'somethingElse':
-              break;
-            case 'default':
-            default:
-              break;
-          }
-        `,
-        code: dedent`
-          switch (x) {
-            default:
-            case 'default':
-              break;
-            case 'somethingElse':
-              break;
-          }
-        `,
-        options: [options],
-      })
-    })
-
-    it('allows to trim special characters', async () => {
-      await valid({
-        code: dedent`
-          switch (x) {
-            case '_a':
-            case 'b':
-            case '_c':
-              break;
-          }
-        `,
-        options: [
-          {
-            ...options,
-            specialCharacters: 'trim',
-          },
-        ],
-      })
-    })
-
-    it('allows to remove special characters', async () => {
-      await valid({
-        code: dedent`
-          switch (x) {
-            case 'ab':
-            case 'a_c':
-              break;
-          }
-        `,
-        options: [
-          {
-            ...options,
-            specialCharacters: 'remove',
-          },
-        ],
-      })
-    })
-
-    it('allows to use locale', async () => {
-      await valid({
-        code: dedent`
-          switch (x) {
-            case '你好':
-            case '世界':
-            case 'a':
-            case 'A':
-            case 'b':
-            case 'B':
-              break;
-          }
-        `,
-        options: [{ ...options, locales: 'zh-CN' }],
-      })
-    })
-
-    it('sorts inline elements correctly', async () => {
-      await invalid({
-        errors: [
-          {
-            messageId: 'unexpectedSwitchCaseOrder',
-            data: { right: 'a', left: 'b' },
-          },
-        ],
-        output: dedent`
-          switch (x) {
-            case "a": break; case "b": break;
-          }
-        `,
-        code: dedent`
-          switch (x) {
-            case "b": break; case "a": break
-          }
-        `,
-        options: [options],
-      })
-
-      await invalid({
-        errors: [
-          {
-            messageId: 'unexpectedSwitchCaseOrder',
-            data: { right: 'a', left: 'b' },
-          },
-        ],
-        output: dedent`
-          switch (x) {
-            case "a": break; case "b": break;
-          }
-        `,
-        code: dedent`
-          switch (x) {
-            case "b": break; case "a": break;
-          }
-        `,
-        options: [options],
-      })
-
-      await invalid({
-        errors: [
-          {
-            messageId: 'unexpectedSwitchCaseOrder',
-            data: { right: 'a', left: 'b' },
-          },
-        ],
-        output: dedent`
-          switch (x) {
-            case "a": { break }; case "b": { break }
-          }
-        `,
-        code: dedent`
-          switch (x) {
-            case "b": { break } case "a": { break }
-          }
-        `,
-        options: [options],
-      })
-
-      await invalid({
-        errors: [
-          {
-            messageId: 'unexpectedSwitchCaseOrder',
-            data: { right: 'a', left: 'b' },
-          },
-        ],
-        output: dedent`
-          switch (x) {
-            case "a": { break }; case "b": { break }
-          }
-        `,
-        code: dedent`
-          switch (x) {
-            case "b": { break } case "a": { break };
-          }
-        `,
-        options: [options],
-      })
-    })
-
-    it('handles comments', async () => {
-      await invalid({
-        output: dedent`
-          switch (value) {
-            case "a": // a
-            case "b": // b
-              break;
-          }
-        `,
-        code: dedent`
-          switch (value) {
-            case "b": // b
-            case "a": // a
-              break;
-          }
-        `,
-        errors: [
-          {
-            messageId: 'unexpectedSwitchCaseOrder',
-          },
-        ],
-        options: [{}],
-      })
-
-      await invalid({
-        output: dedent`
-          switch (value) {
-            case "a": // a
-            default: // default
-              break;
-          }
-        `,
-        code: dedent`
-          switch (value) {
-            default: // default
-            case "a": // a
-              break;
-          }
-        `,
-        errors: [
-          {
-            messageId: 'unexpectedSwitchCaseOrder',
-          },
-        ],
-        options: [{}],
-      })
-
-      await invalid({
-        errors: [
-          {
-            data: {
-              left: 'default',
-              right: 'x',
+            {
+              data: {
+                right: 'bbbbb',
+                left: 'f',
+              },
+              messageId: 'unexpectedSwitchCaseOrder',
             },
-            messageId: 'unexpectedSwitchCaseOrder',
-          },
-          {
-            messageId: 'unexpectedSwitchCaseOrder',
-            data: { right: 'x', left: 'y' },
-          },
-          {
-            messageId: 'unexpectedSwitchCaseOrder',
-            data: { right: 'a', left: 'b' },
-          },
-        ],
-        output: dedent`
-          switch (value) {
-            case "a": // A
-              break;
-            case "z": { return; } // z
-            case      "x"
-               : // x
-            case "y": // y
-            default    : // default
-                let a;
-            case "b": // b
-              return;
-          }
-        `,
-        code: dedent`
-          switch (value) {
-            case "z": { return; } // z
-            default    : // default
-            case "y": // y
-            case      "x"
-               : // x
-                let a;
-            case "b": // b
-              return;
-            case "a": // A
-              break;
-          }
-        `,
-        options: [{}],
-      })
+          ],
+          options: [options],
+        },
+      ],
+      valid: [
+        {
+          code: dedent`
+            switch (value) {
+              case 'aaaaaa':
+                return 'primary'
+              case 'bbbbb':
+              case 'ddd':
+                return 'secondary'
+              case 'cccc':
+              case 'ee':
+              case 'f':
+                return 'tertiary'
+              case 'x':
+              default:
+                return 'unknown'
+            }
+          `,
+          options: [options],
+        },
+      ],
     })
 
-    it('handles last case without break', async () => {
-      await valid({
-        code: dedent`
-          switch(x) {
-            case "b": {
-              break
-            }
-            case "a": {
-              let a
-            }
-          }
-        `,
-        options: [{}],
-      })
-
-      await valid({
-        code: dedent`
-          switch(x) {
-            default: {
-              break
-            }
-            case "a": {
-              let a
-            }
-          }
-        `,
-        options: [{}],
-      })
-
-      await valid({
-        code: dedent`
-          switch(x) {
-            case "b":
-              break
-            case "a":
-              let a
-          }
-        `,
-        options: [{}],
-      })
-
-      await valid({
-        code: dedent`
-          switch(x) {
-            default:
-              break;
-            case "a":
-              let a
-          }
-        `,
-        options: [{}],
-      })
-
-      await invalid({
-        errors: [
+    ruleTester.run(
+      `${ruleName}(${type}): works with grouped cases with default`,
+      rule,
+      {
+        invalid: [
           {
-            data: {
-              left: 'default',
-              right: 'a',
+            output: dedent`
+              switch (operationMode) {
+                case wwww:
+                  return null
+                case yy:
+                case z:
+                  return null
+                case xxx:
+                default:
+                  return null
+              }
+            `,
+            code: dedent`
+              switch (operationMode) {
+                case yy:
+                case z:
+                  return null
+                case wwww:
+                  return null
+                case xxx:
+                default:
+                  return null
+              }
+            `,
+            errors: [
+              {
+                data: {
+                  right: 'wwww',
+                  left: 'z',
+                },
+                messageId: 'unexpectedSwitchCaseOrder',
+              },
+            ],
+            options: [options],
+          },
+        ],
+        valid: [
+          {
+            code: dedent`
+              switch (operationMode) {
+                case wwww:
+                  return null
+                case yy:
+                case z:
+                  return null
+                case xxx:
+                default:
+                  return null
+              }
+            `,
+            options: [options],
+          },
+        ],
+      },
+    )
+
+    ruleTester.run(
+      `${ruleName}(${type}): works with single grouped case`,
+      rule,
+      {
+        invalid: [
+          {
+            errors: [
+              {
+                data: {
+                  right: 'AA',
+                  left: 'B',
+                },
+                messageId: 'unexpectedSwitchCaseOrder',
+              },
+            ],
+            output: dedent`
+              switch (x) {
+                case AA:
+                case B:
+                  const a = 1;
+                  break;
+              }
+            `,
+            code: dedent`
+              switch (x) {
+                case B:
+                case AA:
+                  const a = 1;
+                  break;
+              }
+            `,
+            options: [options],
+          },
+        ],
+        valid: [
+          {
+            code: dedent`
+              switch (x) {
+                case AA:
+                case B:
+                  const a = 1;
+                  break;
+              }
+            `,
+            options: [options],
+          },
+        ],
+      },
+    )
+
+    ruleTester.run(`${ruleName}(${type}): works with complex cases`, rule, {
+      invalid: [
+        {
+          output: [
+            dedent`
+              switch (x) {
+                case DD:
+                case E:
+                  const b = () => {
+                    return 2
+                  }
+                  break
+                case CCC:
+                  break
+                case AAAAA:
+                case BBBB:
+                  const a = 1
+                  break
+                default:
+                  const c = 3
+              }
+            `,
+            dedent`
+              switch (x) {
+                case AAAAA:
+                case BBBB:
+                  const a = 1
+                  break
+                case CCC:
+                  break
+                case DD:
+                case E:
+                  const b = () => {
+                    return 2
+                  }
+                  break
+                default:
+                  const c = 3
+              }
+            `,
+          ],
+          errors: [
+            {
+              data: {
+                right: 'DD',
+                left: 'E',
+              },
+              messageId: 'unexpectedSwitchCaseOrder',
             },
-            messageId: 'unexpectedSwitchCaseOrder',
-          },
-        ],
-        output: dedent`
-          switch(x) {
-            case "a":
-              break;
-            default:
-              break;
-            case "a":
-          }
-        `,
-        code: dedent`
-          switch(x) {
-            default:
-              break;
-            case "a":
-              break;
-            case "a":
-          }
-        `,
-        options: [{}],
-      })
-    })
-
-    it('sorts even when reordered cases may match the same value', async () => {
-      await invalid({
-        output: dedent`
-          const bb = 1
-          const aaa = 1
-          function f(x) {
+            {
+              data: {
+                right: 'CCC',
+                left: 'DD',
+              },
+              messageId: 'unexpectedSwitchCaseOrder',
+            },
+            {
+              data: {
+                right: 'BBBB',
+                left: 'CCC',
+              },
+              messageId: 'unexpectedSwitchCaseOrder',
+            },
+            {
+              data: {
+                right: 'AAAAA',
+                left: 'BBBB',
+              },
+              messageId: 'unexpectedSwitchCaseOrder',
+            },
+          ],
+          code: dedent`
             switch (x) {
-              case aaa: return 'a'
-              case bb: return 'b'
-              default: return 'd'
+              case E:
+              case DD:
+                const b = () => {
+                  return 2
+                }
+                break
+              case CCC:
+                break
+              case BBBB:
+              case AAAAA:
+                const a = 1
+                break
+              default:
+                const c = 3
             }
-          }
-        `,
-        code: dedent`
-          const bb = 1
-          const aaa = 1
-          function f(x) {
+          `,
+          options: [options],
+        },
+      ],
+      valid: [
+        {
+          code: dedent`
             switch (x) {
-              case bb: return 'b'
-              case aaa: return 'a'
-              default: return 'd'
+              case AAAAA:
+              case BBBB:
+                const a = 1
+                break
+              case CCC:
+                break
+              case DD:
+              case E:
+                const b = () => {
+                  return 2
+                }
+                break
+              default:
+                const c = 3
             }
-          }
-        `,
-        errors: [
+          `,
+          options: [options],
+        },
+      ],
+    })
+
+    ruleTester.run(
+      `${ruleName}(${type}): works with groups with default`,
+      rule,
+      {
+        invalid: [
           {
-            messageId: 'unexpectedSwitchCaseOrder',
-            data: { right: 'aaa', left: 'bb' },
+            errors: [
+              {
+                data: {
+                  left: 'default',
+                  right: 'B',
+                },
+                messageId: 'unexpectedSwitchCaseOrder',
+              },
+            ],
+            output: dedent`
+              switch (x) {
+                case 'AA':
+                case 'B':
+                default:
+                  break;
+              }
+            `,
+            code: dedent`
+              switch (x) {
+                case 'AA':
+                default:
+                case 'B':
+                  break;
+              }
+            `,
+            options: [options],
           },
         ],
-        options: [options],
-      })
-    })
+        valid: [
+          {
+            code: dedent`
+              switch (x) {
+                case 'AA':
+                case 'B':
+                default:
+                  const c = 3
+              }
+            `,
+            options: [options],
+          },
+        ],
+      },
+    )
   })
 
-  describe('line-length', () => {
-    let options = {
-      type: 'line-length',
-      order: 'desc',
-    } as const
+  describe(`${ruleName}: sorts by custom alphabet`, () => {
+    let type = 'custom'
 
-    it('sorts switch cases with return statements', async () => {
-      await valid({
-        code: dedent`
-          function func(name) {
-            switch(name) {
-              case 'aaa':
-                return 'a'
-              case 'bb':
-                return 'b'
-              case 'c':
-                return 'c'
-              default:
-                return 'x'
-            }
-          }
-        `,
-        options: [options],
-      })
-
-      await invalid({
-        output: dedent`
-          function func(name) {
-            switch(<any> myFunc(a! + b?.c as any)) {
-              case 'aaa':
-                return 'a'
-              case 'bb':
-                return 'b'
-              case 'c':
-                return 'c'
-              default:
-                return 'x'
-            }
-          }
-        `,
-        code: dedent`
-          function func(name) {
-            switch(<any> myFunc(a! + b?.c as any)) {
-              case 'bb':
-                return 'b'
-              case 'aaa':
-                return 'a'
-              case 'c':
-                return 'c'
-              default:
-                return 'x'
-            }
-          }
-        `,
-        errors: [
-          {
-            messageId: 'unexpectedSwitchCaseOrder',
-            data: { right: 'aaa', left: 'bb' },
-          },
-        ],
-        options: [options],
-      })
-
-      await invalid({
-        output: dedent`
-          function func(name) {
-            switch(name) {
-              case 'aaa':
-                return 'a'
-              case 'bb':
-                return 'b'
-              case 'c':
-                return 'c'
-              default:
-                return 'x'
-            }
-          }
-        `,
-        code: dedent`
-          function func(name) {
-            switch(name) {
-              case 'bb':
-                return 'b'
-              case 'aaa':
-                return 'a'
-              case 'c':
-                return 'c'
-              default:
-                return 'x'
-            }
-          }
-        `,
-        errors: [
-          {
-            messageId: 'unexpectedSwitchCaseOrder',
-            data: { right: 'aaa', left: 'bb' },
-          },
-        ],
-        options: [options],
-      })
-    })
-
-    it('sorts switch cases with break statements', async () => {
-      await valid({
-        code: dedent`
-          function func(name) {
-            let size
-            switch(name) {
-              case 'aaa':
-                height = 1
-                break
-              case 'bb':
-                height = 2
-                break
-              case 'c':
-                height = 3
-                break
-              default:
-                height = NaN
-            }
-            return size
-          }
-        `,
-        options: [options],
-      })
-
-      await invalid({
-        output: dedent`
-          function func(name) {
-            let size
-            switch(name) {
-              case 'aaa':
-                height = 1
-                break
-              case 'bb':
-                height = 2
-                break
-              case 'c':
-                height = 3
-                break
-              default:
-                height = NaN
-            }
-            return size
-          }
-        `,
-        code: dedent`
-          function func(name) {
-            let size
-            switch(name) {
-              case 'aaa':
-                height = 1
-                break
-              case 'c':
-                height = 3
-                break
-              case 'bb':
-                height = 2
-                break
-              default:
-                height = NaN
-            }
-            return size
-          }
-        `,
-        errors: [
-          {
-            messageId: 'unexpectedSwitchCaseOrder',
-            data: { right: 'bb', left: 'c' },
-          },
-        ],
-        options: [options],
-      })
-    })
-
-    it('sorts switch cases with block statements', async () => {
-      await valid({
-        code: dedent`
-          function func(name) {
-            let size
-            switch(name) {
-              case 'aaa': {
-                height = 1
-              }
-              case 'bb': {
-                height = 2
-              }
-              case 'c': {
-                height = 3
-              }
-              default:
-                height = NaN
-            }
-            return size
-          }
-        `,
-        options: [options],
-      })
-
-      await invalid({
-        output: dedent`
-          function func(name) {
-            let size
-            switch(name) {
-              case 'aaa': {
-                height = 1
-                break
-              }
-              case 'bb': {
-                height = 2
-                break
-              }
-              case 'c': {
-                height = 3
-                break
-              }
-              default:
-                height = NaN
-                break
-            }
-            return size
-          }
-        `,
-        code: dedent`
-          function func(name) {
-            let size
-            switch(name) {
-              case 'aaa': {
-                height = 1
-                break
-              }
-              case 'c': {
-                height = 3
-                break
-              }
-              case 'bb': {
-                height = 2
-                break
-              }
-              default:
-                height = NaN
-                break
-            }
-            return size
-          }
-        `,
-        errors: [
-          {
-            messageId: 'unexpectedSwitchCaseOrder',
-            data: { right: 'bb', left: 'c' },
-          },
-        ],
-        options: [options],
-      })
-    })
-
-    it('sorts switch cases without ending statements', async () => {
-      await valid({
-        code: dedent`
-          function func(name) {
-            switch(name) {
-              case 'b':
-                let b
-                break
-              case 'a':
-            }
-          }
-        `,
-        options: [options],
-      })
-
-      await valid({
-        code: dedent`
-          function func(name) {
-            switch(name) {
-              case 'b':
-                let b
-                break
-              case 'a':
-                let a
-            }
-          }
-        `,
-        options: [options],
-      })
-
-      await valid({
-        code: dedent`
-          function func(name) {
-            switch(name) {
-              case 'b':
-                let b
-                break
-              default:
-            }
-          }
-        `,
-        options: [options],
-      })
-
-      await valid({
-        code: dedent`
-          function func(name) {
-            switch(name) {
-              case 'b':
-                let b
-                break
-              default:
-                let x
-            }
-          }
-        `,
-        options: [options],
-      })
-
-      await invalid({
-        output: dedent`
-          function func(name) {
-            switch(name) {
-              case 'bb':
-                let b
-                break
-              case 'c':
-                let c
-                break
-              case 'aaa':
-            }
-          }
-        `,
-        code: dedent`
-          function func(name) {
-            switch(name) {
-              case 'c':
-                let c
-                break
-              case 'bb':
-                let b
-                break
-              case 'aaa':
-            }
-          }
-        `,
-        errors: [
-          {
-            messageId: 'unexpectedSwitchCaseOrder',
-            data: { right: 'bb', left: 'c' },
-          },
-        ],
-        options: [options],
-      })
-    })
-
-    it('works with grouped cases', async () => {
-      await valid({
-        code: dedent`
-          switch (value) {
-            case 'aaaaaa':
-              return 'primary'
-            case 'bbbbb':
-            case 'ddd':
-              return 'secondary'
-            case 'cccc':
-            case 'ee':
-            case 'f':
-              return 'tertiary'
-            case 'x':
-            default:
-              return 'unknown'
-          }
-        `,
-        options: [options],
-      })
-
-      await invalid({
-        output: dedent`
-          switch (value) {
-            case 'aaaaaa':
-              return 'primary'
-            case 'bbbbb':
-            case 'ddd':
-              return 'secondary'
-            case 'cccc':
-            case 'ee':
-            case 'f':
-              return 'tertiary'
-            case 'x':
-            default:
-              return 'unknown'
-          }
-        `,
-        code: dedent`
-          switch (value) {
-            case 'aaaaaa':
-              return 'primary'
-            case 'ee':
-            case 'cccc':
-            case 'f':
-              return 'tertiary'
-            case 'bbbbb':
-            case 'ddd':
-              return 'secondary'
-            case 'x':
-            default:
-              return 'unknown'
-          }
-        `,
-        errors: [
-          {
-            messageId: 'unexpectedSwitchCaseOrder',
-            data: { right: 'cccc', left: 'ee' },
-          },
-          {
-            messageId: 'unexpectedSwitchCaseOrder',
-            data: { right: 'bbbbb', left: 'f' },
-          },
-        ],
-        options: [options],
-      })
-    })
-
-    it('works with grouped cases with default', async () => {
-      await valid({
-        code: dedent`
-          switch (operationMode) {
-            case wwww:
-              return null
-            case yy:
-            case z:
-              return null
-            case xxx:
-            default:
-              return null
-          }
-        `,
-        options: [options],
-      })
-
-      await invalid({
-        output: dedent`
-          switch (operationMode) {
-            case wwww:
-              return null
-            case yy:
-            case z:
-              return null
-            case xxx:
-            default:
-              return null
-          }
-        `,
-        code: dedent`
-          switch (operationMode) {
-            case yy:
-            case z:
-              return null
-            case wwww:
-              return null
-            case xxx:
-            default:
-              return null
-          }
-        `,
-        errors: [
-          {
-            messageId: 'unexpectedSwitchCaseOrder',
-            data: { right: 'wwww', left: 'z' },
-          },
-        ],
-        options: [options],
-      })
-    })
-
-    it('works with single grouped case', async () => {
-      await valid({
-        code: dedent`
-          switch (x) {
-            case AA:
-            case B:
-              const a = 1;
-              break;
-          }
-        `,
-        options: [options],
-      })
-
-      await invalid({
-        output: dedent`
-          switch (x) {
-            case AA:
-            case B:
-              const a = 1;
-              break;
-          }
-        `,
-        code: dedent`
-          switch (x) {
-            case B:
-            case AA:
-              const a = 1;
-              break;
-          }
-        `,
-        errors: [
-          {
-            messageId: 'unexpectedSwitchCaseOrder',
-            data: { right: 'AA', left: 'B' },
-          },
-        ],
-        options: [options],
-      })
-    })
-
-    it('works with complex cases', async () => {
-      await valid({
-        code: dedent`
-          switch (x) {
-            case AAAAA:
-            case BBBB:
-              const a = 1
-              break
-            case CCC:
-              break
-            case DD:
-            case E:
-              const b = () => {
-                return 2
-              }
-              break
-            default:
-              const c = 3
-          }
-        `,
-        options: [options],
-      })
-
-      await invalid({
-        errors: [
-          {
-            messageId: 'unexpectedSwitchCaseOrder',
-            data: { right: 'DD', left: 'E' },
-          },
-          {
-            messageId: 'unexpectedSwitchCaseOrder',
-            data: { right: 'CCC', left: 'DD' },
-          },
-          {
-            messageId: 'unexpectedSwitchCaseOrder',
-            data: { right: 'BBBB', left: 'CCC' },
-          },
-          {
-            data: { right: 'AAAAA', left: 'BBBB' },
-            messageId: 'unexpectedSwitchCaseOrder',
-          },
-        ],
-        output: dedent`
-          switch (x) {
-            case AAAAA:
-            case BBBB:
-              const a = 1
-              break
-            case CCC:
-              break
-            case DD:
-            case E:
-              const b = () => {
-                return 2
-              }
-              break
-            default:
-              const c = 3
-          }
-        `,
-        code: dedent`
-          switch (x) {
-            case E:
-            case DD:
-              const b = () => {
-                return 2
-              }
-              break
-            case CCC:
-              break
-            case BBBB:
-            case AAAAA:
-              const a = 1
-              break
-            default:
-              const c = 3
-          }
-        `,
-        options: [options],
-      })
-    })
-
-    it('works with groups with default', async () => {
-      await valid({
-        code: dedent`
-          switch (x) {
-            case 'AA':
-            case 'B':
-            default:
-              const c = 3
-          }
-        `,
-        options: [options],
-      })
-
-      await invalid({
-        errors: [
-          {
-            data: {
-              left: 'default',
-              right: 'B',
-            },
-            messageId: 'unexpectedSwitchCaseOrder',
-          },
-        ],
-        output: dedent`
-          switch (x) {
-            case 'AA':
-            case 'B':
-            default:
-              break;
-          }
-        `,
-        code: dedent`
-          switch (x) {
-            case 'AA':
-            default:
-            case 'B':
-              break;
-          }
-        `,
-        options: [options],
-      })
-
-      await invalid({
-        errors: [
-          {
-            data: { right: 'default', left: 'default' },
-            messageId: 'unexpectedSwitchCaseOrder',
-          },
-          {
-            data: { right: 'somethingElse', left: 'default' },
-            messageId: 'unexpectedSwitchCaseOrder',
-          },
-        ],
-        output: dedent`
-          switch (x) {
-            case 'somethingElse':
-              break;
-            case 'default':
-            default:
-              break;
-          }
-        `,
-        code: dedent`
-          switch (x) {
-            default:
-            case 'default':
-              break;
-            case 'somethingElse':
-              break;
-          }
-        `,
-        options: [options],
-      })
-    })
-
-    it('allows to trim special characters', async () => {
-      await valid({
-        code: dedent`
-          switch (x) {
-            case '_aa':
-            case 'bb':
-            case '_c':
-              break;
-          }
-        `,
-        options: [
-          {
-            ...options,
-            specialCharacters: 'trim',
-          },
-        ],
-      })
-    })
-
-    it('allows to remove special characters', async () => {
-      await valid({
-        code: dedent`
-          switch (x) {
-            case 'abcd':
-            case 'a_c':
-              break;
-          }
-        `,
-        options: [
-          {
-            ...options,
-            specialCharacters: 'remove',
-          },
-        ],
-      })
-    })
-
-    it('allows to use locale', async () => {
-      await valid({
-        code: dedent`
-          switch (x) {
-            case '你好':
-            case '世界':
-            case 'a':
-            case 'A':
-            case 'b':
-            case 'B':
-              break;
-          }
-        `,
-        options: [{ ...options, locales: 'zh-CN' }],
-      })
-    })
-
-    it('sorts inline elements correctly', async () => {
-      await invalid({
-        errors: [
-          {
-            messageId: 'unexpectedSwitchCaseOrder',
-            data: { right: 'aa', left: 'b' },
-          },
-        ],
-        output: dedent`
-          switch (x) {
-            case "aa": break; case "b": break;
-          }
-        `,
-        code: dedent`
-          switch (x) {
-            case "b": break; case "aa": break
-          }
-        `,
-        options: [options],
-      })
-
-      await invalid({
-        errors: [
-          {
-            messageId: 'unexpectedSwitchCaseOrder',
-            data: { right: 'aa', left: 'b' },
-          },
-        ],
-        output: dedent`
-          switch (x) {
-            case "aa": break; case "b": break;
-          }
-        `,
-        code: dedent`
-          switch (x) {
-            case "b": break; case "aa": break;
-          }
-        `,
-        options: [options],
-      })
-
-      await invalid({
-        errors: [
-          {
-            messageId: 'unexpectedSwitchCaseOrder',
-            data: { right: 'aa', left: 'b' },
-          },
-        ],
-        output: dedent`
-          switch (x) {
-            case "aa": { break }; case "b": { break }
-          }
-        `,
-        code: dedent`
-          switch (x) {
-            case "b": { break } case "aa": { break }
-          }
-        `,
-        options: [options],
-      })
-
-      await invalid({
-        errors: [
-          {
-            messageId: 'unexpectedSwitchCaseOrder',
-            data: { right: 'aa', left: 'b' },
-          },
-        ],
-        output: dedent`
-          switch (x) {
-            case "aa": { break }; case "b": { break }
-          }
-        `,
-        code: dedent`
-          switch (x) {
-            case "b": { break } case "aa": { break };
-          }
-        `,
-        options: [options],
-      })
-    })
-
-    it('handles comments', async () => {
-      await invalid({
-        output: dedent`
-          switch (value) {
-            case "a": // a
-            case "b": // b
-              break;
-          }
-        `,
-        code: dedent`
-          switch (value) {
-            case "b": // b
-            case "a": // a
-              break;
-          }
-        `,
-        errors: [
-          {
-            messageId: 'unexpectedSwitchCaseOrder',
-          },
-        ],
-        options: [{}],
-      })
-
-      await invalid({
-        output: dedent`
-          switch (value) {
-            case "a": // a
-            default: // default
-              break;
-          }
-        `,
-        code: dedent`
-          switch (value) {
-            default: // default
-            case "a": // a
-              break;
-          }
-        `,
-        errors: [
-          {
-            messageId: 'unexpectedSwitchCaseOrder',
-          },
-        ],
-        options: [{}],
-      })
-
-      await invalid({
-        errors: [
-          {
-            data: {
-              left: 'default',
-              right: 'x',
-            },
-            messageId: 'unexpectedSwitchCaseOrder',
-          },
-          {
-            messageId: 'unexpectedSwitchCaseOrder',
-            data: { right: 'x', left: 'y' },
-          },
-          {
-            messageId: 'unexpectedSwitchCaseOrder',
-            data: { right: 'a', left: 'b' },
-          },
-        ],
-        output: dedent`
-          switch (value) {
-            case "a": // A
-              break;
-            case "z": { return; } // z
-            case      "x"
-               : // x
-            case "y": // y
-            default    : // default
-                let a;
-            case "b": // b
-              return;
-          }
-        `,
-        code: dedent`
-          switch (value) {
-            case "z": { return; } // z
-            default    : // default
-            case "y": // y
-            case      "x"
-               : // x
-                let a;
-            case "b": // b
-              return;
-            case "a": // A
-              break;
-          }
-        `,
-        options: [{}],
-      })
-    })
-
-    it('handles last case without break', async () => {
-      await valid({
-        code: dedent`
-          switch(x) {
-            case "b": {
-              break
-            }
-            case "a": {
-              let a
-            }
-          }
-        `,
-        options: [{}],
-      })
-
-      await valid({
-        code: dedent`
-          switch(x) {
-            default: {
-              break
-            }
-            case "a": {
-              let a
-            }
-          }
-        `,
-        options: [{}],
-      })
-
-      await valid({
-        code: dedent`
-          switch(x) {
-            case "b":
-              break
-            case "a":
-              let a
-          }
-        `,
-        options: [{}],
-      })
-
-      await valid({
-        code: dedent`
-          switch(x) {
-            default:
-              break;
-            case "a":
-              let a
-          }
-        `,
-        options: [{}],
-      })
-
-      await invalid({
-        errors: [
-          {
-            data: {
-              left: 'default',
-              right: 'a',
-            },
-            messageId: 'unexpectedSwitchCaseOrder',
-          },
-        ],
-        output: dedent`
-          switch(x) {
-            case "a":
-              break;
-            default:
-              break;
-            case "a":
-          }
-        `,
-        code: dedent`
-          switch(x) {
-            default:
-              break;
-            case "a":
-              break;
-            case "a":
-          }
-        `,
-        options: [{}],
-      })
-    })
-
-    it('sorts even when reordered cases may match the same value', async () => {
-      await invalid({
-        output: dedent`
-          const bb = 1
-          const aaa = 1
-          function f(x) {
-            switch (x) {
-              case aaa: return 'a'
-              case bb: return 'b'
-              default: return 'd'
-            }
-          }
-        `,
-        code: dedent`
-          const bb = 1
-          const aaa = 1
-          function f(x) {
-            switch (x) {
-              case bb: return 'b'
-              case aaa: return 'a'
-              default: return 'd'
-            }
-          }
-        `,
-        errors: [
-          {
-            messageId: 'unexpectedSwitchCaseOrder',
-            data: { right: 'aaa', left: 'bb' },
-          },
-        ],
-        options: [options],
-      })
-    })
-
-    it('preserves block order when only the fallback sort differs', async () => {
-      await valid({
-        options: [
-          {
-            fallbackSort: { type: 'alphabetical' },
-            type: 'line-length',
-            order: 'asc',
-          },
-        ],
-        code: dedent`
-          switch (value) {
-            case 'b':
-              break
-            case 'a':
-              break
-          }
-        `,
-      })
-    })
-
-    it('sorts even when literals share the same runtime value', async () => {
-      await invalid({
-        output: dedent`
-          switch (x) {
-            case 0x61:
-              break
-            case 97:
-              break
-          }
-        `,
-        errors: [
-          {
-            messageId: 'unexpectedSwitchCaseOrder',
-            data: { right: '97', left: '97' },
-          },
-        ],
-        code: dedent`
-          switch (x) {
-            case 97:
-              break
-            case 0x61:
-              break
-          }
-        `,
-        options: [options],
-      })
-    })
-
-    it('sorts unary numeric literal cases', async () => {
-      await invalid({
-        output: dedent`
-          switch (x) {
-            case -2:
-              break
-            case +3:
-              break
-            case 1:
-              break
-          }
-        `,
-        code: dedent`
-          switch (x) {
-            case 1:
-              break
-            case -2:
-              break
-            case +3:
-              break
-          }
-        `,
-        errors: [
-          {
-            messageId: 'unexpectedSwitchCaseOrder',
-            data: { right: '-2', left: '1' },
-          },
-        ],
-        options: [options],
-      })
-    })
-  })
-
-  describe('custom', () => {
     let alphabet = Alphabet.generateRecommendedAlphabet()
       .sortByLocaleCompare('en-US')
       .getCharacters()
-
     let options = {
       type: 'custom',
       order: 'asc',
       alphabet,
     } as const
 
-    it('works with grouped cases', async () => {
-      await valid({
-        code: dedent`
-          switch (value) {
-            case 'aaaaaa':
-              return 'primary'
-            case 'bbbbb':
-            case 'ddd':
-              return 'secondary'
-            case 'cccc':
-            case 'ee':
-            case 'f':
-              return 'tertiary'
-            case 'x':
-            default:
-              return 'unknown'
-          }
-        `,
-        options: [options],
-      })
-
-      await invalid({
-        output: dedent`
-          switch (value) {
-            case 'aaaaaa':
-              return 'primary'
-            case 'bbbbb':
-            case 'ddd':
-              return 'secondary'
-            case 'cccc':
-            case 'ee':
-            case 'f':
-              return 'tertiary'
-            case 'x':
-            default:
-              return 'unknown'
-          }
-        `,
-        code: dedent`
-          switch (value) {
-            case 'aaaaaa':
-              return 'primary'
-            case 'ee':
-            case 'cccc':
-            case 'f':
-              return 'tertiary'
-            case 'bbbbb':
-            case 'ddd':
-              return 'secondary'
-            case 'x':
-            default:
-              return 'unknown'
-          }
-        `,
-        errors: [
-          {
-            messageId: 'unexpectedSwitchCaseOrder',
-            data: { right: 'cccc', left: 'ee' },
-          },
-          {
-            messageId: 'unexpectedSwitchCaseOrder',
-            data: { right: 'bbbbb', left: 'f' },
-          },
-        ],
-        options: [options],
-      })
+    ruleTester.run(`${ruleName}(${type}): works with grouped cases`, rule, {
+      invalid: [
+        {
+          output: [
+            dedent`
+              switch (value) {
+                case 'aaaaaa':
+                  return 'primary'
+                case 'cccc':
+                case 'ee':
+                case 'f':
+                  return 'tertiary'
+                case 'bbbbb':
+                case 'ddd':
+                  return 'secondary'
+                case 'x':
+                default:
+                  return 'unknown'
+              }
+            `,
+            dedent`
+              switch (value) {
+                case 'aaaaaa':
+                  return 'primary'
+                case 'bbbbb':
+                case 'ddd':
+                  return 'secondary'
+                case 'cccc':
+                case 'ee':
+                case 'f':
+                  return 'tertiary'
+                case 'x':
+                default:
+                  return 'unknown'
+              }
+            `,
+          ],
+          code: dedent`
+            switch (value) {
+              case 'aaaaaa':
+                return 'primary'
+              case 'ee':
+              case 'cccc':
+              case 'f':
+                return 'tertiary'
+              case 'bbbbb':
+              case 'ddd':
+                return 'secondary'
+              case 'x':
+              default:
+                return 'unknown'
+            }
+          `,
+          errors: [
+            {
+              data: {
+                right: 'cccc',
+                left: 'ee',
+              },
+              messageId: 'unexpectedSwitchCaseOrder',
+            },
+            {
+              data: {
+                right: 'bbbbb',
+                left: 'f',
+              },
+              messageId: 'unexpectedSwitchCaseOrder',
+            },
+          ],
+          options: [options],
+        },
+      ],
+      valid: [
+        {
+          code: dedent`
+            switch (value) {
+              case 'aaaaaa':
+                return 'primary'
+              case 'bbbbb':
+              case 'ddd':
+                return 'secondary'
+              case 'cccc':
+              case 'ee':
+              case 'f':
+                return 'tertiary'
+              case 'x':
+              default:
+                return 'unknown'
+            }
+          `,
+          options: [options],
+        },
+      ],
     })
   })
 
-  describe('subgroup-order', () => {
+  describe(`${ruleName}: sorting by line length`, () => {
+    let type = 'line-length-order'
+
     let options = {
-      type: 'subgroup-order',
+      type: 'line-length',
+      order: 'desc',
     } as const
 
-    it('does not enforce sorting', async () => {
-      await valid({
-        code: dedent`
-          switch (x) {
-            case 'b':
-              break;
-            case 'c':
-              break;
-            case 'a':
-              break;
-          }
-        `,
-        options: [options],
-      })
+    ruleTester.run(
+      `${ruleName}(${type}): sorts switch cases with return statements`,
+      rule,
+      {
+        invalid: [
+          {
+            output: dedent`
+              function func(name) {
+                switch(name) {
+                  case 'aaa':
+                    return 'a'
+                  case 'bb':
+                    return 'b'
+                  case 'c':
+                    return 'c'
+                  default:
+                    return 'x'
+                }
+              }
+            `,
+            code: dedent`
+              function func(name) {
+                switch(name) {
+                  case 'bb':
+                    return 'b'
+                  case 'aaa':
+                    return 'a'
+                  case 'c':
+                    return 'c'
+                  default:
+                    return 'x'
+                }
+              }
+            `,
+            errors: [
+              {
+                data: {
+                  right: 'aaa',
+                  left: 'bb',
+                },
+                messageId: 'unexpectedSwitchCaseOrder',
+              },
+            ],
+            options: [options],
+          },
+        ],
+        valid: [
+          {
+            code: dedent`
+              function func(name) {
+                switch(name) {
+                  case 'aaa':
+                    return 'a'
+                  case 'bb':
+                    return 'b'
+                  case 'c':
+                    return 'c'
+                  default:
+                    return 'x'
+                }
+              }
+            `,
+            options: [options],
+          },
+        ],
+      },
+    )
+
+    ruleTester.run(
+      `${ruleName}(${type}): sorts switch cases with break statements`,
+      rule,
+      {
+        invalid: [
+          {
+            output: dedent`
+              function func(name) {
+                let size
+                switch(name) {
+                  case 'aaa':
+                    height = 1
+                    break
+                  case 'bb':
+                    height = 2
+                    break
+                  case 'c':
+                    height = 3
+                    break
+                  default:
+                    height = NaN
+                }
+                return size
+              }
+            `,
+            code: dedent`
+              function func(name) {
+                let size
+                switch(name) {
+                  case 'aaa':
+                    height = 1
+                    break
+                  case 'c':
+                    height = 3
+                    break
+                  case 'bb':
+                    height = 2
+                    break
+                  default:
+                    height = NaN
+                }
+                return size
+              }
+            `,
+            errors: [
+              {
+                data: {
+                  right: 'bb',
+                  left: 'c',
+                },
+                messageId: 'unexpectedSwitchCaseOrder',
+              },
+            ],
+            options: [options],
+          },
+        ],
+        valid: [
+          {
+            code: dedent`
+              function func(name) {
+                let size
+                switch(name) {
+                  case 'aaa':
+                    height = 1
+                    break
+                  case 'bb':
+                    height = 2
+                    break
+                  case 'c':
+                    height = 3
+                    break
+                  default:
+                    height = NaN
+                }
+                return size
+              }
+            `,
+            options: [options],
+          },
+        ],
+      },
+    )
+
+    ruleTester.run(
+      `${ruleName}(${type}): sorts switch cases with block statements`,
+      rule,
+      {
+        invalid: [
+          {
+            output: dedent`
+              function func(name) {
+                let size
+                switch(name) {
+                  case 'aaa': {
+                    height = 1
+                    break
+                  }
+                  case 'bb': {
+                    height = 2
+                    break
+                  }
+                  case 'c': {
+                    height = 3
+                    break
+                  }
+                  default:
+                    height = NaN
+                    break
+                }
+                return size
+              }
+            `,
+            code: dedent`
+              function func(name) {
+                let size
+                switch(name) {
+                  case 'aaa': {
+                    height = 1
+                    break
+                  }
+                  case 'c': {
+                    height = 3
+                    break
+                  }
+                  case 'bb': {
+                    height = 2
+                    break
+                  }
+                  default:
+                    height = NaN
+                    break
+                }
+                return size
+              }
+            `,
+            errors: [
+              {
+                data: {
+                  right: 'bb',
+                  left: 'c',
+                },
+                messageId: 'unexpectedSwitchCaseOrder',
+              },
+            ],
+            options: [options],
+          },
+        ],
+        valid: [
+          {
+            code: dedent`
+              function func(name) {
+                let size
+                switch(name) {
+                  case 'aaa': {
+                    height = 1
+                  }
+                  case 'bb': {
+                    height = 2
+                  }
+                  case 'c': {
+                    height = 3
+                  }
+                  default:
+                    height = NaN
+                }
+                return size
+              }
+            `,
+            options: [options],
+          },
+        ],
+      },
+    )
+
+    ruleTester.run(`${ruleName}(${type}): works with grouped cases`, rule, {
+      invalid: [
+        {
+          output: [
+            dedent`
+              switch (value) {
+                case 'aaaaaa':
+                  return 'primary'
+                case 'cccc':
+                case 'ee':
+                case 'f':
+                  return 'tertiary'
+                case 'bbbbb':
+                case 'ddd':
+                  return 'secondary'
+                case 'x':
+                default:
+                  return 'unknown'
+              }
+            `,
+            dedent`
+              switch (value) {
+                case 'aaaaaa':
+                  return 'primary'
+                case 'bbbbb':
+                case 'ddd':
+                  return 'secondary'
+                case 'cccc':
+                case 'ee':
+                case 'f':
+                  return 'tertiary'
+                case 'x':
+                default:
+                  return 'unknown'
+              }
+            `,
+          ],
+          code: dedent`
+            switch (value) {
+              case 'aaaaaa':
+                return 'primary'
+              case 'ee':
+              case 'cccc':
+              case 'f':
+                return 'tertiary'
+              case 'bbbbb':
+              case 'ddd':
+                return 'secondary'
+              case 'x':
+              default:
+                return 'unknown'
+            }
+          `,
+          errors: [
+            {
+              data: {
+                right: 'cccc',
+                left: 'ee',
+              },
+              messageId: 'unexpectedSwitchCaseOrder',
+            },
+            {
+              data: {
+                right: 'bbbbb',
+                left: 'f',
+              },
+              messageId: 'unexpectedSwitchCaseOrder',
+            },
+          ],
+          options: [options],
+        },
+      ],
+      valid: [
+        {
+          code: dedent`
+            switch (value) {
+              case 'aaaaaa':
+                return 'primary'
+              case 'bbbbb':
+              case 'ddd':
+                return 'secondary'
+              case 'cccc':
+              case 'ee':
+              case 'f':
+                return 'tertiary'
+              case 'x':
+              default:
+                return 'unknown'
+            }
+          `,
+          options: [options],
+        },
+      ],
     })
+
+    ruleTester.run(
+      `${ruleName}(${type}): works with grouped cases with default`,
+      rule,
+      {
+        invalid: [
+          {
+            output: dedent`
+              switch (operationMode) {
+                case wwww:
+                  return null
+                case yy:
+                case z:
+                  return null
+                case xxx:
+                default:
+                  return null
+              }
+            `,
+            code: dedent`
+              switch (operationMode) {
+                case yy:
+                case z:
+                  return null
+                case wwww:
+                  return null
+                case xxx:
+                default:
+                  return null
+              }
+            `,
+            errors: [
+              {
+                data: {
+                  right: 'wwww',
+                  left: 'z',
+                },
+                messageId: 'unexpectedSwitchCaseOrder',
+              },
+            ],
+            options: [options],
+          },
+        ],
+        valid: [
+          {
+            code: dedent`
+              switch (operationMode) {
+                case wwww:
+                  return null
+                case yy:
+                case z:
+                  return null
+                case xxx:
+                default:
+                  return null
+              }
+            `,
+            options: [options],
+          },
+        ],
+      },
+    )
+
+    ruleTester.run(
+      `${ruleName}(${type}): works with single grouped case`,
+      rule,
+      {
+        invalid: [
+          {
+            errors: [
+              {
+                data: {
+                  right: 'AA',
+                  left: 'B',
+                },
+                messageId: 'unexpectedSwitchCaseOrder',
+              },
+            ],
+            output: dedent`
+              switch (x) {
+                case AA:
+                case B:
+                  const a = 1;
+                  break;
+              }
+            `,
+            code: dedent`
+              switch (x) {
+                case B:
+                case AA:
+                  const a = 1;
+                  break;
+              }
+            `,
+            options: [options],
+          },
+        ],
+        valid: [
+          {
+            code: dedent`
+              switch (x) {
+                case AA:
+                case B:
+                  const a = 1;
+                  break;
+              }
+            `,
+            options: [options],
+          },
+        ],
+      },
+    )
+
+    ruleTester.run(`${ruleName}(${type}): works with complex cases`, rule, {
+      invalid: [
+        {
+          output: [
+            dedent`
+              switch (x) {
+                case DD:
+                case E:
+                  const b = () => {
+                    return 2
+                  }
+                  break
+                case CCC:
+                  break
+                case AAAAA:
+                case BBBB:
+                  const a = 1
+                  break
+                default:
+                  const c = 3
+              }
+            `,
+            dedent`
+              switch (x) {
+                case AAAAA:
+                case BBBB:
+                  const a = 1
+                  break
+                case CCC:
+                  break
+                case DD:
+                case E:
+                  const b = () => {
+                    return 2
+                  }
+                  break
+                default:
+                  const c = 3
+              }
+            `,
+          ],
+          errors: [
+            {
+              data: {
+                right: 'DD',
+                left: 'E',
+              },
+              messageId: 'unexpectedSwitchCaseOrder',
+            },
+            {
+              data: {
+                right: 'CCC',
+                left: 'DD',
+              },
+              messageId: 'unexpectedSwitchCaseOrder',
+            },
+            {
+              data: {
+                right: 'BBBB',
+                left: 'CCC',
+              },
+              messageId: 'unexpectedSwitchCaseOrder',
+            },
+            {
+              data: {
+                right: 'AAAAA',
+                left: 'BBBB',
+              },
+              messageId: 'unexpectedSwitchCaseOrder',
+            },
+          ],
+          code: dedent`
+            switch (x) {
+              case E:
+              case DD:
+                const b = () => {
+                  return 2
+                }
+                break
+              case CCC:
+                break
+              case BBBB:
+              case AAAAA:
+                const a = 1
+                break
+              default:
+                const c = 3
+            }
+          `,
+          options: [options],
+        },
+      ],
+      valid: [
+        {
+          code: dedent`
+            switch (x) {
+              case AAAAA:
+              case BBBB:
+                const a = 1
+                break
+              case CCC:
+                break
+              case DD:
+              case E:
+                const b = () => {
+                  return 2
+                }
+                break
+              default:
+                const c = 3
+            }
+          `,
+          options: [options],
+        },
+      ],
+    })
+
+    ruleTester.run(
+      `${ruleName}(${type}): works with groups with default`,
+      rule,
+      {
+        invalid: [
+          {
+            errors: [
+              {
+                data: {
+                  left: 'default',
+                  right: 'B',
+                },
+                messageId: 'unexpectedSwitchCaseOrder',
+              },
+            ],
+            output: dedent`
+              switch (x) {
+                case 'AA':
+                case 'B':
+                default:
+                  break;
+              }
+            `,
+            code: dedent`
+              switch (x) {
+                case 'AA':
+                default:
+                case 'B':
+                  break;
+              }
+            `,
+            options: [options],
+          },
+        ],
+        valid: [
+          {
+            code: dedent`
+              switch (x) {
+                case 'AA':
+                case 'B':
+                default:
+                  const c = 3
+              }
+            `,
+            options: [options],
+          },
+        ],
+      },
+    )
+
+    ruleTester.run(
+      `${ruleName}(${type}): handles "fallbackSort" option`,
+      rule,
+      {
+        invalid: [
+          {
+            output: dedent`
+              switch (x) {
+                case 'bb':
+                  break;
+                case 'c':
+                  break;
+                case 'a':
+                  break;
+              }
+            `,
+            code: dedent`
+              switch (x) {
+                case 'a':
+                  break;
+                case 'bb':
+                  break;
+                case 'c':
+                  break;
+              }
+            `,
+            errors: [
+              {
+                data: {
+                  right: 'bb',
+                  left: 'a',
+                },
+                messageId: 'unexpectedSwitchCaseOrder',
+              },
+            ],
+            options: [
+              {
+                ...options,
+                fallbackSort: {
+                  type: 'alphabetical',
+                },
+              },
+            ],
+          },
+          {
+            output: dedent`
+              switch (x) {
+                case 'bb':
+                  break;
+                case 'a':
+                  break;
+                case 'c':
+                  break;
+              }
+            `,
+            code: dedent`
+              switch (x) {
+                case 'c':
+                  break;
+                case 'bb':
+                  break;
+                case 'a':
+                  break;
+              }
+            `,
+            errors: [
+              {
+                data: {
+                  right: 'bb',
+                  left: 'c',
+                },
+                messageId: 'unexpectedSwitchCaseOrder',
+              },
+            ],
+            options: [
+              {
+                ...options,
+                fallbackSort: {
+                  type: 'alphabetical',
+                  order: 'asc',
+                },
+              },
+            ],
+          },
+        ],
+        valid: [],
+      },
+    )
   })
 
-  describe('unsorted', () => {
+  describe(`${ruleName}: unsorted type`, () => {
+    let type = 'unsorted'
+
     let options = {
       type: 'unsorted',
       order: 'asc',
     } as const
 
-    it('does not enforce sorting', async () => {
-      await valid({
-        code: dedent`
-          switch (x) {
-            case 'b':
-              break;
-            case 'c':
-              break;
-            case 'a':
-              break;
-          }
-        `,
-        options: [options],
-      })
-
-      await valid({
-        code: dedent`
-          switch (x) {
-            case 'b':
-            case 'c':
-            case 'a':
-              break;
-          }
-        `,
-        options: [options],
-      })
+    ruleTester.run(`${ruleName}(${type}): does not enforce sorting`, rule, {
+      valid: [
+        {
+          code: dedent`
+            switch (x) {
+              case 'b':
+                break;
+              case 'c':
+                break;
+              case 'a':
+                break;
+            }
+          `,
+          options: [options],
+        },
+        {
+          code: dedent`
+            switch (x) {
+              case 'b':
+              case 'c':
+              case 'a':
+                break;
+            }
+          `,
+          options: [options],
+        },
+      ],
+      invalid: [],
     })
   })
 
-  describe('misc', () => {
-    it('validates the JSON schema', async () => {
-      await expect(
-        validateRuleJsonSchema(rule.meta.schema),
-      ).resolves.not.toThrow()
-    })
-
-    it('not works if discriminant is true', async () => {
-      await valid({
-        code: dedent`
+  describe(`${ruleName}: misc`, () => {
+    ruleTester.run(`${ruleName}: not works if discriminant is true`, rule, {
+      valid: [
+        dedent`
           switch (true) {
             case name === 'bb':
               return 'b'
@@ -3366,326 +2734,126 @@ describe('sort-switch-case', () => {
               return 'x'
           }
         `,
-      })
+      ],
+      invalid: [],
     })
 
-    it('default should be last', async () => {
-      await invalid({
-        output: dedent`
-          switch (value) {
-            case 'aa':
-              return true
-            case 'b':
-              return true
-            default:
-              return false
-          }
-        `,
-        code: dedent`
-          switch (value) {
-            case 'aa':
-              return true
-            default:
-              return false
-            case 'b':
-              return true
-          }
-        `,
-        errors: [
-          {
-            data: {
-              left: 'default',
-              right: 'b',
+    ruleTester.run(`${ruleName}: default should be last`, rule, {
+      invalid: [
+        {
+          output: dedent`
+            switch (value) {
+              case 'aa':
+                return true
+              case 'b':
+                return true
+              default:
+                return false
+            }
+          `,
+          code: dedent`
+            switch (value) {
+              case 'aa':
+                return true
+              default:
+                return false
+              case 'b':
+                return true
+            }
+          `,
+          errors: [
+            {
+              data: {
+                left: 'default',
+                right: 'b',
+              },
+              messageId: 'unexpectedSwitchCaseOrder',
             },
-            messageId: 'unexpectedSwitchCaseOrder',
-          },
-        ],
-      })
-    })
-
-    it('handles default case and default clause', async () => {
-      await valid({
-        code: dedent`
-          switch (variable) {
-            case 'add':
-              break
-            case 'default':
-              break
-            case 'remove':
-              break
-            default:
-              break
-            }
-        `,
-      })
-
-      await invalid({
-        output: dedent`
-          switch (variable) {
-            case 'add':
-              break
-            case 'default':
-              break
-            case 'remove':
-              break
-            default:
-              break
-            }
-        `,
-        code: dedent`
-          switch (variable) {
-            case 'default':
-              break
-            case 'add':
-              break
-            case 'remove':
-              break
-            default:
-              break
-            }
-        `,
-        errors: [
-          {
-            data: {
-              left: 'default',
-              right: 'add',
-            },
-            messageId: 'unexpectedSwitchCaseOrder',
-          },
-        ],
-      })
-    })
-
-    it('respects the global settings configuration', async () => {
-      let settings = {
-        perfectionist: {
-          type: 'line-length',
-          order: 'desc',
+          ],
         },
-      }
-
-      await valid({
-        code: dedent`
-          switch (variable) {
-            case 'ccc':
-            case 'bb':
-            case 'a':
-              break;
-          }
-        `,
-        options: [{}],
-        settings,
-      })
-
-      await valid({
-        code: dedent`
-          switch (variable) {
-            case 'a':
-            case 'bb':
-            case 'ccc':
-              break;
-          }
-        `,
-        options: [{ type: 'alphabetical', order: 'asc' }],
-        settings,
-      })
+      ],
+      valid: [],
     })
 
-    describe('condition-shaped switches', () => {
-      it('does not sort switches where discriminant and case tests are comparisons', async () => {
-        await valid({
-          code: dedent`
-            const b = 10
-            const a = 2
-            function f(x) {
-              switch (x > 0) {
-                case b > 5: return 'b'
-                case a > 1: return 'a'
-                default: return 'd'
-              }
-            }
-          `,
-        })
-      })
-
-      it('does not sort switches where discriminant is a boolean literal, negation or equality check', async () => {
-        await valid({
-          code: dedent`
-            switch (false) {
-              case name === 'bb':
-                return 'b'
-              case name === 'aaa':
-                return 'a'
-            }
-          `,
-        })
-
-        await valid({
-          code: dedent`
-            switch (!!x) {
-              case b > 5:
-                return 'b'
-              case a > 1:
-                return 'a'
-            }
-          `,
-        })
-
-        await valid({
-          code: dedent`
-            switch (x === y) {
-              case 'b':
-                return 'b'
-              case 'a':
-                return 'a'
-            }
-          `,
-        })
-      })
-
-      it('does not sort switches where case tests are conditions', async () => {
-        await valid({
-          code: dedent`
-            switch (someBool) {
-              case b > 5: return 'b'
-              case a > 1: return 'a'
-              default: return 'd'
-            }
-          `,
-        })
-      })
-
-      it('does not sort switches where discriminant is a logical or binary expression', async () => {
-        await valid({
-          code: dedent`
-            switch (a && b) {
-              case 'b':
-                return 'b'
-              case 'a':
-                return 'a'
-            }
-          `,
-        })
-
-        await valid({
-          code: dedent`
-            switch (key in object) {
-              case 'b':
-                return 'b'
-              case 'a':
-                return 'a'
-            }
-          `,
-        })
-
-        await valid({
-          code: dedent`
-            switch (value instanceof Error) {
-              case 'b':
-                return 'b'
-              case 'a':
-                return 'a'
-            }
-          `,
-        })
-
-        await valid({
-          code: dedent`
-            switch (a + b) {
-              case 'b':
-                return 'b'
-              case 'a':
-                return 'a'
-            }
-          `,
-        })
-      })
-    })
-
-    describe('oxlint', () => {
-      oxlintRuleTester.run('supports oxlint', {
+    ruleTester.run(
+      `${ruleName}: handles default case and default clause`,
+      rule,
+      {
         invalid: [
           {
             output: dedent`
-              switch (x) {
-                case 'a':
+              switch (variable) {
+                case 'add':
                   break
-                case 'b':
+                case 'default':
                   break
-              }
+                case 'remove':
+                  break
+                default:
+                  break
+                }
             `,
             code: dedent`
-              switch (x) {
-                case 'b':
+              switch (variable) {
+                case 'default':
                   break
-                case 'a':
+                case 'add':
                   break
-              }
+                case 'remove':
+                  break
+                default:
+                  break
+                }
             `,
             errors: [
               {
+                data: {
+                  left: 'default',
+                  right: 'add',
+                },
                 messageId: 'unexpectedSwitchCaseOrder',
-                data: { right: 'a', left: 'b' },
               },
             ],
-            options: [{ type: 'alphabetical', order: 'asc' }],
-          },
-          {
-            errors: [
-              {
-                messageId: 'unexpectedSwitchCaseOrder',
-                data: { right: 'c', left: 'd' },
-              },
-              {
-                messageId: 'unexpectedSwitchCaseOrder',
-                data: { right: 'b', left: 'c' },
-              },
-              {
-                messageId: 'unexpectedSwitchCaseOrder',
-                data: { right: 'a', left: 'b' },
-              },
-            ],
-            output: dedent`
-              switch (x) {
-                case 'a': // a
-                  break
-                case 'b': // b
-                  break
-                case 'c': // c
-                  break
-                case 'd': // d
-                  break
-              }
-            `,
-            code: dedent`
-              switch (x) {
-                case 'd': // d
-                  break
-                case 'c': // c
-                  break
-                case 'b': // b
-                  break
-                case 'a': // a
-                  break
-              }
-            `,
-            options: [{ type: 'alphabetical', order: 'asc' }],
           },
         ],
         valid: [
+          dedent`
+            switch (variable) {
+              case 'add':
+                break
+              case 'default':
+                break
+              case 'remove':
+                break
+              default:
+                break
+              }
+          `,
+        ],
+      },
+    )
+
+    eslintRuleTester.run(
+      `${ruleName}: handles non typescript-eslint parser`,
+      rule as unknown as Rule.RuleModule,
+      {
+        valid: [
           {
             code: dedent`
-              switch (x) {
+              switch (variable) {
                 case 'a':
-                  break
                 case 'b':
                   break
-              }
+                case 'c':
+                default:
+                  break
+                }
             `,
-            options: [{ type: 'alphabetical', order: 'asc' }],
+            options: [{}],
           },
         ],
-      })
-    })
+        invalid: [],
+      },
+    )
   })
 })

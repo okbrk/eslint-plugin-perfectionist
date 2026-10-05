@@ -16,28 +16,14 @@ interface Props {
   title?: string
 }
 
-/* The build uses format 'file', so the homepage pathname is '/index.html'. */
-let canonicalPathname = Astro.url.pathname.replace(/\.html$/u, '')
-if (canonicalPathname === '/index') {
-  canonicalPathname = '/'
-}
-let canonicalURL = new URL(canonicalPathname, Astro.site)
-
-let markdownPathname =
-  canonicalPathname === '/' ? '/index.md' : (
-    `${canonicalPathname.replace(/\/$/u, '')}.md`
-  )
-let markdownURL = new URL(markdownPathname, Astro.site)
+let canonicalURL = new URL(Astro.url.pathname, Astro.site)
 
 let { type = 'website', description, keywords, title } = Astro.props
 let websiteName = 'ESLint Plugin Perfectionist'
 
 let pageTitle = title ? `${title} | ${websiteName}` : websiteName
 
-let image = new URL(
-  `${canonicalPathname === '/' ? '' : canonicalPathname}/open-graph.png`,
-  Astro.site,
-)
+let image = `${Astro.url.pathname === '/' ? '' : Astro.url.pathname.replace(/\.html$/u, '')}/open-graph.png`
 let author = 'Azat S.'
 
 let isProduction = import.meta.env.PROD
@@ -45,37 +31,13 @@ let isProduction = import.meta.env.PROD
 
 <head>
   <meta charset="utf-8" />
-  <meta
-    content="width=device-width,initial-scale=1"
-    name="viewport"
-  />
-  <meta
-    content="light dark"
-    name="color-scheme"
-  />
-  <meta
-    name="theme-color"
-    content="#f4f5fb"
-  />
+  <meta content="width=device-width,initial-scale=1" name="viewport" />
+  <meta name="theme-color" content="#232428" />
 
-  <link
-    href="/favicon.ico"
-    sizes="any"
-    rel="icon"
-  />
-  <link
-    type="image/svg+xml"
-    href="/favicon.svg"
-    rel="icon"
-  />
-  <link
-    href="/apple-touch-icon.png"
-    rel="apple-touch-icon"
-  />
-  <link
-    href="/manifest.webmanifest"
-    rel="manifest"
-  />
+  <link href="/favicon.ico" sizes="any" rel="icon" />
+  <link type="image/svg+xml" href="/favicon.svg" rel="icon" />
+  <link href="/apple-touch-icon.png" rel="apple-touch-icon" />
+  <link href="/manifest.webmanifest" rel="manifest" />
 
   <link
     href="/fonts/space-grotesk-medium.woff2"
@@ -113,163 +75,72 @@ let isProduction = import.meta.env.PROD
     as="font"
   />
 
-  <link
-    href="/sitemap-index.xml"
-    rel="sitemap"
-  />
-  <link
-    href={canonicalURL}
-    rel="canonical"
-  />
-  <link
-    type="text/markdown"
-    href={markdownURL}
-    rel="alternate"
-  />
+  <link href="/sitemap-index.xml" rel="sitemap" />
+  <link href={canonicalURL} rel="canonical" />
 
   <title>{pageTitle}</title>
-  <meta
-    content={description}
-    name="description"
-  />
-  <meta
-    content={author}
-    name="author"
-  />
+  <meta content={pageTitle} name="title" />
+  <meta content={description} name="description" />
+  {
+    keywords && keywords.length > 0 && (
+      <meta content={keywords.join(', ')} name="keywords" />
+    )
+  }
+  <meta content={author} name="author" />
 
+  <meta property="og:locale" content="en" />
+  <meta property="og:type" content={type} />
   <meta
-    property="og:locale"
-    content="en"
-  />
-  <meta
-    property="og:type"
-    content={type}
-  />
-  <meta
-    content={canonicalURL}
+    content={Astro.url.toString().replace(/\.html/u, '')}
     property="og:url"
   />
-  <meta
-    property="og:title"
-    content={pageTitle}
-  />
-  <meta
-    property="og:description"
-    content={description}
-  />
-  <meta
-    property="og:image"
-    content={image}
-  />
-  <meta
-    property="og:image:type"
-    content="image/png"
-  />
-  <meta
-    property="og:image:width"
-    content="1200"
-  />
-  <meta
-    property="og:image:height"
-    content="630"
-  />
-  <meta
-    content={`Cover for ${title ?? websiteName}`}
-    property="og:image:alt"
-  />
+  <meta property="og:title" content={pageTitle} />
+  <meta property="og:description" content={description} />
+  <meta property="og:image" content={image} />
+  <meta property="og:image:type" content="image/png" />
+  <meta property="og:image:width" content="1200" />
+  <meta property="og:image:height" content="630" />
+  <meta content={`Cover for ${title}`} property="og:image:alt" />
 
   {
     type === 'article' && (
       <>
-        <meta
-          property="article:author"
-          content={author}
-        />
+        <meta property="article:author" content={author} />
         {keywords?.map(keyword => (
-          <meta
-            property="article:tag"
-            content={keyword}
-          />
+          <meta property="article:tag" content={keyword} />
         ))}
-        <meta
-          property="article:section"
-          content="Technology"
-        />
-        <meta
-          property="article:opinion"
-          content="true"
-        />
+        <meta property="article:section" content="Technology" />
+        <meta property="article:opinion" content="true" />
       </>
     )
   }
 
-  <meta
-    content="summary_large_image"
-    name="twitter:card"
-  />
-  <meta
-    content={canonicalURL}
-    name="twitter:url"
-  />
-  <meta
-    name="twitter:creator"
-    content="@azat_io_en"
-  />
-  <meta
-    name="twitter:title"
-    content={pageTitle}
-  />
-  <meta
-    name="twitter:description"
-    content={description}
-  />
-  <meta
-    name="twitter:image"
-    content={image}
-  />
+  <meta content="summary_large_image" property="twitter:card" />
+  <meta property="twitter:url" content={Astro.url} />
+  <meta name="twitter:creator" content="@azat_io_en" />
+  <meta property="twitter:title" content={pageTitle} />
+  <meta property="twitter:description" content={description} />
+  <meta property="twitter:image" content={image} />
 
   <script is:inline>
-    let getTheme = () => {
-      let stored = localStorage.getItem('theme')
-      if (stored === 'light' || stored === 'dark') {
-        return stored
+    let initialize = () => {
+      let theme
+      if (localStorage.getItem('theme') === 'light') {
+        theme = 'light'
+      } else if (localStorage.getItem('theme') === 'dark') {
+        theme = 'dark'
+      } else {
+        let systemTheme = globalThis.matchMedia('(prefers-color-scheme: dark)')
+          .matches
+          ? 'dark'
+          : 'light'
+        theme = systemTheme
       }
-      return globalThis.matchMedia('(prefers-color-scheme: dark)').matches ?
-          'dark'
-        : 'light'
+      document.documentElement.setAttribute('data-theme', theme)
+      localStorage.setItem('theme', theme)
     }
-
-    let getThemeColor = theme => (theme === 'dark' ? '#232428' : '#f4f5fb')
-
-    let applyTheme = (doc, theme) => {
-      doc.documentElement.setAttribute('data-theme', theme)
-      doc
-        .querySelector('meta[name="theme-color"]')
-        ?.setAttribute('content', getThemeColor(theme))
-    }
-
-    let theme = getTheme()
-    applyTheme(document, theme)
-    localStorage.setItem('theme', theme)
-
-    let handlerKey = '__perfectionistThemeBeforeSwap__'
-    if (!globalThis[handlerKey]) {
-      document.addEventListener('astro:before-swap', event => {
-        applyTheme(event.newDocument, getTheme())
-      })
-
-      new MutationObserver(() => {
-        let currentTheme = document.documentElement.getAttribute('data-theme')
-        document
-          .querySelector('meta[name="theme-color"]')
-          ?.setAttribute('content', getThemeColor(currentTheme))
-      }).observe(document.documentElement, {
-        attributeFilter: ['data-theme'],
-        attributes: true,
-      })
-
-      globalThis[handlerKey] = true
-    }
+    initialize()
+    document.addEventListener('astro:after-swap', initialize)
   </script>
 
   <ClientRouter />

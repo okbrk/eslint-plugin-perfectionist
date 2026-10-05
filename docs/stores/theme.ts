@@ -1,30 +1,20 @@
-import type { WritableAtom } from 'nanostores'
-
 import { persistentAtom } from '@nanostores/persistent'
-import { onSet, atom } from 'nanostores'
+import { onSet } from 'nanostores'
 
 type Theme = 'light' | 'dark'
 
-let systemTheme: Theme = 'light'
-if (
-  typeof matchMedia === 'function' &&
-  matchMedia('(prefers-color-scheme: dark)').matches
-) {
-  systemTheme = 'dark'
-}
+let systemTheme: Theme = globalThis.matchMedia('(prefers-color-scheme: dark)')
+  .matches
+  ? 'dark'
+  : 'light'
 
-let theme: WritableAtom<Theme> =
-  import.meta.env.SSR ?
-    atom<Theme>(systemTheme)
-  : persistentAtom<Theme>('theme', systemTheme)
+export let theme = persistentAtom<Theme>('theme', systemTheme)
 
-export function toggleTheme(): void {
+export let toggleTheme = (): void => {
   theme.set(theme.get() === 'light' ? 'dark' : 'light')
 }
 
-if (!import.meta.env.SSR) {
-  onSet(theme, ({ newValue }) => {
-    document.documentElement.dataset['theme'] =
-      newValue === 'dark' ? 'dark' : 'light'
-  })
-}
+onSet(theme, ({ newValue }) => {
+  document.documentElement.dataset['theme'] =
+    newValue === 'dark' ? 'dark' : 'light'
+})

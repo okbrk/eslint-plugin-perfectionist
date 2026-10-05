@@ -1,35 +1,33 @@
 import { transformerNotationDiff } from '@shikijs/transformers'
-import { svgoOptimizer, defineConfig } from 'astro/config'
 import rehypeExternalLinks from 'rehype-external-links'
 import { browserslistToTargets } from 'lightningcss'
-import { unified } from '@astrojs/markdown-remark'
 import svelteSvg from '@poppanator/sveltekit-svg'
 import remarkSectionize from 'remark-sectionize'
+import { defineConfig } from 'astro/config'
+import { fileURLToPath } from 'node:url'
 import browserslist from 'browserslist'
 import sitemap from '@astrojs/sitemap'
 import svelte from '@astrojs/svelte'
 import mdx from '@astrojs/mdx'
+import path from 'node:path'
 
 import { remarkHeadings } from './docs/plugins/remark-headings'
 import { colorTheme } from './docs/utils/shiki-theme'
 
+let dirname = fileURLToPath(path.dirname(import.meta.url))
 let site = 'https://perfectionist.dev'
-let guidePageRegex = new RegExp(`^${site}/guide$`, 'u')
 
 export default defineConfig({
   markdown: {
-    processor: unified({
-      rehypePlugins: [
-        [
-          rehypeExternalLinks,
-          {
-            rel: ['noopener', 'noreferrer'],
-            target: '_blank',
-          },
-        ],
+    rehypePlugins: [
+      [
+        rehypeExternalLinks,
+        {
+          rel: ['noopener', 'noreferrer'],
+          target: '_blank',
+        },
       ],
-      remarkPlugins: [remarkSectionize, remarkHeadings],
-    }),
+    ],
     shikiConfig: {
       transformers: [
         transformerNotationDiff({
@@ -38,23 +36,18 @@ export default defineConfig({
       ],
       theme: colorTheme,
     },
+    remarkPlugins: [remarkSectionize, remarkHeadings],
   },
   vite: {
     css: {
       lightningcss: {
         targets: browserslistToTargets(
-          browserslist(
-            browserslist.loadConfig({ path: '.' }) ?? browserslist.defaults,
-          ),
+          browserslist(null, {
+            config: path.join(dirname, './.browserslistrc'),
+          }),
         ),
       },
       transformer: 'lightningcss',
-    },
-    optimizeDeps: {
-      exclude: ['shiki-magic-move'],
-    },
-    resolve: {
-      noExternal: ['shiki-magic-move'],
     },
     plugins: [
       // @ts-ignore
@@ -62,30 +55,35 @@ export default defineConfig({
     ],
   },
   integrations: [
-    svelte(),
+    svelte({
+      compilerOptions: {
+        cssHash: ({ hash, css }) => `s-${hash(css)}`,
+        discloseVersion: false,
+      },
+    }),
     sitemap({
-      filter: page => !guidePageRegex.test(page),
+      filter: page => !new RegExp(`^${site}/guide$`, 'u').test(page),
     }),
     mdx(),
   ],
-  experimental: {
-    svgOptimizer: svgoOptimizer(),
-    clientPrerender: true,
+  prefetch: {
+    defaultStrategy: 'viewport',
+    prefetchAll: true,
   },
   build: {
     inlineStylesheets: 'always',
     format: 'file',
   },
-  prefetch: {
-    defaultStrategy: 'hover',
+  experimental: {
+    clientPrerender: true,
   },
+  publicDir: path.join(dirname, './docs/public'),
   server: {
     port: 3000,
     host: true,
   },
-  publicDir: './docs/public',
+  srcDir: path.join(dirname, './docs'),
+  root: path.join(dirname, './docs'),
   compressHTML: true,
-  srcDir: './docs',
-  root: './docs',
   site,
 })

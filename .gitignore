@@ -1,26 +1,17 @@
-# AI
-.claude/
-.serena/
-
-# Astro
-.astro/
-
-# Netlify
-.netlify/
-deno.lock
-docs/.netlify/
+# Node.js
+node_modules/
+.nvmrc
 
 # Build
 dist/
 
 # Editor
-.idea/
-.vim/
 .vscode/
+.vim/
+.idea/
 
-# Node.js
-node_modules/
-.nvmrc
+# Astro
+.astro/
 
 # Test
 coverage/

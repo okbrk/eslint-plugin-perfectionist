@@ -2,31 +2,22 @@
 import CodeStyleFigureOutput from './CodeStyleFigureOutput.astro'
 import CodeStyleFigureInput from './CodeStyleFigureInput.astro'
 import Typography from '../Typography.astro'
-import { CODE_STYLE } from '../../data/home'
 import Container from '../Container.astro'
 import Title from '../Title.astro'
 ---
 
 <section class="preview">
-  <Container
-    class="container"
-    size="m"
-  >
+  <Container class="container" size="m">
     <div>
-      <Title
-        class="title"
-        align="start"
-      >
-        {CODE_STYLE.title}
-      </Title>
-      <Typography
-        class="description"
-        mbe="m"
-      >
-        {CODE_STYLE.paragraphs[0]}
+      <Title class="title" align="start"> Identical Code Style </Title>
+      <Typography class="description" mbe="m">
+        Consistent code style fosters collaboration and improves quality.
+        Uniform style makes code readable and manageable, enabling quick
+        understanding and contribution.
       </Typography>
       <Typography class="description">
-        {CODE_STYLE.paragraphs[1]}
+        Our tool helps enforce these standards, ensuring that your codebase
+        stays neat and organized.
       </Typography>
     </div>
     <div class="figures">
@@ -48,7 +39,7 @@ import Title from '../Title.astro'
 
   .container {
     display: grid;
-    grid-template-columns: [content] var(--columns);
+    grid-template-columns: var(--columns);
     gap: var(--gap);
     --columns: 1fr;
     --gap: calc(var(--space-xl) * 2);
@@ -64,7 +55,6 @@ import Title from '../Title.astro'
 
     @container (inline-size >= 680px) {
       display: flex;
-      flex-wrap: nowrap;
       justify-content: start;
       inline-size: 100%;
     }

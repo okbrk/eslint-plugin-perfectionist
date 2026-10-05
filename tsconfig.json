@@ -1,5 +1,24 @@
 {
   "include": ["**/*.svelte", "**/*.astro", "**/*.ts"],
   "exclude": ["node_modules", "coverage"],
-  "extends": "@azat-io/typescript-config"
+  "compilerOptions": {
+    "noPropertyAccessFromIndexSignature": true,
+    "forceConsistentCasingInFileNames": true,
+    "noUncheckedIndexedAccess": true,
+    "allowUnreachableCode": false,
+    "moduleResolution": "bundler",
+    "verbatimModuleSyntax": true,
+    "noUnusedParameters": true,
+    "noImplicitReturns": true,
+    "strictNullChecks": true,
+    "esModuleInterop": true,
+    "noUnusedLocals": true,
+    "skipLibCheck": true,
+    "module": "esnext",
+    "target": "esnext",
+    "types": ["node"],
+    "allowJs": true,
+    "strict": true,
+    "noEmit": true
+  }
 }

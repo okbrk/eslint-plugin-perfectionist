@@ -1,3059 +1,1351 @@
-import { createRuleTester } from 'eslint-vitest-rule-tester'
-import typescriptParser from '@typescript-eslint/parser'
-import { describe, expect, it } from 'vitest'
+import type { Rule } from 'eslint'
+
+import { RuleTester } from '@typescript-eslint/rule-tester'
+import { RuleTester as EslintRuleTester } from 'eslint'
+import { afterAll, describe, it } from 'vitest'
 import dedent from 'dedent'
 
-import { validateRuleJsonSchema } from '../utils/validate-rule-json-schema'
-import { buildOxlintRuleTester } from './build-oxlint-rule-tester'
 import rule from '../../rules/sort-heritage-clauses'
 import { Alphabet } from '../../utils/alphabet'
 
-describe('sort-heritage-clauses', () => {
-  let { invalid, valid } = createRuleTester({
-    name: 'sort-heritage-clauses',
-    parser: typescriptParser,
-    rule,
-  })
-  let oxlintRuleTester = buildOxlintRuleTester(rule)
+let ruleName = 'sort-heritage-clauses'
 
-  describe('alphabetical', () => {
+describe(ruleName, () => {
+  RuleTester.describeSkip = describe.skip
+  RuleTester.afterAll = afterAll
+  RuleTester.describe = describe
+  RuleTester.itOnly = it.only
+  RuleTester.itSkip = it.skip
+  RuleTester.it = it
+
+  let ruleTester = new RuleTester()
+  let eslintRuleTester = new EslintRuleTester()
+
+  describe(`${ruleName}: sorting by alphabetical order`, () => {
+    let type = 'alphabetical-order'
+
     let options = {
       type: 'alphabetical',
+      ignoreCase: true,
       order: 'asc',
     } as const
 
-    it('accepts sorted heritage clauses', async () => {
-      await valid({
-        code: dedent`
-          interface Interface extends
-            a,
-            b,
-            c {
-          }
-        `,
-        options: [options],
-      })
-
-      await valid({
-        code: dedent`
-          interface Interface extends
-            a {
-          }
-        `,
-        options: [options],
-      })
-    })
-
-    it('sorts simple heritage clauses', async () => {
-      await invalid({
-        errors: [
-          {
-            messageId: 'unexpectedHeritageClausesOrder',
-            data: { right: 'b', left: 'c' },
-          },
-        ],
-        output: dedent`
-          interface Interface extends
-            a,
-            b,
-            c {
-          }
-        `,
-        code: dedent`
-          interface Interface extends
-            a,
-            c,
-            b {
-          }
-        `,
-        options: [options],
-      })
-    })
-
-    it('sorts namespaced heritage clauses', async () => {
-      await invalid({
-        errors: [
-          {
-            messageId: 'unexpectedHeritageClausesOrder',
-            data: { right: 'b', left: 'c' },
-          },
-        ],
-        output: dedent`
-          interface Interface extends
-            A.a,
-            B.b,
-            C.c {
-          }
-        `,
-        code: dedent`
-          interface Interface extends
-            A.a,
-            C.c,
-            B.b {
-          }
-        `,
-        options: [options],
-      })
-    })
-
-    it('preserves comments when sorting heritage clauses', async () => {
-      await invalid({
-        output: dedent`
-          interface Interface extends
-            /**
-             * Comment A
-             */
-            a,
-            /**
-             * Comment B
-             */
-            b,
-            /* Comment C */
-            c,
-            // Comment D
-            d {
-          }
-        `,
-        code: dedent`
-          interface Interface extends
-            /**
-             * Comment B
-             */
-            b,
-            /**
-             * Comment A
-             */
-            a,
-            // Comment D
-            d,
-            /* Comment C */
-            c {
-          }
-        `,
-        errors: [
-          {
-            messageId: 'unexpectedHeritageClausesOrder',
-            data: { right: 'a', left: 'b' },
-          },
-          {
-            messageId: 'unexpectedHeritageClausesOrder',
-            data: { right: 'c', left: 'd' },
-          },
-        ],
-        options: [options],
-      })
-    })
-
-    it('keeps trailing comments attached when elements are reordered', async () => {
-      await invalid({
-        errors: [
-          {
-            messageId: 'unexpectedHeritageClausesOrder',
-            data: { right: 'A', left: 'B' },
-          },
-        ],
-        output: dedent`
-          interface Interface extends
-            A, /* a */
-            B /* b */ {}
-        `,
-        code: dedent`
-          interface Interface extends
-            B, /* b */
-            A /* a */ {}
-        `,
-        options: [options],
-      })
-
-      await invalid({
-        errors: [
-          {
-            messageId: 'unexpectedHeritageClausesOrder',
-            data: { right: 'A', left: 'B' },
-          },
-        ],
-        output: dedent`
-          interface Interface extends
-            A,
-            B // b
-           {}
-        `,
-        code: dedent`
-          interface Interface extends
-            B, // b
-            A {}
-        `,
-        options: [options],
-      })
-    })
-
-    it('sorts heritage clauses with inline comments', async () => {
-      await invalid({
-        errors: [
-          {
-            messageId: 'unexpectedHeritageClausesOrder',
-            data: { right: 'a', left: 'b' },
-          },
-        ],
-        output: dedent`
-          interface Interface extends
-            a // Comment A
-            , b // Comment B
-            {
-          }
-        `,
-        code: dedent`
-          interface Interface extends
-            b // Comment B
-            , a // Comment A
-            {
-          }
-        `,
-        options: [options],
-      })
-    })
-
-    it('allows overriding options in groups', async () => {
-      await invalid({
-        options: [
-          {
-            groups: [
-              {
-                type: 'alphabetical',
-                newlinesInside: 1,
-                group: 'unknown',
-                order: 'desc',
-              },
-            ],
-            type: 'unsorted',
-          },
-        ],
-        errors: [
-          {
-            messageId: 'unexpectedHeritageClausesOrder',
-            data: { right: 'b', left: 'a' },
-          },
-          {
-            messageId: 'missedSpacingBetweenHeritageClauses',
-            data: { right: 'b', left: 'a' },
-          },
-        ],
-        output: dedent`
-          interface Interface extends
-              b,
-
-              a {}
-        `,
-        code: dedent`
-          interface Interface extends
-              a,
-              b {}
-        `,
-      })
-    })
-
-    it('supports regex patterns in custom groups for heritage clauses', async () => {
-      await valid({
-        options: [
-          {
-            ...options,
-            customGroups: [
-              {
-                elementNamePattern: '^(?!.*Foo).*$',
-                groupName: 'elementsWithoutFoo',
-              },
-            ],
-            groups: ['unknown', 'elementsWithoutFoo'],
-          },
-        ],
-        code: dedent`
-          interface Interface extends
-              iHaveFooInMyName,
-              meTooIHaveFoo,
-              a,
-              b {
-          }
-        `,
-      })
-    })
-
-    it('trims special characters in heritage clauses', async () => {
-      await valid({
-        code: dedent`
-          interface MyInterface extends
-            _a,
-            b,
-            _c {
-          }
-        `,
-        options: [
-          {
-            ...options,
-            specialCharacters: 'trim',
-          },
-        ],
-      })
-    })
-
-    it('removes special characters in heritage clauses', async () => {
-      await valid({
-        options: [
-          {
-            ...options,
-            specialCharacters: 'remove',
-          },
-        ],
-        code: dedent`
-          interface MyInterface extends
-            ab,
-            a_c {
-          }
-        `,
-      })
-    })
-
-    it('sorts heritage clauses according to locale-specific rules', async () => {
-      await valid({
-        code: dedent`
-          interface MyInterface extends
-            你好,
-            世界,
-            a,
-            A,
-            b,
-            B {
-          }
-        `,
-        options: [{ ...options, locales: 'zh-CN' }],
-      })
-    })
-
-    it('sorts inline heritage clauses in interfaces', async () => {
-      await invalid({
-        errors: [
-          {
-            messageId: 'unexpectedHeritageClausesOrder',
-            data: { right: 'A', left: 'B' },
-          },
-        ],
-        output: dedent`
-          interface Interface extends
-            A, B
-          {}
-        `,
-        code: dedent`
-          interface Interface extends
-            B, A
-          {}
-        `,
-        options: [options],
-      })
-    })
-
-    it('sorts inline heritage clauses in classes', async () => {
-      await invalid({
-        errors: [
-          {
-            messageId: 'unexpectedHeritageClausesOrder',
-            data: { right: 'A', left: 'B' },
-          },
-        ],
-        output: dedent`
-          class Class implements
-            A, B
-          {}
-        `,
-        code: dedent`
-          class Class implements
-            B, A
-          {}
-        `,
-        options: [options],
-      })
-    })
-
-    it.each([
-      ['string pattern', 'Hello'],
-      ['array of patterns', ['noMatch', 'Hello']],
-      ['case-insensitive regex', { pattern: 'HELLO', flags: 'i' }],
-      ['regex in array', ['noMatch', { pattern: 'HELLO', flags: 'i' }]],
-    ])(
-      'groups elements by name pattern - %s',
-      async (_, elementNamePattern) => {
-        await invalid({
+    ruleTester.run(`${ruleName}(${type}): sorts heritage clauses`, rule, {
+      invalid: [
+        {
           errors: [
             {
               data: {
-                rightGroup: 'heritageClausesContainingHello',
-                right: 'HelloInterface',
-                leftGroup: 'unknown',
-                left: 'B',
+                right: 'b',
+                left: 'c',
               },
-              messageId: 'unexpectedHeritageClausesGroupOrder',
-            },
-          ],
-          options: [
-            {
-              customGroups: [
-                {
-                  groupName: 'heritageClausesContainingHello',
-                  elementNamePattern,
-                },
-              ],
-              groups: ['heritageClausesContainingHello', 'unknown'],
+              messageId: 'unexpectedHeritageClausesOrder',
             },
           ],
           output: dedent`
-            class Class implements
-              HelloInterface, A, B
-            {}
+            interface Interface extends
+              a,
+              b,
+              c {
+            }
           `,
           code: dedent`
-            class Class implements
-              A, B, HelloInterface
-            {}
+            interface Interface extends
+              a,
+              c,
+              b {
+            }
           `,
-        })
-      },
-    )
-
-    it('overrides sort type and order for specific groups', async () => {
-      await invalid({
-        errors: [
-          {
-            data: {
-              rightGroup: 'reversedContainingFooByLineLength',
-              leftGroup: 'unknown',
-              right: 'aFoo',
-              left: 'p',
-            },
-            messageId: 'unexpectedHeritageClausesGroupOrder',
-          },
-          {
-            data: {
-              rightGroup: 'reversedContainingFooByLineLength',
-              leftGroup: 'unknown',
-              right: 'bbFoo',
-              left: 'oo',
-            },
-            messageId: 'unexpectedHeritageClausesGroupOrder',
-          },
-        ],
-        options: [
-          {
-            customGroups: [
-              {
-                groupName: 'reversedContainingFooByLineLength',
-                elementNamePattern: 'Foo',
-                type: 'line-length',
-                order: 'desc',
-              },
-            ],
-            groups: ['reversedContainingFooByLineLength', 'unknown'],
-            type: 'alphabetical',
-            order: 'asc',
-          },
-        ],
-        output: dedent`
-          class Class implements
-            bbFoo, aFoo, oo, p
-          {}
-        `,
-        code: dedent`
-          class Class implements
-            p, aFoo, oo, bbFoo
-          {}
-        `,
-      })
-    })
-
-    it('applies fallback sort when primary sort results in tie', async () => {
-      await invalid({
-        options: [
-          {
-            customGroups: [
-              {
-                fallbackSort: {
-                  type: 'alphabetical',
-                  order: 'asc',
-                },
-                elementNamePattern: '^foo',
-                type: 'line-length',
-                groupName: 'foo',
-                order: 'desc',
-              },
-            ],
-            type: 'alphabetical',
-            groups: ['foo'],
-            order: 'asc',
-          },
-        ],
-        errors: [
-          {
-            messageId: 'unexpectedHeritageClausesOrder',
-            data: { right: 'fooBar', left: 'fooZar' },
-          },
-        ],
-        output: dedent`
-          class Class implements
-            fooBar, fooZar
-          {}
-        `,
-        code: dedent`
-          class Class implements
-            fooZar, fooBar
-          {}
-        `,
-      })
-    })
-
-    it('preserves original order for unsorted groups', async () => {
-      await invalid({
-        options: [
-          {
-            customGroups: [
-              {
-                groupName: 'unsortedContainingFoo',
-                elementNamePattern: 'Foo',
-                type: 'unsorted',
-              },
-            ],
-            groups: ['unsortedContainingFoo', 'unknown'],
-          },
-        ],
-        errors: [
-          {
-            data: {
-              rightGroup: 'unsortedContainingFoo',
-              leftGroup: 'unknown',
-              right: 'cFoo',
-              left: 'm',
-            },
-            messageId: 'unexpectedHeritageClausesGroupOrder',
-          },
-        ],
-        output: dedent`
-          class Class implements
-            bFoo, aFoo, dFoo, eFoo, cFoo, m
-          {}
-        `,
-        code: dedent`
-          class Class implements
-            bFoo, aFoo, dFoo, eFoo, m, cFoo
-          {}
-        `,
-      })
-    })
-
-    it('supports negative regex patterns in custom groups', async () => {
-      await valid({
-        options: [
-          {
-            customGroups: [
-              {
-                elementNamePattern: '^(?!.*Foo).*$',
-                groupName: 'elementsWithoutFoo',
-              },
-            ],
-            groups: ['unknown', 'elementsWithoutFoo'],
-            type: 'alphabetical',
-          },
-        ],
-        code: dedent`
-          class Class implements
-            iHaveFooInMyName, meTooIHaveFoo, a, b
-          {}
-        `,
-      })
-    })
-
-    it('removes newlines between and inside groups by default when "newlinesBetween" is 0', async () => {
-      await invalid({
-        errors: [
-          {
-            messageId: 'extraSpacingBetweenHeritageClauses',
-            data: { right: 'y', left: 'a' },
-          },
-          {
-            messageId: 'unexpectedHeritageClausesOrder',
-            data: { right: 'b', left: 'z' },
-          },
-          {
-            messageId: 'extraSpacingBetweenHeritageClauses',
-            data: { right: 'b', left: 'z' },
-          },
-        ],
-        options: [
-          {
-            ...options,
-            customGroups: [
-              {
-                elementNamePattern: 'a',
-                groupName: 'a',
-              },
-            ],
-            groups: ['a', 'unknown'],
-            newlinesBetween: 0,
-          },
-        ],
-        code: dedent`
-          class Class implements
-              a,
-
-
-             y,
-            z,
-
-                b
-          {}
-        `,
-        output: dedent`
-          class Class implements
-              a,
-             b,
-            y,
-                z
-          {}
-        `,
-      })
-    })
-
-    it('removes newlines inside groups when newlinesInside is 0', async () => {
-      await invalid({
-        options: [
-          {
-            ...options,
-            customGroups: [
-              {
-                elementNamePattern: 'a',
-                groupName: 'a',
-              },
-            ],
-            groups: ['a', 'unknown'],
-            newlinesInside: 0,
-          },
-        ],
-        errors: [
-          {
-            messageId: 'unexpectedHeritageClausesOrder',
-            data: { right: 'b', left: 'z' },
-          },
-          {
-            messageId: 'extraSpacingBetweenHeritageClauses',
-            data: { right: 'b', left: 'z' },
-          },
-        ],
-        output: dedent`
-          class Class implements
-              a,
-
-
-             b,
-            y,
-                z
-          {}
-        `,
-        code: dedent`
-          class Class implements
-              a,
-
-
-             y,
-            z,
-
-                b
-          {}
-        `,
-      })
-    })
-
-    it('removes newlines between groups when newlinesBetween is 0', async () => {
-      await invalid({
-        options: [
-          {
-            ...options,
-            customGroups: [
-              {
-                elementNamePattern: 'a',
-                groupName: 'a',
-              },
-            ],
-            groups: ['a', 'unknown'],
-            newlinesInside: 'ignore',
-            newlinesBetween: 0,
-          },
-        ],
-        errors: [
-          {
-            messageId: 'extraSpacingBetweenHeritageClauses',
-            data: { right: 'y', left: 'a' },
-          },
-          {
-            messageId: 'unexpectedHeritageClausesOrder',
-            data: { right: 'b', left: 'z' },
-          },
-        ],
-        code: dedent`
-          class Class implements
-              a,
-
-
-             y,
-            z,
-
-                b
-          {}
-        `,
-        output: dedent`
-          class Class implements
-              a,
-             b,
-            y,
-
-                z
-          {}
-        `,
-      })
-    })
-
-    it('adds newlines between groups when newlinesBetween is 1', async () => {
-      await invalid({
-        errors: [
-          {
-            messageId: 'extraSpacingBetweenHeritageClauses',
-            data: { right: 'z', left: 'a' },
-          },
-          {
-            messageId: 'unexpectedHeritageClausesOrder',
-            data: { right: 'y', left: 'z' },
-          },
-          {
-            messageId: 'missedSpacingBetweenHeritageClauses',
-            data: { right: 'b', left: 'y' },
-          },
-        ],
-        options: [
-          {
-            ...options,
-            customGroups: [
-              {
-                elementNamePattern: 'a',
-                groupName: 'a',
-              },
-              {
-                elementNamePattern: 'b',
-                groupName: 'b',
-              },
-            ],
-            groups: ['a', 'unknown', 'b'],
-            newlinesBetween: 1,
-          },
-        ],
-        output: dedent`
-          class Class implements
-              a,
-
-             y,
-            z,
-
-                b
-          {}
-        `,
-        code: dedent`
-          class Class implements
-              a,
-
-
-             z,
-            y,
-                b
-          {}
-        `,
-      })
-    })
-
-    it('applies inline newline settings between specific groups', async () => {
-      await invalid({
-        options: [
-          {
-            ...options,
-            customGroups: [
-              { elementNamePattern: 'a', groupName: 'a' },
-              { elementNamePattern: 'b', groupName: 'b' },
-              { elementNamePattern: 'c', groupName: 'c' },
-              { elementNamePattern: 'd', groupName: 'd' },
-              { elementNamePattern: 'e', groupName: 'e' },
-            ],
-            groups: [
-              'a',
-              { newlinesBetween: 1 },
-              'b',
-              { newlinesBetween: 1 },
-              'c',
-              { newlinesBetween: 0 },
-              'd',
-              { newlinesBetween: 'ignore' },
-              'e',
-            ],
-            newlinesBetween: 1,
-          },
-        ],
-        errors: [
-          {
-            messageId: 'missedSpacingBetweenHeritageClauses',
-            data: { right: 'b', left: 'a' },
-          },
-          {
-            messageId: 'extraSpacingBetweenHeritageClauses',
-            data: { right: 'c', left: 'b' },
-          },
-          {
-            messageId: 'extraSpacingBetweenHeritageClauses',
-            data: { right: 'd', left: 'c' },
-          },
-        ],
-        output: dedent`
-          class Class implements
-            a,
-
-            b,
-
-            c,
-            d,
-
-
-            e
-          {}
-        `,
-        code: dedent`
-          class Class implements
-            a,
-            b,
-
-
-            c,
-
-            d,
-
-
-            e
-          {}
-        `,
-      })
-    })
-
-    it.each([
-      [2, 0],
-      [2, 'ignore'],
-      [0, 2],
-      ['ignore', 2],
-    ])(
-      'enforces 2 newlines when global is %s and group is %s',
-      async (globalNewlinesBetween, groupNewlinesBetween) => {
-        await invalid({
-          options: [
-            {
-              ...options,
-              customGroups: [
-                { elementNamePattern: 'a', groupName: 'a' },
-                { elementNamePattern: 'b', groupName: 'b' },
-                { groupName: 'unusedGroup', elementNamePattern: 'X' },
-              ],
-              groups: [
-                'a',
-                'unusedGroup',
-                { newlinesBetween: groupNewlinesBetween },
-                'b',
-              ],
-              newlinesBetween: globalNewlinesBetween,
-            },
-          ],
-          errors: [
-            {
-              messageId: 'missedSpacingBetweenHeritageClauses',
-              data: { right: 'b', left: 'a' },
-            },
-          ],
-          output: dedent`
-            class Class implements
-              a,
-
-
-              b
-            {}
-          `,
-          code: dedent`
-            class Class implements
-              a,
-              b
-            {}
-          `,
-        })
-      },
-    )
-
-    it.each([1, 2, 'ignore', 0])(
-      'removes newlines when 0 overrides global %s between specific groups',
-      async globalNewlinesBetween => {
-        await invalid({
-          options: [
-            {
-              ...options,
-              customGroups: [
-                { elementNamePattern: 'a', groupName: 'a' },
-                { elementNamePattern: 'b', groupName: 'b' },
-                { elementNamePattern: 'c', groupName: 'c' },
-                { groupName: 'unusedGroup', elementNamePattern: 'X' },
-              ],
-              groups: [
-                'a',
-                { newlinesBetween: 0 },
-                'unusedGroup',
-                { newlinesBetween: 0 },
-                'b',
-                { newlinesBetween: 1 },
-                'c',
-              ],
-              newlinesBetween: globalNewlinesBetween,
-            },
-          ],
-          errors: [
-            {
-              messageId: 'extraSpacingBetweenHeritageClauses',
-              data: { right: 'b', left: 'a' },
-            },
-          ],
-          output: dedent`
-            class Class implements
-              a,
-              b
-            {}
-          `,
-          code: dedent`
-            class Class implements
-              a,
-
-              b
-            {}
-          `,
-        })
-      },
-    )
-
-    it.each([
-      ['ignore', 0],
-      [0, 'ignore'],
-    ])(
-      'accepts any spacing when global is %s and group is %s',
-      async (globalNewlinesBetween, groupNewlinesBetween) => {
-        await valid({
-          options: [
-            {
-              ...options,
-              customGroups: [
-                { elementNamePattern: 'a', groupName: 'a' },
-                { elementNamePattern: 'b', groupName: 'b' },
-                { groupName: 'unusedGroup', elementNamePattern: 'X' },
-              ],
-              groups: [
-                'a',
-                'unusedGroup',
-                { newlinesBetween: groupNewlinesBetween },
-                'b',
-              ],
-              newlinesBetween: globalNewlinesBetween,
-            },
-          ],
-          code: dedent`
-            class Class implements
-
-              a,
-
-              b
-            {}
-          `,
-        })
-
-        await valid({
-          options: [
-            {
-              ...options,
-              customGroups: [
-                { elementNamePattern: 'a', groupName: 'a' },
-                { elementNamePattern: 'b', groupName: 'b' },
-                { groupName: 'unusedGroup', elementNamePattern: 'X' },
-              ],
-              groups: [
-                'a',
-                'unusedGroup',
-                { newlinesBetween: groupNewlinesBetween },
-                'b',
-              ],
-              newlinesBetween: globalNewlinesBetween,
-            },
-          ],
-          code: dedent`
-            class Class implements
-              a,
-              b
-            {}
-          `,
-        })
-      },
-    )
-
-    it('preserves inline comments when reordering elements', async () => {
-      await invalid({
-        options: [
-          {
-            customGroups: [
-              {
-                elementNamePattern: 'b|c',
-                groupName: 'b|c',
-              },
-            ],
-            groups: ['unknown', 'b|c'],
-            newlinesBetween: 1,
-            newlinesInside: 0,
-          },
-        ],
-        errors: [
-          {
-            data: {
-              rightGroup: 'unknown',
-              leftGroup: 'b|c',
-              right: 'a',
-              left: 'b',
-            },
-            messageId: 'unexpectedHeritageClausesGroupOrder',
-          },
-        ],
-        output: dedent`
-          class Class implements
-            a, // Comment after
-
-            b,
-            c
-          {}
-        `,
-        code: dedent`
-          class Class implements
-            b,
-            a, // Comment after
-
-            c
-          {}
-        `,
-      })
-    })
-
-    it('preserves partition boundaries regardless of newlinesBetween 0', async () => {
-      await invalid({
-        options: [
-          {
-            ...options,
-            customGroups: [
-              {
-                elementNamePattern: 'a',
-                groupName: 'a',
-              },
-            ],
-            groups: ['a', 'unknown'],
-            partitionByComment: true,
-            newlinesBetween: 0,
-          },
-        ],
-        output: dedent`
-          class Class implements
-            a,
-
-            // Partition comment
-
-            b,
-            c
-          {}
-        `,
-        code: dedent`
-          class Class implements
-            a,
-
-            // Partition comment
-
-            c,
-            b
-          {}
-        `,
-        errors: [
-          {
-            messageId: 'unexpectedHeritageClausesOrder',
-            data: { right: 'b', left: 'c' },
-          },
-        ],
-      })
-    })
-
-    it('allows to use newlinesInside: 1', async () => {
-      await invalid({
-        options: [
-          {
-            customGroups: [
-              {
-                elementNamePattern: '.*',
-                groupName: 'group1',
-                newlinesInside: 1,
-              },
-            ],
-            groups: ['group1'],
-          },
-        ],
-        errors: [
-          {
-            messageId: 'missedSpacingBetweenHeritageClauses',
-            data: { right: 'b', left: 'a' },
-          },
-        ],
-        output: dedent`
-          class Class implements
-            a,
-
-            b
-          {}
-        `,
-        code: dedent`
-          class Class implements
-            a,
-            b
-          {}
-        `,
-      })
-    })
-
-    it('allows to use newlinesInside: 0', async () => {
-      await invalid({
-        options: [
-          {
-            customGroups: [
-              {
-                elementNamePattern: '.*',
-                groupName: 'group1',
-                newlinesInside: 0,
-              },
-            ],
-            type: 'alphabetical',
-            groups: ['group1'],
-          },
-        ],
-        errors: [
-          {
-            messageId: 'extraSpacingBetweenHeritageClauses',
-            data: { right: 'b', left: 'a' },
-          },
-        ],
-        output: dedent`
-          class Class implements
-            a,
-            b
-          {}
-        `,
-        code: dedent`
-          class Class implements
-            a,
-
-            b
-          {}
-        `,
-      })
-    })
-
-    it('sorts within newline-separated partitions', async () => {
-      await invalid({
-        errors: [
-          {
-            messageId: 'unexpectedHeritageClausesOrder',
-            data: { right: 'a', left: 'd' },
-          },
-          {
-            messageId: 'unexpectedHeritageClausesOrder',
-            data: { right: 'b', left: 'e' },
-          },
-        ],
-        output: dedent`
-          class Class implements
-            a,
-            d,
-
-            c,
-
-            b,
-            e
-          {}
-        `,
-        code: dedent`
-          class Class implements
-            d,
-            a,
-
-            c,
-
-            e,
-            b
-          {}
-        `,
-        options: [
-          {
-            partitionByNewLine: true,
-            type: 'alphabetical',
-          },
-        ],
-      })
-    })
-
-    it('sorts heritageClauses within partition comment boundaries', async () => {
-      await invalid({
-        output: dedent`
-          class Class implements
-            // Part: A
-            // Not partition comment
-            Bbb,
-            Cc,
-            D,
-            // Part: B
-            Aaaa,
-            E,
-            // Part: C
-            // Not partition comment
-            Fff,
-            Gg
-          {}
-        `,
-        code: dedent`
-          class Class implements
-            // Part: A
-            Cc,
-            D,
-            // Not partition comment
-            Bbb,
-            // Part: B
-            Aaaa,
-            E,
-            // Part: C
-            Gg,
-            // Not partition comment
-            Fff
-          {}
-        `,
-        errors: [
-          {
-            messageId: 'unexpectedHeritageClausesOrder',
-            data: { right: 'Bbb', left: 'D' },
-          },
-          {
-            messageId: 'unexpectedHeritageClausesOrder',
-            data: { right: 'Fff', left: 'Gg' },
-          },
-        ],
-        options: [
-          {
-            ...options,
-            partitionByComment: '^Part',
-          },
-        ],
-      })
-    })
-
-    it('treats all comments as partition boundaries', async () => {
-      await valid({
-        code: dedent`
-          class Class implements
-            // Comment
-            bb,
-            // Other comment
-            a
-          {}
-        `,
-        options: [
-          {
-            ...options,
-            partitionByComment: true,
-          },
-        ],
-      })
-    })
-
-    it('supports multiple partition comment patterns', async () => {
-      await invalid({
-        output: dedent`
-          class Class implements
-            /* Partition Comment */
-            // Part: A
-            D,
-            // Part: B
-            Aaa,
-            Bb,
-            C,
-            /* Other */
-            E
-          {}
-        `,
-        code: dedent`
-          class Class implements
-            /* Partition Comment */
-            // Part: A
-            D,
-            // Part: B
-            Aaa,
-            C,
-            Bb,
-            /* Other */
-            E
-          {}
-        `,
-        errors: [
-          {
-            messageId: 'unexpectedHeritageClausesOrder',
-            data: { right: 'Bb', left: 'C' },
-          },
-        ],
-        options: [
-          {
-            ...options,
-            partitionByComment: ['Partition Comment', 'Part:', 'Other'],
-          },
-        ],
-      })
-    })
-
-    it('supports regex patterns for partition comments', async () => {
-      await valid({
-        code: dedent`
-          class Class implements
-            E,
-            F,
-            // I am a partition comment because I don't have f o o
-            A,
-            B
-          {}
-        `,
-        options: [
-          {
-            ...options,
-            partitionByComment: ['^(?!.*foo).*$'],
-          },
-        ],
-      })
-    })
-
-    it('ignores block comments when line comments are partition boundaries', async () => {
-      await invalid({
-        errors: [
-          {
-            messageId: 'unexpectedHeritageClausesOrder',
-            data: { right: 'A', left: 'B' },
-          },
-        ],
-        options: [
-          {
-            ...options,
-            partitionByComment: {
-              line: true,
-            },
-          },
-        ],
-        output: dedent`
-          class Class implements
-            /* Comment */
-            A,
-            B
-          {}
-        `,
-        code: dedent`
-          class Class implements
-            B,
-            /* Comment */
-            A
-          {}
-        `,
-      })
-    })
-
-    it('uses line comments as partition boundaries', async () => {
-      await valid({
-        options: [
-          {
-            ...options,
-            partitionByComment: {
-              line: true,
-            },
-          },
-        ],
-        code: dedent`
-          class Class implements
-            B,
-            // Comment
-            A
-          {}
-        `,
-      })
-    })
-
-    it('matches specific line comment patterns', async () => {
-      await valid({
-        options: [
-          {
-            ...options,
-            partitionByComment: {
-              line: ['A', 'B'],
-            },
-          },
-        ],
-        code: dedent`
-          class Class implements
-            C,
-            // B
-            B,
-            // A
-            A
-          {}
-        `,
-      })
-    })
-
-    it('supports regex patterns for line comment partitions', async () => {
-      await valid({
-        code: dedent`
-          class Class implements
-            B,
-            // I am a partition comment because I don't have f o o
-            A
-          {}
-        `,
-        options: [
-          {
-            ...options,
-            partitionByComment: {
-              line: ['^(?!.*foo).*$'],
-            },
-          },
-        ],
-      })
-    })
-
-    it('ignores line comments when block comments are partition boundaries', async () => {
-      await invalid({
-        errors: [
-          {
-            messageId: 'unexpectedHeritageClausesOrder',
-            data: { right: 'A', left: 'B' },
-          },
-        ],
-        options: [
-          {
-            ...options,
-            partitionByComment: {
-              block: true,
-            },
-          },
-        ],
-        output: dedent`
-          class Class implements
-            // Comment
-            A,
-            B
-          {}
-        `,
-        code: dedent`
-          class Class implements
-            B,
-            // Comment
-            A
-          {}
-        `,
-      })
-    })
-
-    it('uses block comments as partition boundaries', async () => {
-      await valid({
-        options: [
-          {
-            ...options,
-            partitionByComment: {
-              block: true,
-            },
-          },
-        ],
-        code: dedent`
-          class Class implements
-            B,
-            /* Comment */
-            A
-          {}
-        `,
-      })
-    })
-
-    it('matches specific block comment patterns', async () => {
-      await valid({
-        code: dedent`
-          class Class implements
-            C,
-            /* B */
-            B,
-            /* A */
-            A
-          {}
-        `,
-        options: [
-          {
-            ...options,
-            partitionByComment: {
-              block: ['A', 'B'],
-            },
-          },
-        ],
-      })
-    })
-
-    it('supports regex patterns for block comment partitions', async () => {
-      await valid({
-        code: dedent`
-          class Class implements
-            B,
-            /* I am a partition comment because I don't have f o o */
-            A
-          {}
-        `,
-        options: [
-          {
-            ...options,
-            partitionByComment: {
-              block: ['^(?!.*foo).*$'],
-            },
-          },
-        ],
-      })
-    })
-
-    describe('useConfigurationIf.allNamesMatchPattern', () => {
-      it.each([
-        ['string pattern', 'foo'],
-        ['array with string patterns', ['noMatch', 'foo']],
-        ['regex pattern object', { pattern: 'FOO', flags: 'i' }],
-        [
-          'array with regex pattern object',
-          ['noMatch', { pattern: 'FOO', flags: 'i' }],
-        ],
-      ])(
-        'applies conditional configuration when all names match %s',
-        async (_description, allNamesMatchPattern) => {
-          await invalid({
-            options: [
-              {
-                ...options,
-                useConfigurationIf: {
-                  allNamesMatchPattern,
-                },
-              },
-              {
-                ...options,
-                customGroups: [
-                  {
-                    elementNamePattern: '^r$',
-                    groupName: 'r',
-                  },
-                  {
-                    elementNamePattern: '^g$',
-                    groupName: 'g',
-                  },
-                  {
-                    elementNamePattern: '^b$',
-                    groupName: 'b',
-                  },
-                ],
-                useConfigurationIf: {
-                  allNamesMatchPattern: '^[rgb]$',
-                },
-                groups: ['r', 'g', 'b'],
-              },
-            ],
-            errors: [
-              {
-                data: {
-                  rightGroup: 'g',
-                  leftGroup: 'b',
-                  right: 'g',
-                  left: 'b',
-                },
-                messageId: 'unexpectedHeritageClausesGroupOrder',
-              },
-              {
-                data: {
-                  rightGroup: 'r',
-                  leftGroup: 'g',
-                  right: 'r',
-                  left: 'g',
-                },
-                messageId: 'unexpectedHeritageClausesGroupOrder',
-              },
-            ],
-            output: dedent`
-              interface Interface extends r, g, b {}
-            `,
-            code: dedent`
-              interface Interface extends b, g, r {}
-            `,
-          })
+          options: [options],
         },
-      )
+        {
+          errors: [
+            {
+              data: {
+                right: 'b',
+                left: 'c',
+              },
+              messageId: 'unexpectedHeritageClausesOrder',
+            },
+          ],
+          output: dedent`
+            interface Interface extends
+              A.a,
+              B.b,
+              C.c {
+            }
+          `,
+          code: dedent`
+            interface Interface extends
+              A.a,
+              C.c,
+              B.b {
+            }
+          `,
+          options: [options],
+        },
+      ],
+      valid: [
+        {
+          code: dedent`
+            interface Interface extends
+              a,
+              b,
+              c {
+            }
+          `,
+          options: [options],
+        },
+        {
+          code: dedent`
+            interface Interface extends
+              a {
+            }
+          `,
+          options: [options],
+        },
+      ],
     })
 
-    describe('useConfigurationIf.matchesAstSelector', () => {
-      describe('interfaces', () => {
-        it('skips config when selector does not match the sorted node type', async () => {
-          await invalid({
-            options: [
-              {
-                ...options,
-                useConfigurationIf: {
-                  matchesAstSelector: 'ClassDeclaration',
-                },
-                type: 'unsorted',
+    ruleTester.run(`${ruleName}(${type}): does not break docs`, rule, {
+      invalid: [
+        {
+          errors: [
+            {
+              data: {
+                right: 'a',
+                left: 'b',
               },
-            ],
-            errors: [
-              {
-                data: {
-                  right: 'a',
-                  left: 'b',
-                },
-                messageId: 'unexpectedHeritageClausesOrder',
+              messageId: 'unexpectedHeritageClausesOrder',
+            },
+            {
+              data: {
+                right: 'c',
+                left: 'd',
               },
-            ],
-            output: dedent`
-              interface Interface extends a, b {}
-            `,
-            code: dedent`
-              interface Interface extends b, a {}
-            `,
-          })
-        })
-
-        it('applies config when selector matches the sorted node type', async () => {
-          await valid({
-            options: [
-              {
-                ...options,
-                useConfigurationIf: {
-                  matchesAstSelector: 'TSInterfaceDeclaration',
-                },
-                type: 'unsorted',
-              },
-            ],
-            code: dedent`
-              interface Interface extends b, a {}
-            `,
-          })
-        })
-
-        it('falls through to next matching config when not matching', async () => {
-          await invalid({
-            options: [
-              {
-                ...options,
-                useConfigurationIf: {
-                  matchesAstSelector: 'TSInterfaceDeclaration',
-                  allNamesMatchPattern: '^[ac]$',
-                },
-                type: 'unsorted',
-              },
-              {
-                ...options,
-                useConfigurationIf: {
-                  matchesAstSelector: 'TSInterfaceDeclaration',
-                },
-                type: 'alphabetical',
-              },
-              {
-                type: 'unsorted',
-              },
-            ],
-            errors: [
-              {
-                data: {
-                  right: 'a',
-                  left: 'b',
-                },
-                messageId: 'unexpectedHeritageClausesOrder',
-              },
-            ],
-            output: dedent`
-              interface Interface extends a, b {}
-            `,
-            code: dedent`
-              interface Interface extends b, a {}
-            `,
-          })
-
-          await invalid({
-            options: [
-              {
-                ...options,
-                useConfigurationIf: {
-                  matchesAstSelector: 'TSInterfaceDeclaration',
-                  allNamesMatchPattern: '^[ac]$',
-                },
-                type: 'unsorted',
-              },
-              {
-                ...options,
-                useConfigurationIf: {
-                  allNamesMatchPattern: '^[ab]$',
-                },
-                type: 'alphabetical',
-                order: 'desc',
-              },
-              {
-                type: 'unsorted',
-              },
-            ],
-            errors: [
-              {
-                data: {
-                  right: 'b',
-                  left: 'a',
-                },
-                messageId: 'unexpectedHeritageClausesOrder',
-              },
-            ],
-            output: dedent`
-              interface Interface extends b, a {}
-            `,
-            code: dedent`
-              interface Interface extends a, b {}
-            `,
-          })
-        })
-
-        it('applies first matching option when selectors overlap', async () => {
-          await valid({
-            options: [
-              {
-                ...options,
-                useConfigurationIf: {
-                  matchesAstSelector: 'TSInterfaceDeclaration',
-                },
-                type: 'unsorted',
-              },
-              {
-                ...options,
-                useConfigurationIf: {
-                  matchesAstSelector: '* > TSInterfaceDeclaration',
-                },
-                type: 'alphabetical',
-              },
-            ],
-            code: dedent`
-              interface Interface extends b, a {}
-            `,
-          })
-
-          await invalid({
-            options: [
-              {
-                ...options,
-                useConfigurationIf: {
-                  matchesAstSelector: 'TSInterfaceDeclaration',
-                },
-                type: 'alphabetical',
-              },
-              {
-                ...options,
-                useConfigurationIf: {
-                  matchesAstSelector: '* > TSInterfaceDeclaration',
-                },
-                type: 'unsorted',
-              },
-            ],
-            errors: [
-              {
-                data: {
-                  right: 'a',
-                  left: 'b',
-                },
-                messageId: 'unexpectedHeritageClausesOrder',
-              },
-            ],
-            output: dedent`
-              interface Interface extends a, b {}
-            `,
-            code: dedent`
-              interface Interface extends b, a {}
-            `,
-          })
-        })
-
-        it('picks the first matching option when multiple options match', async () => {
-          await invalid({
-            options: [
-              {
-                ...options,
-                type: 'alphabetical',
-              },
-              {
-                ...options,
-                useConfigurationIf: {
-                  matchesAstSelector: 'TSInterfaceDeclaration',
-                },
-                type: 'unsorted',
-              },
-            ],
-            errors: [
-              {
-                data: {
-                  right: 'a',
-                  left: 'b',
-                },
-                messageId: 'unexpectedHeritageClausesOrder',
-              },
-            ],
-            output: dedent`
-              interface Interface extends a, b {}
-            `,
-            code: dedent`
-              interface Interface extends b, a {}
-            `,
-          })
-        })
-      })
-
-      describe('classes', () => {
-        it('skips config when selector does not match the sorted node type', async () => {
-          await invalid({
-            options: [
-              {
-                ...options,
-                useConfigurationIf: {
-                  matchesAstSelector: 'TSInterfaceDeclaration',
-                },
-                type: 'unsorted',
-              },
-            ],
-            errors: [
-              {
-                data: {
-                  right: 'a',
-                  left: 'b',
-                },
-                messageId: 'unexpectedHeritageClausesOrder',
-              },
-            ],
-            output: dedent`
-              class Class implements a, b {}
-            `,
-            code: dedent`
-              class Class implements b, a {}
-            `,
-          })
-        })
-
-        it('applies config when selector matches the sorted node type', async () => {
-          await valid({
-            options: [
-              {
-                ...options,
-                useConfigurationIf: {
-                  matchesAstSelector: 'ClassDeclaration',
-                },
-                type: 'unsorted',
-              },
-            ],
-            code: dedent`
-              class Class implements b, a {}
-            `,
-          })
-        })
-
-        it('falls through to next matching config when not matching', async () => {
-          await invalid({
-            options: [
-              {
-                ...options,
-                useConfigurationIf: {
-                  matchesAstSelector: 'ClassDeclaration',
-                  allNamesMatchPattern: '^[ac]$',
-                },
-                type: 'unsorted',
-              },
-              {
-                ...options,
-                useConfigurationIf: {
-                  matchesAstSelector: 'ClassDeclaration',
-                },
-                type: 'alphabetical',
-              },
-              {
-                type: 'unsorted',
-              },
-            ],
-            errors: [
-              {
-                data: {
-                  right: 'a',
-                  left: 'b',
-                },
-                messageId: 'unexpectedHeritageClausesOrder',
-              },
-            ],
-            output: dedent`
-              class Class implements a, b {}
-            `,
-            code: dedent`
-              class Class implements b, a {}
-            `,
-          })
-
-          await invalid({
-            options: [
-              {
-                ...options,
-                useConfigurationIf: {
-                  matchesAstSelector: 'ClassDeclaration',
-                  allNamesMatchPattern: '^[ac]$',
-                },
-                type: 'unsorted',
-              },
-              {
-                ...options,
-                useConfigurationIf: {
-                  allNamesMatchPattern: '^[ab]$',
-                },
-                type: 'alphabetical',
-                order: 'desc',
-              },
-              {
-                type: 'unsorted',
-              },
-            ],
-            errors: [
-              {
-                data: {
-                  right: 'b',
-                  left: 'a',
-                },
-                messageId: 'unexpectedHeritageClausesOrder',
-              },
-            ],
-            output: dedent`
-              class Class implements b, a {}
-            `,
-            code: dedent`
-              class Class implements a, b {}
-            `,
-          })
-        })
-
-        it('applies first matching option when selectors overlap', async () => {
-          await valid({
-            options: [
-              {
-                ...options,
-                useConfigurationIf: {
-                  matchesAstSelector: 'ClassDeclaration',
-                },
-                type: 'unsorted',
-              },
-              {
-                ...options,
-                useConfigurationIf: {
-                  matchesAstSelector: '* > ClassDeclaration',
-                },
-                type: 'alphabetical',
-              },
-            ],
-            code: dedent`
-              class Class implements b, a {}
-            `,
-          })
-
-          await invalid({
-            options: [
-              {
-                ...options,
-                useConfigurationIf: {
-                  matchesAstSelector: 'ClassDeclaration',
-                },
-                type: 'alphabetical',
-              },
-              {
-                ...options,
-                useConfigurationIf: {
-                  matchesAstSelector: '* > ClassDeclaration',
-                },
-                type: 'unsorted',
-              },
-            ],
-            errors: [
-              {
-                data: {
-                  right: 'a',
-                  left: 'b',
-                },
-                messageId: 'unexpectedHeritageClausesOrder',
-              },
-            ],
-            output: dedent`
-              class Class implements a, b {}
-            `,
-            code: dedent`
-              class Class implements b, a {}
-            `,
-          })
-        })
-
-        it('picks the first matching option when multiple options match', async () => {
-          await invalid({
-            options: [
-              {
-                ...options,
-                type: 'alphabetical',
-              },
-              {
-                ...options,
-                useConfigurationIf: {
-                  matchesAstSelector: 'ClassDeclaration',
-                },
-                type: 'unsorted',
-              },
-            ],
-            errors: [
-              {
-                data: {
-                  right: 'a',
-                  left: 'b',
-                },
-                messageId: 'unexpectedHeritageClausesOrder',
-              },
-            ],
-            output: dedent`
-              class Class implements a, b {}
-            `,
-            code: dedent`
-              class Class implements b, a {}
-            `,
-          })
-        })
-      })
+              messageId: 'unexpectedHeritageClausesOrder',
+            },
+          ],
+          output: dedent`
+            interface Interface extends
+              /**
+               * Comment A
+               */
+              a,
+              /**
+               * Comment B
+               */
+              b,
+              /* Comment C */
+              c,
+              // Comment D
+              d {
+            }
+          `,
+          code: dedent`
+            interface Interface extends
+              /**
+               * Comment B
+               */
+              b,
+              /**
+               * Comment A
+               */
+              a,
+              // Comment D
+              d,
+              /* Comment C */
+              c {
+            }
+          `,
+          options: [options],
+        },
+      ],
+      valid: [],
     })
+
+    ruleTester.run(
+      `${ruleName}(${type}): sorts heritage clauses with comments on the same line`,
+      rule,
+      {
+        invalid: [
+          {
+            errors: [
+              {
+                data: {
+                  right: 'a',
+                  left: 'b',
+                },
+                messageId: 'unexpectedHeritageClausesOrder',
+              },
+            ],
+            output: dedent`
+              interface Interface extends
+                a // Comment A
+                , b // Comment B
+                {
+              }
+            `,
+            code: dedent`
+              interface Interface extends
+                b // Comment B
+                , a // Comment A
+                {
+              }
+            `,
+            options: [options],
+          },
+        ],
+        valid: [],
+      },
+    )
+
+    ruleTester.run(
+      `${ruleName}(${type}): allows to set groups for sorting`,
+      rule,
+      {
+        invalid: [
+          {
+            errors: [
+              {
+                data: {
+                  leftGroup: 'unknown',
+                  rightGroup: 'g',
+                  right: 'g',
+                  left: 'a',
+                },
+                messageId: 'unexpectedHeritageClausesGroupOrder',
+              },
+            ],
+            options: [
+              {
+                ...options,
+                customGroups: {
+                  g: 'g',
+                },
+                groups: ['g'],
+              },
+            ],
+            output: dedent`
+              interface Interface extends
+                g,
+                a {
+              }
+            `,
+            code: dedent`
+              interface Interface extends
+                a,
+                g {
+              }
+            `,
+          },
+        ],
+        valid: [
+          {
+            options: [
+              {
+                ...options,
+                customGroups: {
+                  g: 'g',
+                },
+                groups: ['g'],
+              },
+            ],
+            code: dedent`
+              interface Interface extends
+                g,
+                a {
+              }
+            `,
+          },
+        ],
+      },
+    )
+
+    ruleTester.run(
+      `${ruleName}(${type}): allows to use regex for custom groups`,
+      rule,
+      {
+        valid: [
+          {
+            options: [
+              {
+                ...options,
+                customGroups: {
+                  elementsWithoutFoo: '^(?!.*Foo).*$',
+                },
+                groups: ['unknown', 'elementsWithoutFoo'],
+              },
+            ],
+            code: dedent`
+              interface Interface extends
+                  iHaveFooInMyName,
+                  meTooIHaveFoo,
+                  a,
+                  b {
+              }
+            `,
+          },
+        ],
+        invalid: [],
+      },
+    )
+
+    ruleTester.run(
+      `${ruleName}(${type}): allows to trim special characters`,
+      rule,
+      {
+        valid: [
+          {
+            code: dedent`
+              interface MyInterface extends
+                _a,
+                b,
+                _c {
+              }
+            `,
+            options: [
+              {
+                ...options,
+                specialCharacters: 'trim',
+              },
+            ],
+          },
+        ],
+        invalid: [],
+      },
+    )
+
+    ruleTester.run(
+      `${ruleName}(${type}): allows to remove special characters`,
+      rule,
+      {
+        valid: [
+          {
+            options: [
+              {
+                ...options,
+                specialCharacters: 'remove',
+              },
+            ],
+            code: dedent`
+              interface MyInterface extends
+                ab,
+                a_c {
+              }
+            `,
+          },
+        ],
+        invalid: [],
+      },
+    )
+
+    ruleTester.run(`${ruleName}(${type}): allows to use locale`, rule, {
+      valid: [
+        {
+          code: dedent`
+            interface MyInterface extends
+              你好,
+              世界,
+              a,
+              A,
+              b,
+              B {
+            }
+          `,
+          options: [{ ...options, locales: 'zh-CN' }],
+        },
+      ],
+      invalid: [],
+    })
+
+    ruleTester.run(
+      `${ruleName}(${type}): sorts inline elements correctly`,
+      rule,
+      {
+        invalid: [
+          {
+            errors: [
+              {
+                data: {
+                  right: 'A',
+                  left: 'B',
+                },
+                messageId: 'unexpectedHeritageClausesOrder',
+              },
+            ],
+            output: dedent`
+              interface Interface extends
+                A, B
+              {}
+            `,
+            code: dedent`
+              interface Interface extends
+                B, A
+              {}
+            `,
+            options: [options],
+          },
+          {
+            errors: [
+              {
+                data: {
+                  right: 'A',
+                  left: 'B',
+                },
+                messageId: 'unexpectedHeritageClausesOrder',
+              },
+            ],
+            output: dedent`
+              class Class implements
+                A, B
+              {}
+            `,
+            code: dedent`
+              class Class implements
+                B, A
+              {}
+            `,
+            options: [options],
+          },
+        ],
+        valid: [],
+      },
+    )
   })
 
-  describe('natural', () => {
+  describe(`${ruleName}: sorting by natural order`, () => {
+    let type = 'natural-order'
+
     let options = {
+      ignoreCase: true,
       type: 'natural',
       order: 'asc',
     } as const
 
-    it('accepts sorted heritage clauses', async () => {
-      await valid({
-        code: dedent`
-          interface Interface extends
-            a,
-            b,
-            c {
-          }
-        `,
-        options: [options],
-      })
-
-      await valid({
-        code: dedent`
-          interface Interface extends
-            a {
-          }
-        `,
-        options: [options],
-      })
-    })
-
-    it('sorts simple heritage clauses', async () => {
-      await invalid({
-        errors: [
-          {
-            messageId: 'unexpectedHeritageClausesOrder',
-            data: { right: 'b', left: 'c' },
-          },
-        ],
-        output: dedent`
-          interface Interface extends
-            a,
-            b,
-            c {
-          }
-        `,
-        code: dedent`
-          interface Interface extends
-            a,
-            c,
-            b {
-          }
-        `,
-        options: [options],
-      })
-    })
-
-    it('sorts namespaced heritage clauses', async () => {
-      await invalid({
-        errors: [
-          {
-            messageId: 'unexpectedHeritageClausesOrder',
-            data: { right: 'b', left: 'c' },
-          },
-        ],
-        output: dedent`
-          interface Interface extends
-            A.a,
-            B.b,
-            C.c {
-          }
-        `,
-        code: dedent`
-          interface Interface extends
-            A.a,
-            C.c,
-            B.b {
-          }
-        `,
-        options: [options],
-      })
-    })
-
-    it('preserves comments when sorting heritage clauses', async () => {
-      await invalid({
-        output: dedent`
-          interface Interface extends
-            /**
-             * Comment A
-             */
-            a,
-            /**
-             * Comment B
-             */
-            b,
-            /* Comment C */
-            c,
-            // Comment D
-            d {
-          }
-        `,
-        code: dedent`
-          interface Interface extends
-            /**
-             * Comment B
-             */
-            b,
-            /**
-             * Comment A
-             */
-            a,
-            // Comment D
-            d,
-            /* Comment C */
-            c {
-          }
-        `,
-        errors: [
-          {
-            messageId: 'unexpectedHeritageClausesOrder',
-            data: { right: 'a', left: 'b' },
-          },
-          {
-            messageId: 'unexpectedHeritageClausesOrder',
-            data: { right: 'c', left: 'd' },
-          },
-        ],
-        options: [options],
-      })
-    })
-
-    it('sorts heritage clauses with inline comments', async () => {
-      await invalid({
-        errors: [
-          {
-            messageId: 'unexpectedHeritageClausesOrder',
-            data: { right: 'a', left: 'b' },
-          },
-        ],
-        output: dedent`
-          interface Interface extends
-            a // Comment A
-            , b // Comment B
+    ruleTester.run(`${ruleName}(${type}): sorts heritage clauses`, rule, {
+      invalid: [
+        {
+          errors: [
             {
-          }
-        `,
-        code: dedent`
-          interface Interface extends
-            b // Comment B
-            , a // Comment A
-            {
-          }
-        `,
-        options: [options],
-      })
+              data: {
+                right: 'b',
+                left: 'c',
+              },
+              messageId: 'unexpectedHeritageClausesOrder',
+            },
+          ],
+          output: dedent`
+            interface Interface extends
+              a,
+              b,
+              c {
+            }
+          `,
+          code: dedent`
+            interface Interface extends
+              a,
+              c,
+              b {
+            }
+          `,
+          options: [options],
+        },
+      ],
+      valid: [
+        {
+          code: dedent`
+            interface Interface extends
+              a,
+              b,
+              c {
+            }
+          `,
+          options: [options],
+        },
+      ],
     })
 
-    it('supports regex patterns in custom groups for heritage clauses', async () => {
-      await valid({
-        options: [
+    ruleTester.run(`${ruleName}(${type}): does not break docs`, rule, {
+      invalid: [
+        {
+          errors: [
+            {
+              data: {
+                right: 'a',
+                left: 'b',
+              },
+              messageId: 'unexpectedHeritageClausesOrder',
+            },
+            {
+              data: {
+                right: 'c',
+                left: 'd',
+              },
+              messageId: 'unexpectedHeritageClausesOrder',
+            },
+          ],
+          output: dedent`
+            interface Interface extends
+              /**
+               * Comment A
+               */
+              a,
+              /**
+               * Comment B
+               */
+              b,
+              /* Comment C */
+              c,
+              // Comment D
+              d {
+            }
+          `,
+          code: dedent`
+            interface Interface extends
+              /**
+               * Comment B
+               */
+              b,
+              /**
+               * Comment A
+               */
+              a,
+              // Comment D
+              d,
+              /* Comment C */
+              c {
+            }
+          `,
+          options: [options],
+        },
+      ],
+      valid: [],
+    })
+
+    ruleTester.run(
+      `${ruleName}(${type}): sorts heritage clauses with comments on the same line`,
+      rule,
+      {
+        invalid: [
           {
-            ...options,
-            customGroups: [
+            errors: [
               {
-                elementNamePattern: '^(?!.*Foo).*$',
-                groupName: 'elementsWithoutFoo',
+                data: {
+                  right: 'a',
+                  left: 'b',
+                },
+                messageId: 'unexpectedHeritageClausesOrder',
               },
             ],
-            groups: ['unknown', 'elementsWithoutFoo'],
+            output: dedent`
+              interface Interface extends
+                a // Comment A
+                , b // Comment B
+                {
+              }
+            `,
+            code: dedent`
+              interface Interface extends
+                b // Comment B
+                , a // Comment A
+                {
+              }
+            `,
+            options: [options],
           },
         ],
-        code: dedent`
-          interface Interface extends
-              iHaveFooInMyName,
-              meTooIHaveFoo,
-              a,
-              b {
-          }
-        `,
-      })
-    })
+        valid: [],
+      },
+    )
 
-    it('trims special characters in heritage clauses', async () => {
-      await valid({
-        code: dedent`
-          interface MyInterface extends
-            _a,
-            b,
-            _c {
-          }
-        `,
-        options: [
+    ruleTester.run(
+      `${ruleName}(${type}): allows to set groups for sorting`,
+      rule,
+      {
+        invalid: [
           {
-            ...options,
-            specialCharacters: 'trim',
-          },
-        ],
-      })
-    })
-
-    it('removes special characters in heritage clauses', async () => {
-      await valid({
-        options: [
-          {
-            ...options,
-            specialCharacters: 'remove',
-          },
-        ],
-        code: dedent`
-          interface MyInterface extends
-            ab,
-            a_c {
-          }
-        `,
-      })
-    })
-
-    it('sorts heritage clauses according to locale-specific rules', async () => {
-      await valid({
-        code: dedent`
-          interface MyInterface extends
-            你好,
-            世界,
-            a,
-            A,
-            b,
-            B {
-          }
-        `,
-        options: [{ ...options, locales: 'zh-CN' }],
-      })
-    })
-
-    it('sorts inline heritage clauses in interfaces', async () => {
-      await invalid({
-        errors: [
-          {
-            messageId: 'unexpectedHeritageClausesOrder',
-            data: { right: 'A', left: 'B' },
-          },
-        ],
-        output: dedent`
-          interface Interface extends
-            A, B
-          {}
-        `,
-        code: dedent`
-          interface Interface extends
-            B, A
-          {}
-        `,
-        options: [options],
-      })
-    })
-
-    it('sorts inline heritage clauses in classes', async () => {
-      await invalid({
-        errors: [
-          {
-            messageId: 'unexpectedHeritageClausesOrder',
-            data: { right: 'A', left: 'B' },
-          },
-        ],
-        output: dedent`
-          class Class implements
-            A, B
-          {}
-        `,
-        code: dedent`
-          class Class implements
-            B, A
-          {}
-        `,
-        options: [options],
-      })
-    })
-  })
-
-  describe('line-length', () => {
-    let options = {
-      type: 'line-length',
-      order: 'desc',
-    } as const
-
-    it('accepts sorted heritage clauses', async () => {
-      await valid({
-        code: dedent`
-          interface Interface extends
-            a,
-            b,
-            c {
-          }
-        `,
-        options: [options],
-      })
-
-      await valid({
-        code: dedent`
-          interface Interface extends
-            a {
-          }
-        `,
-        options: [options],
-      })
-    })
-
-    it('sorts simple heritage clauses', async () => {
-      await invalid({
-        errors: [
-          {
-            messageId: 'unexpectedHeritageClausesOrder',
-            data: { right: 'bb', left: 'c' },
-          },
-        ],
-        output: dedent`
-          interface Interface extends
-            aaa,
-            bb,
-            c {
-          }
-        `,
-        code: dedent`
-          interface Interface extends
-            aaa,
-            c,
-            bb {
-          }
-        `,
-        options: [options],
-      })
-    })
-
-    it('sorts namespaced heritage clauses', async () => {
-      await invalid({
-        errors: [
-          {
-            messageId: 'unexpectedHeritageClausesOrder',
-            data: { right: 'bb', left: 'c' },
-          },
-        ],
-        output: dedent`
-          interface Interface extends
-            A.aaa,
-            B.bb,
-            C.c {
-          }
-        `,
-        code: dedent`
-          interface Interface extends
-            A.aaa,
-            C.c,
-            B.bb {
-          }
-        `,
-        options: [options],
-      })
-    })
-
-    it('preserves comments when sorting heritage clauses', async () => {
-      await invalid({
-        output: dedent`
-          interface Interface extends
-            /**
-             * Comment A
-             */
-            aaaa,
-            /**
-             * Comment B
-             */
-            bbb,
-            /* Comment C */
-            cc,
-            // Comment D
-            d {
-          }
-        `,
-        code: dedent`
-          interface Interface extends
-            /**
-             * Comment B
-             */
-            bbb,
-            /**
-             * Comment A
-             */
-            aaaa,
-            // Comment D
-            d,
-            /* Comment C */
-            cc {
-          }
-        `,
-        errors: [
-          {
-            messageId: 'unexpectedHeritageClausesOrder',
-            data: { right: 'aaaa', left: 'bbb' },
-          },
-          {
-            messageId: 'unexpectedHeritageClausesOrder',
-            data: { right: 'cc', left: 'd' },
-          },
-        ],
-        options: [options],
-      })
-    })
-
-    it('sorts heritage clauses with inline comments', async () => {
-      await invalid({
-        errors: [
-          {
-            messageId: 'unexpectedHeritageClausesOrder',
-            data: { right: 'aa', left: 'b' },
-          },
-        ],
-        output: dedent`
-          interface Interface extends
-            aa // Comment A
-            , b // Comment B
-            {
-          }
-        `,
-        code: dedent`
-          interface Interface extends
-            b // Comment B
-            , aa // Comment A
-            {
-          }
-        `,
-        options: [options],
-      })
-    })
-
-    it('supports regex patterns in custom groups for heritage clauses', async () => {
-      await valid({
-        options: [
-          {
-            ...options,
-            customGroups: [
+            errors: [
               {
-                elementNamePattern: '^(?!.*Foo).*$',
-                groupName: 'elementsWithoutFoo',
+                data: {
+                  leftGroup: 'unknown',
+                  rightGroup: 'g',
+                  right: 'g',
+                  left: 'a',
+                },
+                messageId: 'unexpectedHeritageClausesGroupOrder',
               },
             ],
-            groups: ['unknown', 'elementsWithoutFoo'],
+            options: [
+              {
+                ...options,
+                customGroups: {
+                  g: 'g',
+                },
+                groups: ['g'],
+              },
+            ],
+            output: dedent`
+              interface Interface extends
+                g,
+                a {
+              }
+            `,
+            code: dedent`
+              interface Interface extends
+                a,
+                g {
+              }
+            `,
           },
         ],
-        code: dedent`
-          interface Interface extends
-              iHaveFooInMyName,
-              meTooIHaveFoo,
-              a,
-              b {
-          }
-        `,
-      })
-    })
-
-    it('trims special characters in heritage clauses', async () => {
-      await valid({
-        code: dedent`
-          interface MyInterface extends
-            _aaa,
-            bb,
-            _c {
-          }
-        `,
-        options: [
+        valid: [
           {
-            ...options,
-            specialCharacters: 'trim',
+            options: [
+              {
+                ...options,
+                customGroups: {
+                  g: 'g',
+                },
+                groups: ['g'],
+              },
+            ],
+            code: dedent`
+              interface Interface extends
+                g,
+                a {
+              }
+            `,
           },
         ],
-      })
-    })
+      },
+    )
 
-    it('removes special characters in heritage clauses', async () => {
-      await valid({
-        options: [
+    ruleTester.run(
+      `${ruleName}(${type}): allows to use regex for custom groups`,
+      rule,
+      {
+        valid: [
           {
-            ...options,
-            specialCharacters: 'remove',
+            options: [
+              {
+                ...options,
+                customGroups: {
+                  elementsWithoutFoo: '^(?!.*Foo).*$',
+                },
+                groups: ['unknown', 'elementsWithoutFoo'],
+              },
+            ],
+            code: dedent`
+              interface Interface extends
+                  iHaveFooInMyName,
+                  meTooIHaveFoo,
+                  a,
+                  b {
+              }
+            `,
           },
         ],
-        code: dedent`
-          interface MyInterface extends
-            abc,
-            a_c {
-          }
-        `,
-      })
-    })
+        invalid: [],
+      },
+    )
 
-    it('sorts heritage clauses according to locale-specific rules', async () => {
-      await valid({
-        code: dedent`
-          interface MyInterface extends
-            你好,
-            世界,
-            a,
-            A,
-            b,
-            B {
-          }
-        `,
-        options: [{ ...options, locales: 'zh-CN' }],
-      })
-    })
-
-    it('sorts inline heritage clauses in interfaces', async () => {
-      await invalid({
-        errors: [
+    ruleTester.run(
+      `${ruleName}(${type}): allows to trim special characters`,
+      rule,
+      {
+        valid: [
           {
-            messageId: 'unexpectedHeritageClausesOrder',
-            data: { right: 'AA', left: 'B' },
+            code: dedent`
+              interface MyInterface extends
+                _a,
+                b,
+                _c {
+              }
+            `,
+            options: [
+              {
+                ...options,
+                specialCharacters: 'trim',
+              },
+            ],
           },
         ],
-        output: dedent`
-          interface Interface extends
-            AA, B
-          {}
-        `,
-        code: dedent`
-          interface Interface extends
-            B, AA
-          {}
-        `,
-        options: [options],
-      })
-    })
+        invalid: [],
+      },
+    )
 
-    it('sorts inline heritage clauses in classes', async () => {
-      await invalid({
-        errors: [
+    ruleTester.run(
+      `${ruleName}(${type}): allows to remove special characters`,
+      rule,
+      {
+        valid: [
           {
-            messageId: 'unexpectedHeritageClausesOrder',
-            data: { right: 'AA', left: 'B' },
+            options: [
+              {
+                ...options,
+                specialCharacters: 'remove',
+              },
+            ],
+            code: dedent`
+              interface MyInterface extends
+                ab,
+                a_c {
+              }
+            `,
           },
         ],
-        output: dedent`
-          class Class implements
-            AA, B
-          {}
-        `,
-        code: dedent`
-          class Class implements
-            B, AA
-          {}
-        `,
-        options: [options],
-      })
-    })
+        invalid: [],
+      },
+    )
   })
 
-  describe('custom', () => {
+  describe(`${ruleName}: sorts by custom alphabet`, () => {
+    let type = 'custom'
+
     let alphabet = Alphabet.generateRecommendedAlphabet()
       .sortByLocaleCompare('en-US')
       .getCharacters()
-
     let options = {
       type: 'custom',
       order: 'asc',
       alphabet,
     } as const
 
-    it('accepts sorted heritage clauses', async () => {
-      await valid({
-        code: dedent`
-          interface Interface extends
-            a,
-            b,
-            c {
-          }
-        `,
-        options: [options],
-      })
-
-      await valid({
-        code: dedent`
-          interface Interface extends
-            a {
-          }
-        `,
-        options: [options],
-      })
-    })
-
-    it('sorts simple heritage clauses', async () => {
-      await invalid({
-        errors: [
-          {
-            messageId: 'unexpectedHeritageClausesOrder',
-            data: { right: 'b', left: 'c' },
-          },
-        ],
-        output: dedent`
-          interface Interface extends
-            a,
-            b,
-            c {
-          }
-        `,
-        code: dedent`
-          interface Interface extends
-            a,
-            c,
-            b {
-          }
-        `,
-        options: [options],
-      })
-    })
-
-    it('sorts namespaced heritage clauses', async () => {
-      await invalid({
-        errors: [
-          {
-            messageId: 'unexpectedHeritageClausesOrder',
-            data: { right: 'b', left: 'c' },
-          },
-        ],
-        output: dedent`
-          interface Interface extends
-            A.a,
-            B.b,
-            C.c {
-          }
-        `,
-        code: dedent`
-          interface Interface extends
-            A.a,
-            C.c,
-            B.b {
-          }
-        `,
-        options: [options],
-      })
+    ruleTester.run(`${ruleName}(${type}): sorts heritage clauses`, rule, {
+      invalid: [
+        {
+          errors: [
+            {
+              data: {
+                right: 'b',
+                left: 'c',
+              },
+              messageId: 'unexpectedHeritageClausesOrder',
+            },
+          ],
+          output: dedent`
+            interface Interface extends
+              a,
+              b,
+              c {
+            }
+          `,
+          code: dedent`
+            interface Interface extends
+              a,
+              c,
+              b {
+            }
+          `,
+          options: [options],
+        },
+        {
+          errors: [
+            {
+              data: {
+                right: 'b',
+                left: 'c',
+              },
+              messageId: 'unexpectedHeritageClausesOrder',
+            },
+          ],
+          output: dedent`
+            interface Interface extends
+              A.a,
+              B.b,
+              C.c {
+            }
+          `,
+          code: dedent`
+            interface Interface extends
+              A.a,
+              C.c,
+              B.b {
+            }
+          `,
+          options: [options],
+        },
+      ],
+      valid: [
+        {
+          code: dedent`
+            interface Interface extends
+              a,
+              b,
+              c {
+            }
+          `,
+          options: [options],
+        },
+        {
+          code: dedent`
+            interface Interface extends
+              a {
+            }
+          `,
+          options: [options],
+        },
+      ],
     })
   })
 
-  describe('subgroup-order', () => {
+  describe(`${ruleName}: sorting by line length`, () => {
+    let type = 'line-length-order'
+
     let options = {
-      fallbackSort: {
-        type: 'subgroup-order',
-        order: 'asc',
-      },
       type: 'line-length',
+      ignoreCase: true,
       order: 'desc',
-    }
+    } as const
 
-    it('fallback sorts by subgroup order', async () => {
-      await invalid({
-        options: [
-          {
-            ...options,
-            customGroups: [
-              {
-                elementNamePattern: 'A',
-                groupName: 'A',
+    ruleTester.run(`${ruleName}(${type}): sorts heritage clauses`, rule, {
+      invalid: [
+        {
+          errors: [
+            {
+              data: {
+                right: 'bb',
+                left: 'c',
               },
-              {
-                elementNamePattern: 'B',
-                groupName: 'B',
+              messageId: 'unexpectedHeritageClausesOrder',
+            },
+          ],
+          output: dedent`
+            interface Interface extends
+              aaa,
+              bb,
+              c {
+            }
+          `,
+          code: dedent`
+            interface Interface extends
+              aaa,
+              c,
+              bb {
+            }
+          `,
+          options: [options],
+        },
+        {
+          errors: [
+            {
+              data: {
+                right: 'bb',
+                left: 'c',
               },
-            ],
-            groups: [['A', 'B'], 'unknown'],
-          },
-        ],
-        errors: [
-          {
-            messageId: 'unexpectedHeritageClausesOrder',
-            data: { right: 'BB', left: 'B' },
-          },
-          {
-            messageId: 'unexpectedHeritageClausesOrder',
-            data: { right: 'AA', left: 'A' },
-          },
-        ],
-        output: dedent`
-          interface Interface extends
-            AA,
-            BB,
-            A,
-            B {
-          }
-        `,
-        code: dedent`
-          interface Interface extends
-            B,
-            BB,
-            A,
-            AA {
-          }
-        `,
-      })
+              messageId: 'unexpectedHeritageClausesOrder',
+            },
+          ],
+          output: dedent`
+            class Class implements
+              aaa,
+              bb,
+              c {
+            }
+          `,
+          code: dedent`
+            class Class implements
+              aaa,
+              c,
+              bb {
+            }
+          `,
+          options: [options],
+        },
+      ],
+      valid: [
+        {
+          code: dedent`
+            interface Interface extends
+              aaa,
+              bb,
+              c {
+            }
+          `,
+          options: [options],
+        },
+        {
+          code: dedent`
+            class Class implements
+              aaa,
+              bb,
+              c {
+            }
+          `,
+          options: [options],
+        },
+      ],
     })
 
-    it('fallback sorts by subgroup order through overriding groups option', async () => {
-      await invalid({
-        options: [
-          {
-            ...options,
-            customGroups: [
-              {
-                elementNamePattern: 'A',
-                groupName: 'A',
+    ruleTester.run(`${ruleName}(${type}): does not break docs`, rule, {
+      invalid: [
+        {
+          errors: [
+            {
+              data: {
+                right: 'aaaa',
+                left: 'bbb',
               },
+              messageId: 'unexpectedHeritageClausesOrder',
+            },
+            {
+              data: {
+                right: 'cc',
+                left: 'd',
+              },
+              messageId: 'unexpectedHeritageClausesOrder',
+            },
+          ],
+          output: dedent`
+            interface Interface extends
+              /**
+               * Comment A
+               */
+              aaaa,
+              /**
+               * Comment B
+               */
+              bbb,
+              /* Comment C */
+              cc,
+              // Comment D
+              d {
+            }
+          `,
+          code: dedent`
+            interface Interface extends
+              /**
+               * Comment B
+               */
+              bbb,
+              /**
+               * Comment A
+               */
+              aaaa,
+              // Comment D
+              d,
+              /* Comment C */
+              cc {
+            }
+          `,
+          options: [options],
+        },
+      ],
+      valid: [],
+    })
+
+    ruleTester.run(
+      `${ruleName}(${type}): sorts heritage clauses with comments on the same line`,
+      rule,
+      {
+        invalid: [
+          {
+            errors: [
               {
-                elementNamePattern: 'B',
-                groupName: 'B',
+                data: {
+                  right: 'aa',
+                  left: 'b',
+                },
+                messageId: 'unexpectedHeritageClausesOrder',
               },
             ],
-            groups: [{ group: ['A', 'B'], newlinesInside: 0 }, 'unknown'],
+            output: dedent`
+              interface Interface extends
+                aa // Comment A
+                , b // Comment B
+                {
+              }
+            `,
+            code: dedent`
+              interface Interface extends
+                b // Comment B
+                , aa // Comment A
+                {
+              }
+            `,
+            options: [options],
           },
         ],
-        errors: [
+        valid: [],
+      },
+    )
+
+    ruleTester.run(
+      `${ruleName}(${type}): allows to set groups for sorting`,
+      rule,
+      {
+        invalid: [
           {
-            messageId: 'unexpectedHeritageClausesOrder',
-            data: { right: 'BB', left: 'B' },
-          },
-          {
-            messageId: 'unexpectedHeritageClausesOrder',
-            data: { right: 'AA', left: 'A' },
+            errors: [
+              {
+                data: {
+                  leftGroup: 'unknown',
+                  rightGroup: 'g',
+                  left: 'aa',
+                  right: 'g',
+                },
+                messageId: 'unexpectedHeritageClausesGroupOrder',
+              },
+            ],
+            options: [
+              {
+                ...options,
+                customGroups: {
+                  g: 'g',
+                },
+                groups: ['g'],
+              },
+            ],
+            output: dedent`
+              interface Interface extends
+                g,
+                aa {
+              }
+            `,
+            code: dedent`
+              interface Interface extends
+                aa,
+                g {
+              }
+            `,
           },
         ],
-        output: dedent`
-          interface Interface extends
-            AA,
-            BB,
-            A,
-            B {
-          }
-        `,
-        code: dedent`
-          interface Interface extends
-            B,
-            BB,
-            A,
-            AA {
-          }
-        `,
-      })
-    })
+        valid: [
+          {
+            options: [
+              {
+                ...options,
+                customGroups: {
+                  g: 'g',
+                },
+                groups: ['g'],
+              },
+            ],
+            code: dedent`
+              interface Interface extends
+                g,
+                aa {
+              }
+            `,
+          },
+        ],
+      },
+    )
+
+    ruleTester.run(
+      `${ruleName}(${type}): allows to use regex for custom groups`,
+      rule,
+      {
+        valid: [
+          {
+            options: [
+              {
+                ...options,
+                customGroups: {
+                  elementsWithoutFoo: '^(?!.*Foo).*$',
+                },
+                groups: ['unknown', 'elementsWithoutFoo'],
+              },
+            ],
+            code: dedent`
+              interface Interface extends
+                  iHaveFooInMyName,
+                  meTooIHaveFoo,
+                  a,
+                  b {
+              }
+            `,
+          },
+        ],
+        invalid: [],
+      },
+    )
+
+    ruleTester.run(
+      `${ruleName}(${type}): allows to trim special characters`,
+      rule,
+      {
+        valid: [
+          {
+            code: dedent`
+              interface MyInterface extends
+                _aaa,
+                bb,
+                _c {
+              }
+            `,
+            options: [
+              {
+                ...options,
+                specialCharacters: 'trim',
+              },
+            ],
+          },
+        ],
+        invalid: [],
+      },
+    )
+
+    ruleTester.run(
+      `${ruleName}(${type}): allows to remove special characters`,
+      rule,
+      {
+        valid: [
+          {
+            code: dedent`
+              interface MyInterface extends
+                aaa,
+                a_c {
+              }
+            `,
+            options: [
+              {
+                ...options,
+                specialCharacters: 'remove',
+              },
+            ],
+          },
+        ],
+        invalid: [],
+      },
+    )
+
+    ruleTester.run(
+      `${ruleName}(${type}): handles "fallbackSort" option`,
+      rule,
+      {
+        invalid: [
+          {
+            errors: [
+              {
+                data: {
+                  right: 'bb',
+                  left: 'a',
+                },
+                messageId: 'unexpectedHeritageClausesOrder',
+              },
+            ],
+            options: [
+              {
+                ...options,
+                fallbackSort: {
+                  type: 'alphabetical',
+                },
+              },
+            ],
+            output: dedent`
+              interface Interface extends
+                bb,
+                c,
+                a,
+              {}
+            `,
+            code: dedent`
+              interface Interface extends
+                a,
+                bb,
+                c,
+              {}
+            `,
+          },
+          {
+            errors: [
+              {
+                data: {
+                  right: 'bb',
+                  left: 'c',
+                },
+                messageId: 'unexpectedHeritageClausesOrder',
+              },
+            ],
+            options: [
+              {
+                ...options,
+                fallbackSort: {
+                  type: 'alphabetical',
+                  order: 'asc',
+                },
+              },
+            ],
+            output: dedent`
+              interface Interface extends
+                bb,
+                a,
+                c,
+              {}
+            `,
+            code: dedent`
+              interface Interface extends
+                c,
+                bb,
+                a,
+              {}
+            `,
+          },
+        ],
+        valid: [],
+      },
+    )
   })
 
-  describe('unsorted', () => {
+  describe(`${ruleName}: unsorted type`, () => {
+    let type = 'unsorted'
+
     let options = {
       type: 'unsorted',
       order: 'asc',
     } as const
 
-    it('allows unsorted heritage clauses when sorting is not configured', async () => {
-      await valid({
-        code: dedent`
-          interface Interface extends
-            b,
-            c,
-            a
-          {}
-        `,
-        options: [options],
-      })
+    ruleTester.run(`${ruleName}(${type}): does not enforce sorting`, rule, {
+      valid: [
+        {
+          code: dedent`
+            interface Interface extends
+              b,
+              c,
+              a
+            {}
+          `,
+          options: [options],
+        },
+      ],
+      invalid: [],
     })
 
-    it('enforces custom group ordering in heritage clauses', async () => {
-      await invalid({
-        options: [
-          {
-            ...options,
-            customGroups: [
-              {
-                elementNamePattern: '^a',
-                groupName: 'a',
+    ruleTester.run(`${ruleName}(${type}): enforces grouping`, rule, {
+      invalid: [
+        {
+          errors: [
+            {
+              data: {
+                rightGroup: 'b',
+                leftGroup: 'a',
+                right: 'ba',
+                left: 'aa',
               },
-              {
-                elementNamePattern: '^b',
-                groupName: 'b',
-              },
-            ],
-            groups: ['b', 'a'],
-          },
-        ],
-        errors: [
-          {
-            data: {
-              rightGroup: 'b',
-              leftGroup: 'a',
-              right: 'ba',
-              left: 'aa',
+              messageId: 'unexpectedHeritageClausesGroupOrder',
             },
-            messageId: 'unexpectedHeritageClausesGroupOrder',
-          },
-        ],
-        output: dedent`
-          interface Interface extends
-            ba,
-            bb,
-            ab,
-            aa
-          {}
-        `,
-        code: dedent`
-          interface Interface extends
-            ab,
-            aa,
-            ba,
-            bb
-          {}
-        `,
-      })
+          ],
+          options: [
+            {
+              ...options,
+              customGroups: {
+                a: '^a',
+                b: '^b',
+              },
+              groups: ['b', 'a'],
+            },
+          ],
+          output: dedent`
+            interface Interface extends
+              ba,
+              bb,
+              ab,
+              aa
+            {}
+          `,
+          code: dedent`
+            interface Interface extends
+              ab,
+              aa,
+              ba,
+              bb
+            {}
+          `,
+        },
+      ],
+      valid: [],
     })
   })
 
-  describe('misc', () => {
-    it('validates the JSON schema', async () => {
-      await expect(
-        validateRuleJsonSchema(rule.meta.schema),
-      ).resolves.not.toThrow()
-    })
-
-    it('uses default sorting configuration', async () => {
-      await valid(
-        dedent`
-          interface Interface extends
-            a,
-            b {
-          }
-        `,
-      )
-
-      await invalid({
-        errors: [
+  describe(`${ruleName}: misc`, () => {
+    ruleTester.run(
+      `${ruleName}: sets alphabetical asc sorting as default`,
+      rule,
+      {
+        invalid: [
           {
-            messageId: 'unexpectedHeritageClausesOrder',
-            data: { right: 'a', left: 'b' },
+            errors: [
+              {
+                data: {
+                  right: 'a',
+                  left: 'b',
+                },
+                messageId: 'unexpectedHeritageClausesOrder',
+              },
+            ],
+            output: dedent`
+              interface Interface extends
+                a,
+                b {
+              }
+            `,
+            code: dedent`
+              interface Interface extends
+                b,
+                a {
+              }
+            `,
           },
         ],
-        output: dedent`
-          interface Interface extends
-            a,
-            b {
-          }
-        `,
-        code: dedent`
-          interface Interface extends
-            b,
-            a {
-          }
-        `,
-      })
-    })
+        valid: [
+          dedent`
+            interface Interface extends
+              a,
+              b {
+            }
+          `,
+        ],
+      },
+    )
 
-    it('respects the global settings configuration', async () => {
-      let settings = {
-        perfectionist: {
-          type: 'line-length',
-          order: 'desc',
+    let eslintDisableRuleTesterName = `${ruleName}: supports 'eslint-disable' for individual nodes`
+    ruleTester.run(eslintDisableRuleTesterName, rule, {
+      invalid: [
+        {
+          errors: [
+            {
+              data: {
+                right: 'B',
+                left: 'C',
+              },
+              messageId: 'unexpectedHeritageClausesOrder',
+            },
+          ],
+          output: dedent`
+            interface Interface extends
+              B,
+              C,
+              // eslint-disable-next-line
+              A
+            {}
+          `,
+          code: dedent`
+            interface Interface extends
+              C,
+              B,
+              // eslint-disable-next-line
+              A
+            {}
+          `,
+          options: [{}],
         },
-      }
-
-      await valid({
-        code: dedent`
-          interface Interface extends
-            ccc,
-            bb,
-            a
-          {}
-        `,
-        options: [{}],
-        settings,
-      })
-
-      await valid({
-        code: dedent`
-          interface Interface extends
-            a,
-            bb,
-            ccc
-          {}
-        `,
-        options: [{ type: 'alphabetical', order: 'asc' }],
-        settings,
-      })
-    })
-
-    describe('handles eslint-disable comments', () => {
-      it('accepts heritage clauses with eslint-disable-next-line comments', async () => {
-        await valid({
-          code: dedent`
-            class Class implements
-              B,
-              C,
-              // eslint-disable-next-line
-              A
-            {}
-          `,
-        })
-      })
-
-      it('sorts heritage clauses with eslint-disable-next-line comments', async () => {
-        await invalid({
-          output: dedent`
-            interface Interface extends
-              B,
-              C,
-              // eslint-disable-next-line
-              A
-            {}
-          `,
-          code: dedent`
-            interface Interface extends
-              C,
-              B,
-              // eslint-disable-next-line
-              A
-            {}
-          `,
+        {
           errors: [
             {
+              data: {
+                right: 'C',
+                left: 'D',
+              },
               messageId: 'unexpectedHeritageClausesOrder',
-              data: { right: 'B', left: 'C' },
-            },
-          ],
-          options: [{}],
-        })
-
-        await invalid({
-          output: dedent`
-            interface Interface extends
-              B,
-              C,
-              /* eslint-disable-next-line */
-              A
-            {}
-          `,
-          code: dedent`
-            interface Interface extends
-              C,
-              B,
-              /* eslint-disable-next-line */
-              A
-            {}
-          `,
-          errors: [
-            {
-              messageId: 'unexpectedHeritageClausesOrder',
-              data: { right: 'B', left: 'C' },
-            },
-          ],
-          options: [{}],
-        })
-      })
-
-      it('sorts heritage clauses with eslint-disable-line comments', async () => {
-        await invalid({
-          errors: [
-            {
-              messageId: 'unexpectedHeritageClausesOrder',
-              data: { right: 'B', left: 'C' },
-            },
-          ],
-          output: dedent`
-            interface Interface extends
-              B,
-              C,
-              A // eslint-disable-line
-            {}
-          `,
-          code: dedent`
-            interface Interface extends
-              C,
-              B,
-              A // eslint-disable-line
-            {}
-          `,
-          options: [{}],
-        })
-
-        await invalid({
-          output: dedent`
-            interface Interface extends
-              B,
-              C,
-              A /* eslint-disable-line */
-            {}
-          `,
-          errors: [
-            {
-              messageId: 'unexpectedHeritageClausesOrder',
-              data: { right: 'B', left: 'C' },
-            },
-          ],
-          code: dedent`
-            interface Interface extends
-              C,
-              B,
-              A /* eslint-disable-line */
-            {}
-          `,
-          options: [{}],
-        })
-      })
-
-      it('sorts heritage clauses with multiple eslint-disable comments', async () => {
-        await invalid({
-          errors: [
-            {
-              messageId: 'unexpectedHeritageClausesOrder',
-              data: { right: 'C', left: 'D' },
             },
             {
+              data: {
+                right: 'B',
+                left: 'A',
+              },
               messageId: 'unexpectedHeritageClausesOrder',
-              data: { right: 'B', left: 'A' },
             },
           ],
           output: dedent`
@@ -3075,160 +1367,93 @@ describe('sort-heritage-clauses', () => {
             {}
           `,
           options: [{}],
-        })
-      })
-
-      it('respects eslint-disable/enable comment blocks', async () => {
-        await invalid({
-          output: dedent`
-            interface Interface extends
-              A,
-              D,
-              /* eslint-disable */
-              C,
-              B,
-              // Shouldn't move
-              /* eslint-enable */
-              E
-            {}
-          `,
-          code: dedent`
-            interface Interface extends
-              D,
-              E,
-              /* eslint-disable */
-              C,
-              B,
-              // Shouldn't move
-              /* eslint-enable */
-              A
-            {}
-          `,
-          errors: [
-            {
-              messageId: 'unexpectedHeritageClausesOrder',
-              data: { right: 'A', left: 'B' },
-            },
-          ],
-          options: [{}],
-        })
-      })
-
-      it.each([
-        ['interface extends', 'interface Interface extends'],
-        ['class implements', 'class Class implements'],
-      ])(
-        'sorts %s with rule-specific eslint-disable comments',
-        async (_description, declaration) => {
-          await invalid({
-            output: dedent`
-              ${declaration}
-                B,
-                C,
-                // eslint-disable-next-line rule-to-test/sort-heritage-clauses
-                A
-              {}
-            `,
-            code: dedent`
-              ${declaration}
-                C,
-                B,
-                // eslint-disable-next-line rule-to-test/sort-heritage-clauses
-                A
-              {}
-            `,
-            errors: [
-              {
-                messageId: 'unexpectedHeritageClausesOrder',
-                data: { right: 'B', left: 'C' },
-              },
-            ],
-            options: [{}],
-          })
-
-          await invalid({
-            output: dedent`
-              ${declaration}
-                B,
-                C,
-                A // eslint-disable-line rule-to-test/sort-heritage-clauses
-              {}
-            `,
-            code: dedent`
-              ${declaration}
-                C,
-                B,
-                A // eslint-disable-line rule-to-test/sort-heritage-clauses
-              {}
-            `,
-            errors: [
-              {
-                messageId: 'unexpectedHeritageClausesOrder',
-                data: { right: 'B', left: 'C' },
-              },
-            ],
-            options: [{}],
-          })
-
-          await invalid({
-            output: dedent`
-              ${declaration}
-                B,
-                C,
-                /* eslint-disable-next-line rule-to-test/sort-heritage-clauses */
-                A
-              {}
-            `,
-            code: dedent`
-              ${declaration}
-                C,
-                B,
-                /* eslint-disable-next-line rule-to-test/sort-heritage-clauses */
-                A
-              {}
-            `,
-            errors: [
-              {
-                messageId: 'unexpectedHeritageClausesOrder',
-                data: { right: 'B', left: 'C' },
-              },
-            ],
-            options: [{}],
-          })
-
-          await invalid({
-            output: dedent`
-              ${declaration}
-                B,
-                C,
-                A /* eslint-disable-line rule-to-test/sort-heritage-clauses */
-              {}
-            `,
-            code: dedent`
-              ${declaration}
-                C,
-                B,
-                A /* eslint-disable-line rule-to-test/sort-heritage-clauses */
-              {}
-            `,
-            errors: [
-              {
-                messageId: 'unexpectedHeritageClausesOrder',
-                data: { right: 'B', left: 'C' },
-              },
-            ],
-            options: [{}],
-          })
         },
-      )
-
-      it('respects rule-specific eslint-disable/enable blocks', async () => {
-        await invalid({
+        {
+          errors: [
+            {
+              data: {
+                right: 'B',
+                left: 'C',
+              },
+              messageId: 'unexpectedHeritageClausesOrder',
+            },
+          ],
+          output: dedent`
+            interface Interface extends
+              B,
+              C,
+              A // eslint-disable-line
+            {}
+          `,
+          code: dedent`
+            interface Interface extends
+              C,
+              B,
+              A // eslint-disable-line
+            {}
+          `,
+          options: [{}],
+        },
+        {
+          errors: [
+            {
+              data: {
+                right: 'B',
+                left: 'C',
+              },
+              messageId: 'unexpectedHeritageClausesOrder',
+            },
+          ],
+          output: dedent`
+            interface Interface extends
+              B,
+              C,
+              /* eslint-disable-next-line */
+              A
+            {}
+          `,
+          code: dedent`
+            interface Interface extends
+              C,
+              B,
+              /* eslint-disable-next-line */
+              A
+            {}
+          `,
+          options: [{}],
+        },
+        {
+          errors: [
+            {
+              data: {
+                right: 'B',
+                left: 'C',
+              },
+              messageId: 'unexpectedHeritageClausesOrder',
+            },
+          ],
+          output: dedent`
+            interface Interface extends
+              B,
+              C,
+              A /* eslint-disable-line */
+            {}
+          `,
+          code: dedent`
+            interface Interface extends
+              C,
+              B,
+              A /* eslint-disable-line */
+            {}
+          `,
+          options: [{}],
+        },
+        {
           output: dedent`
             interface Interface extends
               A,
               D,
-              /* eslint-disable rule-to-test/sort-heritage-clauses */
+              /* eslint-disable */
               C,
               B,
               // Shouldn't move
@@ -3240,7 +1465,7 @@ describe('sort-heritage-clauses', () => {
             interface Interface extends
               D,
               E,
-              /* eslint-disable rule-to-test/sort-heritage-clauses */
+              /* eslint-disable */
               C,
               B,
               // Shouldn't move
@@ -3250,19 +1475,273 @@ describe('sort-heritage-clauses', () => {
           `,
           errors: [
             {
+              data: {
+                right: 'A',
+                left: 'B',
+              },
               messageId: 'unexpectedHeritageClausesOrder',
-              data: { right: 'A', left: 'B' },
             },
           ],
           options: [{}],
-        })
-
-        await invalid({
+        },
+        {
+          output: dedent`
+            interface Interface extends
+              B,
+              C,
+              // eslint-disable-next-line @rule-tester/${eslintDisableRuleTesterName}
+              A
+            {}
+          `,
+          code: dedent`
+            interface Interface extends
+              C,
+              B,
+              // eslint-disable-next-line @rule-tester/${eslintDisableRuleTesterName}
+              A
+            {}
+          `,
+          errors: [
+            {
+              data: {
+                right: 'B',
+                left: 'C',
+              },
+              messageId: 'unexpectedHeritageClausesOrder',
+            },
+          ],
+          options: [{}],
+        },
+        {
+          errors: [
+            {
+              data: {
+                right: 'B',
+                left: 'C',
+              },
+              messageId: 'unexpectedHeritageClausesOrder',
+            },
+          ],
+          output: dedent`
+            interface Interface extends
+              B,
+              C,
+              A // eslint-disable-line @rule-tester/${eslintDisableRuleTesterName}
+            {}
+          `,
+          code: dedent`
+            interface Interface extends
+              C,
+              B,
+              A // eslint-disable-line @rule-tester/${eslintDisableRuleTesterName}
+            {}
+          `,
+          options: [{}],
+        },
+        {
+          output: dedent`
+            interface Interface extends
+              B,
+              C,
+              /* eslint-disable-next-line @rule-tester/${eslintDisableRuleTesterName} */
+              A
+            {}
+          `,
+          code: dedent`
+            interface Interface extends
+              C,
+              B,
+              /* eslint-disable-next-line @rule-tester/${eslintDisableRuleTesterName} */
+              A
+            {}
+          `,
+          errors: [
+            {
+              data: {
+                right: 'B',
+                left: 'C',
+              },
+              messageId: 'unexpectedHeritageClausesOrder',
+            },
+          ],
+          options: [{}],
+        },
+        {
+          errors: [
+            {
+              data: {
+                right: 'B',
+                left: 'C',
+              },
+              messageId: 'unexpectedHeritageClausesOrder',
+            },
+          ],
+          output: dedent`
+            interface Interface extends
+              B,
+              C,
+              A /* eslint-disable-line @rule-tester/${eslintDisableRuleTesterName} */
+            {}
+          `,
+          code: dedent`
+            interface Interface extends
+              C,
+              B,
+              A /* eslint-disable-line @rule-tester/${eslintDisableRuleTesterName} */
+            {}
+          `,
+          options: [{}],
+        },
+        {
+          output: dedent`
+            interface Interface extends
+              A,
+              D,
+              /* eslint-disable @rule-tester/${eslintDisableRuleTesterName} */
+              C,
+              B,
+              // Shouldn't move
+              /* eslint-enable */
+              E
+            {}
+          `,
+          code: dedent`
+            interface Interface extends
+              D,
+              E,
+              /* eslint-disable @rule-tester/${eslintDisableRuleTesterName} */
+              C,
+              B,
+              // Shouldn't move
+              /* eslint-enable */
+              A
+            {}
+          `,
+          errors: [
+            {
+              data: {
+                right: 'A',
+                left: 'B',
+              },
+              messageId: 'unexpectedHeritageClausesOrder',
+            },
+          ],
+          options: [{}],
+        },
+        {
+          errors: [
+            {
+              data: {
+                right: 'B',
+                left: 'C',
+              },
+              messageId: 'unexpectedHeritageClausesOrder',
+            },
+          ],
+          output: dedent`
+            class Class implements
+              B,
+              C,
+              // eslint-disable-next-line
+              A
+            {}
+          `,
+          code: dedent`
+            class Class implements
+              C,
+              B,
+              // eslint-disable-next-line
+              A
+            {}
+          `,
+          options: [{}],
+        },
+        {
+          errors: [
+            {
+              data: {
+                right: 'B',
+                left: 'C',
+              },
+              messageId: 'unexpectedHeritageClausesOrder',
+            },
+          ],
+          output: dedent`
+            class Class implements
+              B,
+              C,
+              A // eslint-disable-line
+            {}
+          `,
+          code: dedent`
+            class Class implements
+              C,
+              B,
+              A // eslint-disable-line
+            {}
+          `,
+          options: [{}],
+        },
+        {
+          errors: [
+            {
+              data: {
+                right: 'B',
+                left: 'C',
+              },
+              messageId: 'unexpectedHeritageClausesOrder',
+            },
+          ],
+          output: dedent`
+            class Class implements
+              B,
+              C,
+              /* eslint-disable-next-line */
+              A
+            {}
+          `,
+          code: dedent`
+            class Class implements
+              C,
+              B,
+              /* eslint-disable-next-line */
+              A
+            {}
+          `,
+          options: [{}],
+        },
+        {
+          errors: [
+            {
+              data: {
+                right: 'B',
+                left: 'C',
+              },
+              messageId: 'unexpectedHeritageClausesOrder',
+            },
+          ],
+          output: dedent`
+            class Class implements
+              B,
+              C,
+              A /* eslint-disable-line */
+            {}
+          `,
+          code: dedent`
+            class Class implements
+              C,
+              B,
+              A /* eslint-disable-line */
+            {}
+          `,
+          options: [{}],
+        },
+        {
           output: dedent`
             class Class implements
               A,
               D,
-              /* eslint-disable rule-to-test/sort-heritage-clauses */
+              /* eslint-disable */
               C,
               B,
               // Shouldn't move
@@ -3274,7 +1753,7 @@ describe('sort-heritage-clauses', () => {
             class Class implements
               D,
               E,
-              /* eslint-disable rule-to-test/sort-heritage-clauses */
+              /* eslint-disable */
               C,
               B,
               // Shouldn't move
@@ -3284,150 +1763,177 @@ describe('sort-heritage-clauses', () => {
           `,
           errors: [
             {
+              data: {
+                right: 'A',
+                left: 'B',
+              },
               messageId: 'unexpectedHeritageClausesOrder',
-              data: { right: 'A', left: 'B' },
             },
           ],
           options: [{}],
-        })
-      })
-
-      it('honors a disable directive that carries a description', async () => {
-        await invalid({
+        },
+        {
           output: dedent`
-            interface Interface extends
+            class Class implements
               B,
               C,
-              // eslint-disable-next-line rule-to-test/sort-heritage-clauses -- Pinned.
+              // eslint-disable-next-line @rule-tester/${eslintDisableRuleTesterName}
               A
             {}
           `,
           code: dedent`
-            interface Interface extends
+            class Class implements
               C,
               B,
-              // eslint-disable-next-line rule-to-test/sort-heritage-clauses -- Pinned.
+              // eslint-disable-next-line @rule-tester/${eslintDisableRuleTesterName}
               A
             {}
           `,
           errors: [
             {
+              data: {
+                right: 'B',
+                left: 'C',
+              },
               messageId: 'unexpectedHeritageClausesOrder',
-              data: { right: 'B', left: 'C' },
             },
           ],
           options: [{}],
-        })
-
-        await invalid({
+        },
+        {
+          errors: [
+            {
+              data: {
+                right: 'B',
+                left: 'C',
+              },
+              messageId: 'unexpectedHeritageClausesOrder',
+            },
+          ],
           output: dedent`
-            interface Interface extends
+            class Class implements
               B,
               C,
-              A // eslint-disable-line -- Pinned.
+              A // eslint-disable-line @rule-tester/${eslintDisableRuleTesterName}
             {}
           `,
           code: dedent`
-            interface Interface extends
+            class Class implements
               C,
               B,
-              A // eslint-disable-line -- Pinned.
+              A // eslint-disable-line @rule-tester/${eslintDisableRuleTesterName}
+            {}
+          `,
+          options: [{}],
+        },
+        {
+          output: dedent`
+            class Class implements
+              B,
+              C,
+              /* eslint-disable-next-line @rule-tester/${eslintDisableRuleTesterName} */
+              A
+            {}
+          `,
+          code: dedent`
+            class Class implements
+              C,
+              B,
+              /* eslint-disable-next-line @rule-tester/${eslintDisableRuleTesterName} */
+              A
             {}
           `,
           errors: [
             {
+              data: {
+                right: 'B',
+                left: 'C',
+              },
               messageId: 'unexpectedHeritageClausesOrder',
-              data: { right: 'B', left: 'C' },
             },
           ],
           options: [{}],
-        })
-
-        await invalid({
+        },
+        {
+          errors: [
+            {
+              data: {
+                right: 'B',
+                left: 'C',
+              },
+              messageId: 'unexpectedHeritageClausesOrder',
+            },
+          ],
           output: dedent`
-            interface Interface extends
+            class Class implements
+              B,
+              C,
+              A /* eslint-disable-line @rule-tester/${eslintDisableRuleTesterName} */
+            {}
+          `,
+          code: dedent`
+            class Class implements
+              C,
+              B,
+              A /* eslint-disable-line @rule-tester/${eslintDisableRuleTesterName} */
+            {}
+          `,
+          options: [{}],
+        },
+        {
+          output: dedent`
+            class Class implements
               A,
               D,
-              /* eslint-disable rule-to-test/sort-heritage-clauses -- Pinned. */
+              /* eslint-disable @rule-tester/${eslintDisableRuleTesterName} */
               C,
               B,
               // Shouldn't move
-              /* eslint-enable rule-to-test/sort-heritage-clauses -- Done. */
+              /* eslint-enable */
               E
             {}
           `,
           code: dedent`
-            interface Interface extends
+            class Class implements
               D,
               E,
-              /* eslint-disable rule-to-test/sort-heritage-clauses -- Pinned. */
+              /* eslint-disable @rule-tester/${eslintDisableRuleTesterName} */
               C,
               B,
               // Shouldn't move
-              /* eslint-enable rule-to-test/sort-heritage-clauses -- Done. */
+              /* eslint-enable */
               A
             {}
           `,
           errors: [
             {
+              data: {
+                right: 'A',
+                left: 'B',
+              },
               messageId: 'unexpectedHeritageClausesOrder',
-              data: { right: 'A', left: 'B' },
             },
           ],
           options: [{}],
-        })
-      })
+        },
+      ],
+      valid: [],
     })
 
-    describe('oxlint', () => {
-      oxlintRuleTester.run('supports oxlint', {
-        invalid: [
-          {
-            errors: [
-              {
-                messageId: 'unexpectedHeritageClausesOrder',
-                data: { right: 'a', left: 'b' },
-              },
-            ],
-            output: dedent`
-              interface Interface extends a, b {}
-            `,
-            code: dedent`
-              interface Interface extends b, a {}
-            `,
-            options: [{ type: 'alphabetical', order: 'asc' }],
-          },
-          {
-            errors: [
-              {
-                messageId: 'unexpectedHeritageClausesOrder',
-                data: { right: 'a', left: 'b' },
-              },
-            ],
-            output: dedent`
-              class Class implements a, b {}
-            `,
-            code: dedent`
-              class Class implements b, a {}
-            `,
-            options: [{ type: 'alphabetical', order: 'asc' }],
-          },
-        ],
+    eslintRuleTester.run(
+      `${ruleName}: handles non typescript-eslint parser`,
+      rule as unknown as Rule.RuleModule,
+      {
         valid: [
           {
             code: dedent`
-              interface Interface extends a, b {}
+              class Class extends A {}
             `,
-            options: [{ type: 'alphabetical', order: 'asc' }],
-          },
-          {
-            code: dedent`
-              class Class implements a, b {}
-            `,
-            options: [{ type: 'alphabetical', order: 'asc' }],
+            options: [{}],
           },
         ],
-      })
-    })
+        invalid: [],
+      },
+    )
   })
 })

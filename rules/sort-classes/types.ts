@@ -1,141 +1,272 @@
 import type { JSONSchema4 } from '@typescript-eslint/utils/json-schema'
-import type { TSESTree } from '@typescript-eslint/types'
 
-import type { SortingNodeWithDependencies } from '../../utils/sort-nodes-by-dependencies'
-import type { NewlinesBetweenOption } from '../../types/common-groups-options'
-import type { RegexOption, TypeOption } from '../../types/common-options'
-import type { AllCommonOptions } from '../../types/all-common-options'
+import type {
+  PartitionByCommentOption,
+  NewlinesBetweenOption,
+  CustomGroupsOption,
+  CommonOptions,
+  GroupsOptions,
+  RegexOption,
+  TypeOption,
+} from '../../types/common-options'
+import type { JoinWithDash } from '../../types/join-with-dash'
 
 import {
   buildCustomGroupModifiersJsonSchema,
   buildCustomGroupSelectorJsonSchema,
-} from '../../utils/json-schemas/common-groups-json-schemas'
-import { buildRegexJsonSchema } from '../../utils/json-schemas/common-json-schemas'
+  regexJsonSchema,
+} from '../../utils/common-json-schemas'
 
-export type MessageId =
-  | typeof DEPENDENCY_ORDER_ERROR_ID
-  | typeof MISSED_SPACING_ERROR_ID
-  | typeof EXTRA_SPACING_ERROR_ID
-  | typeof GROUP_ORDER_ERROR_ID
-  | typeof ORDER_ERROR_ID
+export type SingleCustomGroup =
+  | AdvancedSingleCustomGroup<FunctionPropertySelector>
+  | AdvancedSingleCustomGroup<AccessorPropertySelector>
+  | BaseSingleCustomGroup<IndexSignatureSelector>
+  | AdvancedSingleCustomGroup<GetMethodSelector>
+  | AdvancedSingleCustomGroup<SetMethodSelector>
+  | AdvancedSingleCustomGroup<PropertySelector>
+  | BaseSingleCustomGroup<StaticBlockSelector>
+  | BaseSingleCustomGroup<ConstructorSelector>
+  | AdvancedSingleCustomGroup<MethodSelector>
 
-export const ORDER_ERROR_ID = 'unexpectedClassesOrder'
-export const GROUP_ORDER_ERROR_ID = 'unexpectedClassesGroupOrder'
-export const EXTRA_SPACING_ERROR_ID = 'extraSpacingBetweenClassMembers'
-export const MISSED_SPACING_ERROR_ID = 'missedSpacingBetweenClassMembers'
-export const DEPENDENCY_ORDER_ERROR_ID = 'unexpectedClassesDependencyOrder'
+export type SortClassesOptions = [
+  Partial<
+    {
+      customGroups: CustomGroupsOption<SingleCustomGroup>
+      ignoreCallbackDependenciesPatterns: RegexOption
+      partitionByComment: PartitionByCommentOption
+      newlinesBetween: NewlinesBetweenOption
+      groups: GroupsOptions<Group>
+      partitionByNewLine: boolean
+      type: TypeOption
+    } & CommonOptions
+  >,
+]
+
+export type NonDeclarePropertyGroup = JoinWithDash<
+  [
+    PublicOrProtectedOrPrivateModifier,
+    StaticOrAbstractModifier,
+    OverrideModifier,
+    ReadonlyModifier,
+    DecoratedModifier,
+    OptionalModifier,
+    PropertySelector,
+  ]
+>
+
+export type Selector =
+  | AccessorPropertySelector
+  | FunctionPropertySelector
+  | IndexSignatureSelector
+  | ConstructorSelector
+  | StaticBlockSelector
+  | GetMethodSelector
+  | SetMethodSelector
+  | PropertySelector
+  | MethodSelector
+
+export type FunctionPropertyGroup = JoinWithDash<
+  [
+    PublicOrProtectedOrPrivateModifier,
+    StaticModifier,
+    OverrideModifier,
+    ReadonlyModifier,
+    DecoratedModifier,
+    AsyncModifier,
+    FunctionPropertySelector,
+  ]
+>
+
+export type MethodGroup = JoinWithDash<
+  [
+    PublicOrProtectedOrPrivateModifier,
+    StaticOrAbstractModifier,
+    OverrideModifier,
+    DecoratedModifier,
+    AsyncModifier,
+    OptionalModifier,
+    MethodSelector,
+  ]
+>
+
+export type Modifier =
+  | PublicOrProtectedOrPrivateModifier
+  | DecoratedModifier
+  | AbstractModifier
+  | OverrideModifier
+  | OptionalModifier
+  | ReadonlyModifier
+  | DeclareModifier
+  | StaticModifier
+  | AsyncModifier
+
+export type DeclarePropertyGroup = JoinWithDash<
+  [
+    DeclareModifier,
+    PublicOrProtectedOrPrivateModifier,
+    StaticOrAbstractModifier,
+    ReadonlyModifier,
+    OptionalModifier,
+    PropertySelector,
+  ]
+>
+
+export type GetMethodOrSetMethodGroup = JoinWithDash<
+  [
+    PublicOrProtectedOrPrivateModifier,
+    StaticOrAbstractModifier,
+    OverrideModifier,
+    DecoratedModifier,
+    GetMethodOrSetMethodSelector,
+  ]
+>
+
+export type AccessorPropertyGroup = JoinWithDash<
+  [
+    PublicOrProtectedOrPrivateModifier,
+    StaticOrAbstractModifier,
+    OverrideModifier,
+    DecoratedModifier,
+    AccessorPropertySelector,
+  ]
+>
+
+export type IndexSignatureGroup = JoinWithDash<
+  [StaticModifier, ReadonlyModifier, IndexSignatureSelector]
+>
+
+export type ConstructorGroup = JoinWithDash<
+  [PublicOrProtectedOrPrivateModifier, ConstructorSelector]
+>
 
 /**
- * Configuration options for the sort-classes rule.
- *
- * This rule enforces consistent ordering of class members (properties, methods,
- * constructors, etc.) to improve code readability and maintainability.
+ * Only used in code as well
  */
-export type Options = Partial<
-  {
-    /**
-     * Conditional configuration based on pattern matching.
-     */
-    useConfigurationIf: {
-      /**
-       * Regular expression pattern to match against all class element names.
-       */
-      allNamesMatchPattern?: RegexOption
-
-      /**
-       * AST selector to match against ClassBody nodes.
-       */
-      matchesAstSelector?: string
-    }
-
-    /**
-     * Determines how many newlines should be placed between overload signatures
-     * of the same method.
-     */
-    newlinesBetweenOverloadSignatures: NewlinesBetweenOption
-
-    /**
-     * Regex patterns for function names whose callback argument dependencies
-     * are ignored during class-member sorting. Dependencies inside these
-     * callbacks won't influence the ordering.
-     */
-    ignoreCallbackDependenciesPatterns: RegexOption
-
-    /**
-     * @deprecated Enables experimental dependency detection.
-     */
-    useExperimentalDependencyDetection: boolean
-  } & AllCommonOptions<
-    TypeOption,
-    AdditionalSortOptions,
-    CustomGroupMatchOptions
-  >
->[]
-
-export interface SortClassesSortingNode extends SortingNodeWithDependencies<TSESTree.ClassElement> {
-  overloadSignatureImplementation:
-    TSESTree.TSAbstractMethodDefinition | TSESTree.MethodDefinition | null
-
-  nameDetails: NodeNameDetails | null
-
-  isStatic: boolean
+interface AllowedModifiersPerSelector {
+  property:
+    | PublicOrProtectedOrPrivateModifier
+    | DecoratedModifier
+    | AbstractModifier
+    | OverrideModifier
+    | ReadonlyModifier
+    | OptionalModifier
+    | DeclareModifier
+    | StaticModifier
+  method:
+    | PublicOrProtectedOrPrivateModifier
+    | DecoratedModifier
+    | AbstractModifier
+    | OverrideModifier
+    | OptionalModifier
+    | StaticModifier
+    | AsyncModifier
+  'function-property':
+    | PublicOrProtectedOrPrivateModifier
+    | DecoratedModifier
+    | OverrideModifier
+    | ReadonlyModifier
+    | StaticModifier
+    | AsyncModifier
+  'accessor-property':
+    | PublicOrProtectedOrPrivateModifier
+    | DecoratedModifier
+    | AbstractModifier
+    | OverrideModifier
+    | StaticModifier
+  'set-method':
+    | PublicOrProtectedOrPrivateModifier
+    | DecoratedModifier
+    | AbstractModifier
+    | OverrideModifier
+    | StaticModifier
+  'get-method': AllowedModifiersPerSelector['set-method']
+  'index-signature': ReadonlyModifier | StaticModifier
+  constructor: PublicOrProtectedOrPrivateModifier
+  'static-block': never
 }
 
-export interface NodeNameDetails {
-  nameWithoutStartingHash: string
-  hasPrivateHash: boolean
-  name: string
-}
-
 /**
- * Union type of all available class member selectors. Used to identify and
- * categorize different types of class members.
+ * Some invalid combinations are still handled by this type, such as
+ * - private abstract X
+ * - abstract decorated X
+ * Only used in code, so I don't know if it's worth maintaining this.
  */
-export type Selector = (typeof allSelectors)[number]
+type Group =
+  | GetMethodOrSetMethodGroup
+  | NonDeclarePropertyGroup
+  | AccessorPropertyGroup
+  | FunctionPropertyGroup
+  | DeclarePropertyGroup
+  | IndexSignatureGroup
+  | ConstructorGroup
+  | StaticBlockGroup
+  | MethodGroup
+  | 'unknown'
+  | string
 
-/**
- * Union type of all available class member modifiers. Includes access
- * modifiers, async, static, abstract, and other TypeScript modifiers.
- */
-export type Modifier = (typeof allModifiers)[number]
-
-/**
- * Defines a custom group configuration for class members.
- *
- * Allows categorizing class members based on their selector type (method,
- * property, etc.) and various patterns matching their names, values, or
- * decorators.
- */
-interface CustomGroupMatchOptions {
-  /**
-   * Pattern to match decorator names (e.g., '@Component').
-   */
+type AdvancedSingleCustomGroup<T extends Selector> = {
   decoratorNamePattern?: RegexOption
-
-  /**
-   * Pattern to match the value of the member (for properties with
-   * initializers).
-   */
   elementValuePattern?: RegexOption
+  elementNamePattern?: RegexOption
+} & BaseSingleCustomGroup<T>
 
-  /**
-   * List of modifiers that members must have to be included in this group.
-   */
-  modifiers?: Modifier[]
-
-  /**
-   * The type of class member this group applies to.
-   */
-  selector?: Selector
+interface BaseSingleCustomGroup<T extends Selector> {
+  modifiers?: AllowedModifiersPerSelector[T][]
+  selector?: T
 }
 
-type AdditionalSortOptions = object
+type PublicOrProtectedOrPrivateModifier =
+  | ProtectedModifier
+  | PrivateModifier
+  | PublicModifier
 
-/**
- * Complete list of available class member selectors. Used for validation and
- * JSON schema generation.
- */
-export let allSelectors = [
+type GetMethodOrSetMethodSelector = GetMethodSelector | SetMethodSelector
+
+type StaticOrAbstractModifier = AbstractModifier | StaticModifier
+
+type FunctionPropertySelector = 'function-property'
+
+type AccessorPropertySelector = 'accessor-property'
+
+type IndexSignatureSelector = 'index-signature'
+
+type StaticBlockGroup = StaticBlockSelector
+
+type StaticBlockSelector = 'static-block'
+
+type ConstructorSelector = 'constructor'
+
+type GetMethodSelector = 'get-method'
+
+type SetMethodSelector = 'set-method'
+
+type ProtectedModifier = 'protected'
+
+type DecoratedModifier = 'decorated'
+
+type AbstractModifier = 'abstract'
+
+type OverrideModifier = 'override'
+
+type ReadonlyModifier = 'readonly'
+
+type OptionalModifier = 'optional'
+
+type PropertySelector = 'property'
+
+type PrivateModifier = 'private'
+
+type DeclareModifier = 'declare'
+
+type PublicModifier = 'public'
+
+type StaticModifier = 'static'
+
+type MethodSelector = 'method'
+
+type AsyncModifier = 'async'
+
+export let allSelectors: Selector[] = [
   'accessor-property',
   'index-signature',
   'constructor',
@@ -145,13 +276,9 @@ export let allSelectors = [
   'function-property',
   'property',
   'method',
-] as const
+]
 
-/**
- * Complete list of available class member modifiers. Used for validation and
- * JSON schema generation.
- */
-export let allModifiers = [
+export let allModifiers: Modifier[] = [
   'async',
   'protected',
   'private',
@@ -163,21 +290,16 @@ export let allModifiers = [
   'decorated',
   'declare',
   'optional',
-] as const
+]
 
 /**
- * Additional custom group match options JSON schema. Used by ESLint to validate
- * rule options at configuration time.
- *
- * Note: Ideally, we should generate as many schemas as there are selectors, and
- * ensure that users do not enter invalid modifiers for a given selector.
+ * Ideally, we should generate as many schemas as there are selectors, and ensure
+ * that users do not enter invalid modifiers for a given selector
  */
-export let additionalCustomGroupMatchOptionsJsonSchema: Record<
-  string,
-  JSONSchema4
-> = {
+export let singleCustomGroupJsonSchema: Record<string, JSONSchema4> = {
   modifiers: buildCustomGroupModifiersJsonSchema(allModifiers),
   selector: buildCustomGroupSelectorJsonSchema(allSelectors),
-  decoratorNamePattern: buildRegexJsonSchema(),
-  elementValuePattern: buildRegexJsonSchema(),
+  decoratorNamePattern: regexJsonSchema,
+  elementValuePattern: regexJsonSchema,
+  elementNamePattern: regexJsonSchema,
 }

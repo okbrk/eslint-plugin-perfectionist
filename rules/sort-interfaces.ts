@@ -1,9 +1,4 @@
-import type { RuleContext } from '@typescript-eslint/utils/ts-eslint'
-import type { TSESTree } from '@typescript-eslint/types'
-
-import { AST_NODE_TYPES } from '@typescript-eslint/types'
-
-import type { Options } from './sort-interfaces/types'
+import type { Options as SortObjectTypesOptions } from './sort-object-types/types'
 
 import {
   MISSED_SPACING_ERROR,
@@ -11,29 +6,56 @@ import {
   GROUP_ORDER_ERROR,
   ORDER_ERROR,
 } from '../utils/report-errors'
-import { sortObjectTypeElements } from './sort-object-types/sort-object-type-elements'
-import { defaultOptions, jsonSchema } from './sort-object-types'
-import { buildAstListeners } from '../utils/build-ast-listeners'
+import { sortObjectTypeElements, jsonSchema } from './sort-object-types'
 import { createEslintRule } from '../utils/create-eslint-rule'
 
-const ORDER_ERROR_ID = 'unexpectedInterfacePropertiesOrder'
-const GROUP_ORDER_ERROR_ID = 'unexpectedInterfacePropertiesGroupOrder'
-const EXTRA_SPACING_ERROR_ID = 'extraSpacingBetweenInterfaceMembers'
-const MISSED_SPACING_ERROR_ID = 'missedSpacingBetweenInterfaceMembers'
+export type Options = SortObjectTypesOptions
 
-type MessageId =
-  | typeof MISSED_SPACING_ERROR_ID
-  | typeof EXTRA_SPACING_ERROR_ID
-  | typeof GROUP_ORDER_ERROR_ID
-  | typeof ORDER_ERROR_ID
+type MESSAGE_ID =
+  | 'unexpectedInterfacePropertiesGroupOrder'
+  | 'missedSpacingBetweenInterfaceMembers'
+  | 'extraSpacingBetweenInterfaceMembers'
+  | 'unexpectedInterfacePropertiesOrder'
 
-export default createEslintRule<Options, MessageId>({
+let defaultOptions: Required<Options[0]> = {
+  fallbackSort: { type: 'unsorted' },
+  partitionByComment: false,
+  partitionByNewLine: false,
+  newlinesBetween: 'ignore',
+  specialCharacters: 'keep',
+  useConfigurationIf: {},
+  type: 'alphabetical',
+  groupKind: 'mixed',
+  ignorePattern: [],
+  ignoreCase: true,
+  customGroups: {},
+  locales: 'en-US',
+  alphabet: '',
+  order: 'asc',
+  groups: [],
+}
+
+export default createEslintRule<Options, MESSAGE_ID>({
+  create: context => ({
+    TSInterfaceDeclaration: node =>
+      sortObjectTypeElements<MESSAGE_ID>({
+        availableMessageIds: {
+          missedSpacingBetweenMembers: 'missedSpacingBetweenInterfaceMembers',
+          extraSpacingBetweenMembers: 'extraSpacingBetweenInterfaceMembers',
+          unexpectedGroupOrder: 'unexpectedInterfacePropertiesGroupOrder',
+          unexpectedOrder: 'unexpectedInterfacePropertiesOrder',
+        },
+        parentNodeName: node.id.name,
+        elements: node.body.body,
+        context,
+      }),
+  }),
   meta: {
     messages: {
-      [MISSED_SPACING_ERROR_ID]: MISSED_SPACING_ERROR,
-      [EXTRA_SPACING_ERROR_ID]: EXTRA_SPACING_ERROR,
-      [GROUP_ORDER_ERROR_ID]: GROUP_ORDER_ERROR,
-      [ORDER_ERROR_ID]: ORDER_ERROR,
+      unexpectedInterfacePropertiesGroupOrder: GROUP_ORDER_ERROR,
+      missedSpacingBetweenInterfaceMembers: MISSED_SPACING_ERROR,
+      extraSpacingBetweenInterfaceMembers: EXTRA_SPACING_ERROR,
+      unexpectedInterfacePropertiesOrder: ORDER_ERROR,
     },
     docs: {
       url: 'https://perfectionist.dev/rules/sort-interfaces',
@@ -44,35 +66,6 @@ export default createEslintRule<Options, MessageId>({
     type: 'suggestion',
     fixable: 'code',
   },
-  create: context =>
-    buildAstListeners({
-      nodeTypes: [AST_NODE_TYPES.TSInterfaceDeclaration],
-      sorter: sortInterface,
-      context,
-    }),
   defaultOptions: [defaultOptions],
   name: 'sort-interfaces',
 })
-
-function sortInterface({
-  matchedAstSelectors,
-  context,
-  node,
-}: {
-  context: Readonly<RuleContext<MessageId, Options>>
-  matchedAstSelectors: ReadonlySet<string>
-  node: TSESTree.TSInterfaceDeclaration
-}): void {
-  sortObjectTypeElements<MessageId>({
-    availableMessageIds: {
-      missedSpacingBetweenMembers: MISSED_SPACING_ERROR_ID,
-      extraSpacingBetweenMembers: EXTRA_SPACING_ERROR_ID,
-      unexpectedGroupOrder: GROUP_ORDER_ERROR_ID,
-      unexpectedOrder: ORDER_ERROR_ID,
-    },
-    elements: node.body.body,
-    matchedAstSelectors,
-    parentNodes: [node],
-    context,
-  })
-}

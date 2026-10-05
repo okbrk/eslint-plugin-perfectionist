@@ -2,16 +2,24 @@
 
 ### Description
 
-<!-- What changed and why? e.g. fixes #123 -->
+<!-- Please insert your description here and provide especially info about the "what" this PR is solving -->
 
-### Reviewer notes
+### Additional context
 
-<!-- Optional: where should reviewers focus? -->
+<!-- e.g. is there anything you'd like reviewers to focus on? -->
 
 ---
 
-### Pre-merge checklist
+### What is the purpose of this pull request? <!-- (put an "X" next to an item) -->
 
-- [ ] No similar open PR exists
-- [ ] Description explains problem/solution or links an issue
-- [ ] Tests added/updated when needed
+- [ ] Bug fix
+- [ ] New Feature
+- [ ] Documentation update
+- [ ] Other
+
+### Before submitting the PR, please make sure you do the following
+
+- [ ] Check that there isn't already a PR that solves the problem the same way to avoid creating a duplicate.
+- [ ] Provide a description in this PR that addresses **what** the PR is solving, or reference the issue that it solves (e.g. `fixes #123`).
+- [ ] Ideally, include relevant tests that fail without this PR but pass with it.
+- [ ] Read [contribution guidelines](https://github.com/azat-io/eslint-plugin-perfectionist/blob/main/contributing.md).
